@@ -5,7 +5,7 @@ import { AppError } from "../errors";
 import { collections, initialCounters, type Collection, type Data } from "./collections";
 import { createVersionedStore } from "./versioned";
 
-const stateSchema = z.object({
+export const stateSchema = z.object({
   format: z.literal(1),
   standards: collections.standards.schema,
   repairs: collections.repairs.schema,
@@ -15,16 +15,16 @@ const stateSchema = z.object({
   activity: collections.activity.schema,
   sessions: collections.sessions.schema,
 });
-type State = z.infer<typeof stateSchema>;
+export type State = z.infer<typeof stateSchema>;
 
 export const cloudPrefix = "cortez/v1/";
-const stateKey = cloudPrefix + "state.json";
+export const stateKey = cloudPrefix + "state.json";
 const backupPrefix = cloudPrefix + "backups/";
 const privateAccess = { access: "private" as const };
 const jsonOptions = { ...privateAccess, contentType: "application/json", cacheControlMaxAge: 60 };
 
 export function usesBlobStorage() {
-  return process.env.VERCEL === "1" || process.env.CORTEZ_STORAGE_BACKEND === "blob";
+  return process.env.VERCEL === "1" || ["blob", "mongo"].includes(process.env.CORTEZ_STORAGE_BACKEND || "");
 }
 
 function emptyState(): State {

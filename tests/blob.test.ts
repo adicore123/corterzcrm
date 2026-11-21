@@ -88,12 +88,12 @@ test("Blob SDK creates a private record and image, and a backup retains that ima
     const stagedPhotos = [{ id, name: "device.jpg" }];
     await assert.rejects(() => prepareBlobPhotos("standards", employee.id, stagedPhotos), { status: 400 });
     const input = {
-      requestId: randomUUID(), device: "קורקינט חשמלי", model: "דגם בדיקה", status: "חדש",
+      number: "TEST-1", requestId: randomUUID(), device: "קורקינט חשמלי", model: "דגם בדיקה", status: "חדש",
       delay: "ללא עיכוב", delayReason: "", notes: "", tasks: [], stagedPhotos,
     };
     const [saved, other] = await Promise.all([
       saveRecord("standards", undefined, input, [], admin),
-      saveRecord("standards", undefined, { ...input, requestId: randomUUID(), stagedPhotos: [] }, [], employee),
+      saveRecord("standards", undefined, { ...input, number: "TEST-2", requestId: randomUUID(), stagedPhotos: [] }, [], employee),
     ]);
     assert.notEqual(saved.id, other.id);
     const record = await getRecord("standards", saved.id);

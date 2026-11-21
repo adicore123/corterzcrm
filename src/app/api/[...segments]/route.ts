@@ -3,10 +3,12 @@ import { z } from "zod";
 import { createUser, getUser, login, logout, requireAdmin, sessionCookie, setUserDisabled } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
+import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import { deleteRecord, getRecord, saveRecord } from "@/lib/json-db/records";
 import { audit, createBackup, serialized } from "@/lib/json-db/store";
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
+import { readMongoPhoto } from "@/lib/uploads/mongo-images";
 import { modules, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
@@ -110,7 +112,8 @@ export async function GET(request: NextRequest, { params }: Route) {
     const record = await getRecord(kind, uuid.parse(id));
     const image = record.photos.find((item) => item.id === uuid.parse(photo));
     if (!image) throw new AppError(404, "התמונה לא נמצאה.");
-    const body = usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
+    const body = usesMongoStorage() ? await readMongoPhoto(kind, image.id)
+      : usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
     return new NextResponse(body, { headers: { ...privateHeaders, "Content-Type": image.type } });
   } catch (error) {
     return errorResponse(error);

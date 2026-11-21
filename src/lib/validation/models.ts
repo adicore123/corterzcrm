@@ -16,6 +16,7 @@ const optional = (max: number) => z.string().trim().max(max, { error: "הטקס�
 export const taskSchema = z.object({ id: uuid, title: required("שם משימה", 240), done: z.boolean() });
 
 export const standardsInput = z.object({
+  number: required("מספר תיק", 120),
   device: z.enum(devices),
   model: required("שם דגם"),
   status: z.enum(standardStatuses),
@@ -57,7 +58,7 @@ export const photoSchema = z.object({
 
 const record = { id: uuid, createdAt: date, updatedAt: date };
 export const standardSchema = standardsInput.safeExtend({
-  ...record, number: z.string().regex(/^CT-\d{4}-\d{4,}$/), photos: z.array(photoSchema).max(10),
+  ...record, photos: z.array(photoSchema).max(10),
 });
 export const repairSchema = repairInput.extend({
   ...record, number: z.string().regex(/^REP-\d{4,}$/), photos: z.array(photoSchema).max(10),

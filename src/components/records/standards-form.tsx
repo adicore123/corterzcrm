@@ -11,7 +11,7 @@ import { DeviceFields, Editor, Section } from "./form-parts";
 import { PhotoPicker } from "./photos";
 import { useEditor, usePhotoDraft } from "./use-editor";
 
-const defaults: StandardInput = { device: "קורקינט חשמלי", model: "", status: "חדש", delay: "ללא עיכוב", delayReason: "", notes: "", tasks: [] };
+const defaults: StandardInput = { number: "", device: "קורקינט חשמלי", model: "", status: "חדש", delay: "ללא עיכוב", delayReason: "", notes: "", tasks: [] };
 
 export function StandardsForm({ record, models, cloud }: { record?: Standard; models: string[]; cloud: boolean }) {
   const { control, register, handleSubmit, formState: { errors, isDirty, isSubmitting } } = useForm<StandardInput>({
@@ -28,7 +28,9 @@ export function StandardsForm({ record, models, cloud }: { record?: Standard; mo
   return <Editor module="standards" title={title} cancel={record ? "/standards/" + record.id : "/standards"}
     loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} onSubmit={handleSubmit(editor.save)}>
     <Section title="פרטי הכלי" icon={ClipboardList}>
-      <div className="fields-grid"><DeviceFields device={register("device")} model={register("model")} models={models}
+      <div className="fields-grid"><Field label="מספר תיק" error={errors.number?.message}>{(props) =>
+        <input {...props} {...register("number")} maxLength={120} required dir="auto" />
+      }</Field><DeviceFields device={register("device")} model={register("model")} models={models}
         deviceError={errors.device?.message} modelError={errors.model?.message} /></div>
     </Section>
     <Section title="מצב הטיפול" icon={ClipboardCheck}>

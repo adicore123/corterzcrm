@@ -12,7 +12,7 @@ import sharp from "sharp";
 const root = await mkdtemp(join(tmpdir(), "cortez-e2e-"));
 const adminPassword = randomUUID();
 const employeePassword = randomUUID();
-const env = { ...process.env, CORTEZ_STORAGE_DIR: root, CORTEZ_ADMIN_PASSWORD: adminPassword };
+const env = { ...process.env, VERCEL: "0", CORTEZ_STORAGE_BACKEND: "file", CORTEZ_STORAGE_DIR: root, CORTEZ_ADMIN_PASSWORD: adminPassword };
 const hold = createServer();
 await new Promise((resolve) => hold.listen(0, "127.0.0.1", resolve));
 const { port } = hold.address();
@@ -134,6 +134,7 @@ try {
   await button(page, "סגירת תפריט").click();
   await link(page, "תיק מכון תקנים").click();
   await visible(heading(page, "תיק מכון תקנים חדש"));
+  await field(page, "מספר תיק").fill("TEST-100");
   await field(page, "סוג מכשיר").selectOption("אופניים חשמליים");
   await field(page, "שם הדגם").fill("דגם בדיקה 2");
   page.once("dialog", (dialog) => dialog.dismiss());
@@ -159,7 +160,7 @@ try {
   const standardPath = await save(page, "standards");
   const standardId = standardPath.split("/").pop();
   const [original] = await readDb("standard-cases");
-  assert.match(original.number, /^CT-\d{4}-0001$/);
+  assert.equal(original.number, "TEST-100");
   assert.equal(original.status, "בטיפול");
   assert.equal(original.delay, "מתעכב");
   assert.equal(original.tasks.length, 2);
@@ -246,6 +247,7 @@ try {
   await admin.goto("/dashboard");
   assert.deepEqual(await admin.locator(".metric-copy strong").allTextContents(), ["0", "1", "1", "1"]);
   const input = {
+    number: "TEST-API",
     device: "קורקינט חשמלי", model: "בדיקת מקביליות", status: "חדש", delay: "ללא עיכוב", delayReason: "", notes: "", tasks: [],
   };
   await api(anonymous, "POST", "/api/records/standards", input, 401);
@@ -256,8 +258,8 @@ try {
     multipart: { payload: JSON.stringify(input), photos: { name: "bad.jpg", mimeType: "image/jpeg", buffer: Buffer.from("bad image") } },
   });
   assert.equal(invalidImage.status(), 400);
-  const created = await Promise.all(Array.from({ length: 8 }, () =>
-    api(desktop.request, "POST", "/api/records/standards", { ...input, requestId: randomUUID() }, 201)));
+  const created = await Promise.all(Array.from({ length: 8 }, (_, index) =>
+    api(desktop.request, "POST", "/api/records/standards", { ...input, number: "TEST-" + index, requestId: randomUUID() }, 201)));
   assert.equal(new Set(created.map((item) => item.number)).size, 8);
   const requestId = randomUUID();
   const one = await api(desktop.request, "POST", "/api/records/standards", { ...input, requestId }, 201);
@@ -322,8 +324,7 @@ try {
   await button(admin.getByRole("alertdialog"), "מחיקה").click();
   await admin.waitForURL("**/standards?deleted=1");
   assert.equal((await desktop.request.get(imagePath)).status(), 404);
-  const next = await api(desktop.request, "POST", "/api/records/standards", input, 201);
-  assert.equal(Number(next.number.split("-").pop()), Number(one.number.split("-").pop()) + 1);
+  await api(desktop.request, "POST", "/api/records/standards", input, 409);
   assert.ok((await readDb("activity-logs")).some((entry) => entry.action === "delete" && entry.entityId === standardId));
   await button(admin, "התנתקות").click();
   await admin.waitForURL("**/login");

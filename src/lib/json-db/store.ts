@@ -3,6 +3,8 @@ import { cp, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises
 import path from "node:path";
 import { AppError } from "../errors";
 import { blobTransaction, listBlobBackups, readBlobCollection, usesBlobStorage, writeBlobBackup, writeBlobCollection } from "./blob-store";
+import { usesMongoStorage } from "./mongo-client";
+import { listMongoBackups, mongoTransaction, readMongoCollection, writeMongoBackup, writeMongoCollection } from "./mongo-store";
 import { collections, initialCounters, type Collection, type Data } from "./collections";
 const roots = globalThis as typeof globalThis & {
   cortezStore?: { queue: Promise<unknown>; initializations: Map<string, Promise<void>> };
@@ -91,6 +93,7 @@ export function ensureStorage() {
 }
 
 export function serialized<T>(work: () => Promise<T>): Promise<T> {
+  if (usesMongoStorage()) return mongoTransaction(work);
   if (usesBlobStorage()) return blobTransaction(work);
   const next = state.queue.then(work);
   state.queue = next.catch(() => undefined);
@@ -98,6 +101,7 @@ export function serialized<T>(work: () => Promise<T>): Promise<T> {
 }
 
 export async function readCollection<K extends Collection>(key: K): Promise<Data<K>> {
+  if (usesMongoStorage()) return readMongoCollection(key);
   if (usesBlobStorage()) return readBlobCollection(key);
   await ensureStorage();
   try {
@@ -113,6 +117,7 @@ export async function readCollection<K extends Collection>(key: K): Promise<Data
 // Mutation callers retain the serialized lock throughout each read and write.
 export async function writeCollection<K extends Collection>(key: K, value: Data<K>) {
   const validated = collections[key].schema.parse(value) as Data<K>;
+  if (usesMongoStorage()) return writeMongoCollection(key, validated);
   if (usesBlobStorage()) return writeBlobCollection(key, validated);
   await ensureStorage();
   await atomicWrite(collectionPath(key), JSON.stringify(validated, null, 2) + "\n");
@@ -140,6 +145,7 @@ export async function audit(actor: string, action: string, entity: string, entit
 const backupName = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{8}$/;
 
 export async function listBackups() {
+  if (usesMongoStorage()) return listMongoBackups();
   if (usesBlobStorage()) return listBlobBackups();
   await ensureStorage();
   const entries = await readdir(path.join(storageRoot(), "backups"), { withFileTypes: true });
@@ -150,6 +156,10 @@ export async function listBackups() {
 export async function createBackup() {
   const timestamp = new Date().toISOString();
   const id = timestamp.replace(/[.:]/g, "-") + "-" + randomUUID().slice(0, 8);
+  if (usesMongoStorage()) {
+    await writeMongoBackup(id, timestamp);
+    return { id, timestamp };
+  }
   if (usesBlobStorage()) {
     await writeBlobBackup(id, timestamp);
     return { id, timestamp };

@@ -23,16 +23,20 @@ export async function authorizeUpload(kind: PhotoModule, user: string, id: strin
   return { pathname, token };
 }
 
-export async function prepareBlobPhotos(kind: PhotoModule, user: string, staged: z.infer<typeof uploadList>) {
-  const photos: Photo[] = [];
-  for (const item of staged) {
-    const blob = await get(stagingPath(kind, user, item.id), { ...privateAccess, useCache: false });
+export async function readStagedPhoto(kind: PhotoModule, user: string, id: string) {
+    const blob = await get(stagingPath(kind, user, id), { ...privateAccess, useCache: false });
     if (!blob || blob.statusCode !== 200 || !blob.blob.size || blob.blob.size > maxImageBytes) {
       if (blob?.statusCode === 200) await blob.stream.cancel();
       throw new AppError(400, "אחת התמונות לא הועלתה בהצלחה. יש להעלות אותה שוב.");
     }
     const input = Buffer.from(await new Response(blob.stream).arrayBuffer());
-    const bytes = await normalizePhoto(input, blob.blob.contentType, true);
+    return normalizePhoto(input, blob.blob.contentType, true);
+}
+
+export async function prepareBlobPhotos(kind: PhotoModule, user: string, staged: z.infer<typeof uploadList>) {
+  const photos: Photo[] = [];
+  for (const item of staged) {
+    const bytes = await readStagedPhoto(kind, user, item.id);
     const photo = { id: randomUUID(), name: item.name, type: "image/webp" as const, bytes: bytes.length };
     await put(photoPath(kind, photo.id), bytes, { ...privateAccess, contentType: photo.type });
     photos.push(photo);

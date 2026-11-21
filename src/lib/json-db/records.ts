@@ -3,10 +3,12 @@ import { z } from "zod";
 import { AppError } from "../errors";
 import { requireAdmin } from "../auth/session";
 import { prepareBlobPhotos, uploadList } from "../uploads/blob-images";
+import { prepareMongoPhotos } from "../uploads/mongo-images";
 import { maxPhotos, removePhotos, savePhotos } from "../uploads/images";
 import { customerInput, repairInput, standardsInput, uuid, type Customer, type Module, type Photo, type PublicUser, type Repair, type Standard } from "../validation/models";
 import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
 import { usesBlobStorage } from "./blob-store";
+import { usesMongoStorage } from "./mongo-client";
 
 const saveOptions = z.object({
   version: z.iso.datetime().optional(),
@@ -62,7 +64,9 @@ export async function saveRecord(module: Module, id: string | undefined, payload
     const existingRecord = id ? existing<Standard | Repair>(all, id) : undefined;
     if (existingRecord) recordFields(existingRecord, version);
     retain(existingRecord?.photos ?? [], keptPhotos, stagedPhotos.length);
-    prepared = await prepareBlobPhotos(module, actor.id, stagedPhotos);
+    prepared = usesMongoStorage()
+      ? await prepareMongoPhotos(module, actor.id, stagedPhotos)
+      : await prepareBlobPhotos(module, actor.id, stagedPhotos);
   }
   return serialized(async () => {
     const activeUser = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled);
@@ -86,12 +90,15 @@ export async function saveRecord(module: Module, id: string | undefined, payload
     const { retained, removed } = retain(old?.photos ?? [], keptPhotos, files.length + prepared.length);
     const standards = "tasks" in input ? input : null;
     const repair = "serial" in input ? input : null;
+    if (standards && all.some((item) => item.id !== id && item.number.toLocaleLowerCase("he") === standards.number.toLocaleLowerCase("he"))) {
+      throw new AppError(409, "מספר התיק כבר קיים.");
+    }
     if (repair && !(await readCollection("customers")).some((customer) => customer.id === repair.customerId)) {
       throw new AppError(400, "יש לבחור לקוח קיים.");
     }
     const added = cloud ? prepared : await savePhotos(module, files);
     try {
-      const common = { ...base, number: old?.number ?? await reserveNumber(module), photos: [...retained, ...added] };
+      const common = { ...base, number: standards ? standards.number : old?.number ?? await reserveNumber("repairs"), photos: [...retained, ...added] };
       if (standards) await writeCollection("standards", upsert(await readCollection("standards"), { ...standards, ...common }, Boolean(old)));
       if (repair) await writeCollection("repairs", upsert(await readCollection("repairs"), { ...repair, ...common }, Boolean(old)));
       await audit(actor.id, old ? "update" : "create", module, base.id);
