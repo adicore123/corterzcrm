@@ -46,6 +46,10 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
             setValue("device", created.device, { shouldDirty: true, shouldValidate: true });
             setValue("model", created.name, { shouldDirty: true, shouldValidate: true });
           }}
+          onModelSelected={(picked) => {
+            setValue("device", picked.device, { shouldDirty: true, shouldValidate: true });
+            if (selectedModel !== picked.name) setValue("model", picked.name, { shouldDirty: true, shouldValidate: true });
+          }}
           deviceError={errors.device?.message} modelError={errors.model?.message} />
         <Field label="מספר סידורי של הכלי" error={errors.serial?.message}>{(props) =>
           <input {...props} {...register("serial")} dir="auto" autoCapitalize="none" spellCheck={false} maxLength={120} required />

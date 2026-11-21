@@ -5,24 +5,31 @@ import { publicUser } from "@/lib/auth/session";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { listBackups, readCollection } from "@/lib/json-db/store";
 import { roleLabel } from "@/lib/presentation";
-import { AdminSettings } from "./settings-controls";
+import { AdminSettings, OwnPasswordControl } from "./settings-controls";
 
 export const metadata: Metadata = { title: "הגדרות" };
 
 export default async function SettingsPage() {
   const user = await authorizedUser();
-  const [users, backups] = user.role === "admin" ? await Promise.all([readCollection("users"), listBackups()]) : [[], []];
+  const [users, backups, activity] = user.role === "admin"
+    ? await Promise.all([readCollection("users"), listBackups(), readCollection("activity")])
+    : [[], [], []];
+  const recentActivity = [...activity].reverse().slice(0, 25);
 
   return <div className="page-stack">
-    <div className="page-title"><h1>הגדרות</h1><p>{user.role === "admin" ? "חשבונות משתמשים וגיבויי מערכת" : "פרטי החשבון והרשאות"}</p></div>
+    <div className="page-title"><h1>הגדרות</h1><p>{user.role === "admin" ? "חשבונות משתמשים, גיבויים ויומן פעילות" : "פרטי החשבון והרשאות"}</p></div>
     <section className="card detail-card">
-      <h2><span className="section-icon"><ShieldCheck size={18} /></span>החשבון שלי</h2>
+      <div className="section-heading">
+        <h2><span className="section-icon"><ShieldCheck size={18} /></span>החשבון שלי</h2>
+        <OwnPasswordControl />
+      </div>
       <dl className="details-grid">
         <div><dt>שם מלא</dt><dd>{user.name}</dd></div>
         <div><dt>שם משתמש</dt><dd><bdi dir="ltr">{user.username}</bdi></dd></div>
         <div><dt>הרשאה</dt><dd>{roleLabel[user.role]}</dd></div>
       </dl>
     </section>
-    {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups} cloud={usesBlobStorage()} />}
+    {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups}
+      activity={recentActivity} cloud={usesBlobStorage()} />}
   </div>;
 }

@@ -13,7 +13,7 @@ async function snapshot() {
   return { state: stateSchema.parse(await new Response(result.stream).json()), etag: result.blob.etag };
 }
 
-async function migratePhotos(kind: PhotoModule, records: State["standards"] | State["repairs"]) {
+async function migratePhotos(kind: PhotoModule, records: State["standards"] | State["repairs"] | State["models"]) {
   for (const record of records) {
     for (const photo of record.photos) {
       const stream = await readBlobPhoto(kind, photo.id);
@@ -31,6 +31,7 @@ async function main() {
   if (existing && existing.version !== 1) throw new Error("MongoDB already contains live edits; refusing to overwrite them.");
   await migratePhotos("standards", before.state.standards);
   await migratePhotos("repairs", before.state.repairs);
+  await migratePhotos("models", before.state.models);
   const after = await snapshot();
   if (after.etag !== before.etag) throw new Error("The Blob snapshot changed during migration. Rerun before enabling MongoDB.");
   if (existing) {

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
 import { DeleteButton } from "./delete-button";
 import { PhotoGallery } from "./photos";
+import { PrintButton, QuickStatus } from "./quick-status";
 import { TaskChecklist } from "./task-checklist";
 
 type Value = [label: string, value: ReactNode];
@@ -29,11 +30,12 @@ export async function RecordDetail({ module, record, admin, saved }: {
     "serial" in record || isModelRecord ? readCollection("customers") : [],
     "phone" in record || isModelRecord ? readCollection("repairs") : [],
     isModelRecord ? readCollection("standards") : [],
-    "model" in record ? catalogModels() : [],
+    catalogModels(),
   ]);
+  const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const customer = "serial" in record ? customers.find((item) => item.id === record.customerId) : undefined;
   const linkedModel = "model" in record
-    ? models.find((item) => item.name.toLocaleLowerCase("he") === record.model.toLocaleLowerCase("he"))
+    ? modelsMap.get(record.model.toLocaleLowerCase("he"))
     : undefined;
   const history = "phone" in record
     ? repairs.filter((repair) => repair.customerId === record.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -61,15 +63,19 @@ export async function RecordDetail({ module, record, admin, saved }: {
           {isModelRecord && <span className="status status-neutral">{record.device}</span>}
         </div>
       </div>
-      <div className="detail-actions">
+      <div className="detail-actions no-print">
+        {("tasks" in record || "serial" in record) && <PrintButton />}
         <Button asChild variant="outline"><Link href={"/" + module + "/" + record.id + "/edit"}><Pencil size={17} /> עריכה</Link></Button>
         {admin && <DeleteButton module={module} id={record.id} version={record.updatedAt} subject={number ?? title} />}
       </div>
     </div>
-    {saved && <p className="success-message" role="status"><CircleCheck size={18} /> השינויים נשמרו בהצלחה.</p>}
+    {saved && <p className="success-message no-print" role="status"><CircleCheck size={18} /> השינויים נשמרו בהצלחה.</p>}
     {"tasks" in record && <>
       <section className="card detail-card">
-        <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי תיק תקינה</h2>
+        <div className="section-heading">
+          <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי תיק תקינה</h2>
+          <QuickStatus key={record.updatedAt} module="standards" record={record} />
+        </div>
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["סטטוס טיפול", <Status key="status" value={record.status} />],
           ["סטטוס עיכוב", <Status key="delay" value={record.delay} />], ...(record.delay === "מתעכב" ? [["סיבת עיכוב", record.delayReason] as Value] : []), ...dates]} />
         {record.notes && <div className="detail-notes"><h3>הערות</h3><p>{record.notes}</p></div>}
@@ -80,9 +86,14 @@ export async function RecordDetail({ module, record, admin, saved }: {
     </>}
     {"serial" in record && <>
       <section className="card detail-card">
-        <h2><span className="section-icon"><Wrench size={18} /></span>פרטי תיקון</h2>
+        <div className="section-heading">
+          <h2><span className="section-icon"><Wrench size={18} /></span>פרטי תיקון</h2>
+          <QuickStatus key={record.updatedAt} module="repairs" record={record} />
+        </div>
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["מספר סידורי", <bdi key="serial">{record.serial}</bdi>],
           ["לקוח", customer && <Link key="customer" className="text-link" href={"/customers/" + customer.id}>{customer.name}</Link>],
+          ...(customer ? [["טלפון לקוח", <PhoneLink key="cphone" phone={customer.phone}
+            whatsappMessage={`שלום ${customer.name}, עדכון מקורטז לגבי תיקון ${record.number} (${record.model}) — סטטוס הטיפול: ${record.status}.`} />] as Value] : []),
           ["סטטוס תיקון", <Status key="status" value={record.status} />], ...dates]} />
         <div className="detail-notes"><h3>מה התקלה?</h3><p>{record.fault}</p></div>
         <div className="detail-notes"><h3>מה תוקן?</h3><p>{record.work || "טרם תועד תיקון."}</p></div>
@@ -100,7 +111,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
           <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?customer=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>
         </div>
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-          rows={history.map((item) => repairRow(item, names, true))} empty="אין תיקונים משויכים" showEmptyHeader />
+          rows={history.map((item) => repairRow(item, names, true, modelsMap))} empty="אין תיקונים משויכים" showEmptyHeader />
       </section>
     </>}
     {isModelRecord && <>

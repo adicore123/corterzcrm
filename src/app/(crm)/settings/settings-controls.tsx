@@ -4,23 +4,104 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { DatabaseBackup, Download, KeyRound, Plus, Users } from "lucide-react";
+import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Plus, Users } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { formatDate, roleLabel } from "@/lib/presentation";
 import { requestJson } from "@/lib/client-api";
-import { passwordSchema, roles, userInput, type PublicUser } from "@/lib/validation/models";
+import { passwordSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
 import { useUnsaved } from "@/components/records/use-editor";
 
 const resetPasswordSchema = z.object({ password: passwordSchema });
+const ownPasswordSchema = z.object({
+  currentPassword: z.string().min(1, "יש להזין את הסיסמה הנוכחית.").max(128, "הסיסמה ארוכה מדי."),
+  newPassword: passwordSchema,
+});
+
+const actionLabels: Record<string, string> = {
+  create: "יצירה",
+  update: "עדכון",
+  delete: "מחיקה",
+  login: "כניסה למערכת",
+  "login-failed": "ניסיון כניסה שגוי",
+  logout: "התנתקות",
+  backup: "יצירת גיבוי",
+  disable: "השבתת משתמש",
+  enable: "הפעלת משתמש",
+  "password-reset": "איפוס סיסמה",
+  "password-change": "שינוי סיסמה",
+};
+
+const entityLabels: Record<string, string> = {
+  standards: "תיק תקינה",
+  repairs: "תיקון",
+  customers: "לקוח",
+  models: "דגם",
+  users: "משתמש",
+  storage: "אחסון",
+};
+
+export function OwnPasswordControl() {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const ignore = useRef(false);
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<z.infer<typeof ownPasswordSchema>>({
+    resolver: zodResolver(ownPasswordSchema), defaultValues: { currentPassword: "", newPassword: "" },
+  });
+  const unsaved = useUnsaved(open && isDirty, ignore);
+
+  const submit = handleSubmit(async (values) => {
+    setError("");
+    setNotice("");
+    try {
+      await requestJson("/api/auth/password", "POST", values);
+      setOpen(false);
+      reset();
+      setNotice("הסיסמה שלך עודכנה בהצלחה.");
+    } catch (error) {
+      setError((error as Error).message);
+    }
+  });
+
+  return <>
+    <div className="detail-actions">
+      {notice && <span className="muted" role="status">{notice}</span>}
+      <Modal open={open} onOpenChange={(next) => {
+        if (!next) {
+          if (isSubmitting) return;
+          unsaved.requestClose(() => { reset(); setError(""); setOpen(false); });
+          return;
+        }
+        setNotice("");
+        setOpen(true);
+      }} title="שינוי סיסמה" description="עדכון סיסמת החשבון האישי שלך"
+        trigger={<Button variant="outline" size="sm"><KeyRound size={15} /> שינוי סיסמה</Button>}>
+        <form className="dialog-form" noValidate onSubmit={submit}>
+          <Field label="סיסמה נוכחית" error={errors.currentPassword?.message}>
+            {(props) => <input {...props} {...register("currentPassword")} type="password" autoComplete="current-password" dir="ltr" required maxLength={128} />}
+          </Field>
+          <Field label="סיסמה חדשה" hint="לפחות 12 תווים" error={errors.newPassword?.message}>
+            {(props) => <input {...props} {...register("newPassword")} type="password" autoComplete="new-password" dir="ltr" required maxLength={128} />}
+          </Field>
+          {error && <p className="error-message" role="alert">{error}</p>}
+          <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "שומר…" : "עדכון סיסמה"}</Button>
+        </form>
+      </Modal>
+    </div>
+    <UnsavedDialog open={unsaved.promptOpen} onConfirm={unsaved.confirmLeave} onCancel={unsaved.cancelLeave} description={unsaved.message} />
+  </>;
+}
 
 function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, cloud }: { users: PublicUser[]; self: string; backups: string[]; cloud: boolean }) {
+export function AdminSettings({ users, self, backups, activity = [], cloud }: {
+  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<PublicUser | null>(null);
@@ -157,6 +238,24 @@ export function AdminSettings({ users, self, backups, cloud }: { users: PublicUs
           </a>
         </Button>
       </li>)}</ul> : <p className="settings-empty muted">אין גיבויים שמורים.</p>}
+    </section>
+    <section className="card detail-card">
+      <div className="section-heading">
+        <h2><span className="section-icon"><ActivityIcon size={18} /></span>יומן פעילות אחרונה</h2>
+      </div>
+      {activity.length > 0 ? <ul className="settings-list">{activity.map((entry) => {
+        const actorUser = users.find((u) => u.id === entry.actor);
+        const actorName = actorUser ? actorUser.name : "משתמש מערכת";
+        const actionText = actionLabels[entry.action] ?? entry.action;
+        const entityText = entityLabels[entry.entity] ?? entry.entity;
+        return <li key={entry.id}>
+          <div>
+            <strong>{actionText} · {entityText}</strong>
+            <span>בוצע ע״י {actorName}</span>
+          </div>
+          <span className="muted" style={{ fontSize: ".82rem", whiteSpace: "nowrap" }}>{formatDate(entry.at, true)}</span>
+        </li>;
+      })}</ul> : <p className="settings-empty muted">אין פעילות מתועדת.</p>}
     </section>
     <UnsavedDialog open={unsaved.promptOpen} onConfirm={unsaved.confirmLeave} onCancel={unsaved.cancelLeave} description={unsaved.message} />
   </>;

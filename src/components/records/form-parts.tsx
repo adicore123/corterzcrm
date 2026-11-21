@@ -1,10 +1,10 @@
 "use client";
 
-import { useId, type FormEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useState, type FormEventHandler, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, Save, type LucideIcon } from "lucide-react";
+import { ArrowRight, Bike, LayoutGrid, Save, Search, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { UnsavedDialog } from "@/components/ui/dialog";
+import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { labels } from "@/lib/presentation";
 import { devices, type CatalogModel, type Device, type Module } from "@/lib/validation/models";
@@ -49,19 +49,38 @@ export function Editor({ module, title, cancel, loading, error, progress, unsave
 }
 
 export function DeviceFields({
-  model, device, models, catalog, selectedDevice, selectedModel, onModelCreated, modelError, deviceError,
+  model, device, models, catalog, selectedDevice, selectedModel, onModelCreated, onModelSelected, modelError, deviceError,
 }: {
   model: UseFormRegisterReturn; device: UseFormRegisterReturn; models: string[];
   catalog?: CatalogModel[]; selectedDevice?: Device; selectedModel?: string;
-  onModelCreated?: (created: CatalogModel) => void; modelError?: string; deviceError?: string;
+  onModelCreated?: (created: CatalogModel) => void;
+  onModelSelected?: (picked: CatalogModel) => void;
+  modelError?: string; deviceError?: string;
 }) {
   const list = useId();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [filterDevice, setFilterDevice] = useState<string>("");
   const matchingCatalog = catalog?.filter((item) => !selectedDevice || item.device === selectedDevice) ?? [];
   const options = matchingCatalog.length > 0
     ? Array.from(new Set([...matchingCatalog.map((item) => item.name), ...models.filter((name) => !catalog?.some((c) => c.name === name))]))
     : models;
   const activeModel = catalog?.find((item) => item.name.toLocaleLowerCase("he") === (selectedModel ?? "").trim().toLocaleLowerCase("he"));
   const thumb = modelImageSrc(activeModel);
+
+  useEffect(() => {
+    if (activeModel && selectedDevice && activeModel.device !== selectedDevice && onModelSelected) {
+      onModelSelected(activeModel);
+    }
+  }, [activeModel, selectedDevice, onModelSelected]);
+
+  const pickerItems = (catalog ?? []).filter((item) => {
+    const targetDevice = filterDevice || selectedDevice || "";
+    if (targetDevice && targetDevice !== "all" && item.device !== targetDevice) return false;
+    const q = query.trim().toLocaleLowerCase("he");
+    if (!q) return true;
+    return item.name.toLocaleLowerCase("he").includes(q) || item.device.toLocaleLowerCase("he").includes(q);
+  });
 
   return <>
     <Field label="סוג מכשיר" error={deviceError}>{(props) =>
@@ -80,7 +99,44 @@ export function DeviceFields({
             <span><strong>{activeModel.name}</strong> · {activeModel.device}</span>
           </div>}
         </div>
-        {onModelCreated && <InlineModel defaultDevice={selectedDevice} onSave={onModelCreated} />}
+        <div className="inline-model-actions">
+          {catalog && catalog.length > 0 && onModelSelected && (
+            <Modal open={pickerOpen} onOpenChange={(next) => {
+              setPickerOpen(next);
+              if (next) { setQuery(""); setFilterDevice(selectedDevice ?? ""); }
+            }} title="בחירת דגם ממאגר קורטז" description="בחרו דגם מהקטלוג או סננו לפי סוג כלי" className="catalog-picker-modal"
+              trigger={<Button variant="outline" title="בחירה ויזואלית ממאגר הדגמים"><LayoutGrid size={16} /> קטלוג</Button>}>
+              <div className="catalog-picker-toolbar">
+                <div className="search-field">
+                  <Search size={17} aria-hidden />
+                  <input type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                    placeholder="חיפוש דגם..." aria-label="חיפוש דגם בקטלוג" />
+                </div>
+                <select value={filterDevice || "all"} onChange={(e) => setFilterDevice(e.target.value)} aria-label="סינון קטלוג לפי סוג כלי">
+                  <option value="all">כל הכלים</option>
+                  {devices.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div className="catalog-picker-grid">
+                {pickerItems.map((item) => {
+                  const src = modelImageSrc(item);
+                  const selected = activeModel?.id === item.id;
+                  return <button key={item.id} type="button" className={"catalog-picker-card" + (selected ? " is-selected" : "")}
+                    onClick={() => { onModelSelected(item); setPickerOpen(false); }}>
+                    {src ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={src} alt="" aria-hidden className="catalog-picker-img" loading="lazy" />
+                    ) : <span className="catalog-picker-img model-thumb-empty" aria-hidden><Bike size={22} /></span>}
+                    <strong>{item.name}</strong>
+                    <small className="muted">{item.device}</small>
+                  </button>;
+                })}
+                {pickerItems.length === 0 && <p className="muted">לא נמצאו דגמים תואמים.</p>}
+              </div>
+            </Modal>
+          )}
+          {onModelCreated && <InlineModel defaultDevice={selectedDevice} onSave={onModelCreated} />}
+        </div>
       </div>
     }</Field>
   </>;

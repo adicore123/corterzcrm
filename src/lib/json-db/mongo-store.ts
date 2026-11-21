@@ -1,16 +1,40 @@
 import { cache } from "react";
 import { AppError } from "../errors";
 import { stateSchema, type State } from "./blob-store";
-import { collections, type Collection, type Data } from "./collections";
+import { collections, initialCounters, type Collection, type Data } from "./collections";
+import { defaultCatalogModels } from "./cortez-catalog";
 import { mongoDatabase } from "./mongo-client";
 import { createVersionedStore } from "./versioned";
 
 type StoredState = State & { _id: "state"; version: number; sourceEtag?: string };
 
+function initialMongoState(): State {
+  return {
+    format: 1,
+    standards: [],
+    repairs: [],
+    customers: [],
+    models: [...defaultCatalogModels],
+    users: [],
+    activity: [],
+    sessions: [],
+    counters: { ...initialCounters },
+  };
+}
+
 async function readVersion() {
   const db = await mongoDatabase();
-  const stored = await db.collection<StoredState>("app_state").findOne({ _id: "state" });
-  if (!stored) throw new AppError(503, "מסד הנתונים טרם הועבר. יש לפנות למנהל המערכת.");
+  const collection = db.collection<StoredState>("app_state");
+  let stored = await collection.findOne({ _id: "state" });
+  if (!stored) {
+    await collection.updateOne(
+      { _id: "state" },
+      { $setOnInsert: { _id: "state", version: 1, ...initialMongoState() } },
+      { upsert: true },
+    );
+    stored = await collection.findOne({ _id: "state" });
+  }
+  if (!stored) throw new AppError(503, "מסד הנתונים אינו זמין כעת. יש לפנות למנהל המערכת.");
   try {
     return { value: stateSchema.parse(stored), version: String(stored.version) };
   } catch {

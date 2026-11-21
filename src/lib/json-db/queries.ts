@@ -7,8 +7,8 @@ const matches = (value: string, query: string) => value.toLocaleLowerCase("he").
 const newest = <T extends { updatedAt: string }>(items: T[]) => items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
 export async function dashboard() {
-  const [standards, repairs, customers] = await Promise.all([
-    readCollection("standards"), readCollection("repairs"), readCollection("customers"),
+  const [standards, repairs, customers, models] = await Promise.all([
+    readCollection("standards"), readCollection("repairs"), readCollection("customers"), catalogModels(),
   ]);
   const delayed = standards.filter((item) => item.delay === "מתעכב");
   return {
@@ -22,6 +22,7 @@ export async function dashboard() {
     delayed: newest(delayed).slice(0, 5),
     repairs: newest(repairs).slice(0, 5),
     customers,
+    models,
   };
 }
 
@@ -59,9 +60,19 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
   return newest(filtered);
 }
 
+export function mergeWithDefaultCatalog(stored: CatalogModel[]): CatalogModel[] {
+  if (stored.length === 0) return [...defaultCatalogModels];
+  const byId = new Set(stored.map((item) => item.id));
+  const byName = new Set(stored.map((item) => item.name.toLocaleLowerCase("he")));
+  const missingDefaults = defaultCatalogModels.filter(
+    (seed) => !byId.has(seed.id) && !byName.has(seed.name.toLocaleLowerCase("he")),
+  );
+  return [...stored, ...missingDefaults];
+}
+
 export async function catalogModels(): Promise<CatalogModel[]> {
   const stored = await readCollection("models");
-  const list = stored.length > 0 ? stored : defaultCatalogModels;
+  const list = mergeWithDefaultCatalog(stored);
   return [...list].sort((a, b) => a.name.localeCompare(b.name, "he"));
 }
 

@@ -51,6 +51,10 @@ export function StandardsForm({ record, models, catalog = [], initialModel, clou
           setValue("device", created.device, { shouldDirty: true, shouldValidate: true });
           setValue("model", created.name, { shouldDirty: true, shouldValidate: true });
         }}
+        onModelSelected={(picked) => {
+          setValue("device", picked.device, { shouldDirty: true, shouldValidate: true });
+          if (selectedModel !== picked.name) setValue("model", picked.name, { shouldDirty: true, shouldValidate: true });
+        }}
         deviceError={errors.device?.message} modelError={errors.model?.message} /></div>
     </Section>
     <Section title="מצב הטיפול" icon={ClipboardCheck}>

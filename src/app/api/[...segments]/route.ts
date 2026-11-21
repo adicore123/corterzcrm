@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { createUser, getUser, login, logout, requireAdmin, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
+import { changeOwnPassword, createUser, getUser, login, logout, requireAdmin, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
@@ -157,6 +157,14 @@ async function mutate(request: NextRequest, { params }: Route) {
     }
 
     const user = await requireUser(request);
+    if (method === "POST" && resource === "auth" && sub === "password" && !id) {
+      const { value } = await parseBody(request);
+      const input = z.object({
+        currentPassword: z.string().min(1, "יש להזין את הסיסמה הנוכחית.").max(128),
+        newPassword: passwordSchema,
+      }).parse(value);
+      return json(await changeOwnPassword(user.id, input.currentPassword, input.newPassword, request.cookies.get(sessionCookie)?.value));
+    }
     if (resource === "uploads" && !id && method === "POST" && usesBlobStorage()) {
       const kind = photoModule.parse(sub);
       const { value } = await parseBody(request);

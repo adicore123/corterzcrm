@@ -10,7 +10,7 @@ import {
   type CatalogModel, type Customer, type Module, type Photo, type PublicUser, type Repair, type Standard,
 } from "../validation/models";
 import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
-import { defaultCatalogModels } from "./cortez-catalog";
+import { mergeWithDefaultCatalog } from "./queries";
 import { usesBlobStorage } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
 
@@ -35,8 +35,8 @@ export function getRecord(module: "standards" | "repairs" | "models", id: string
 export function getRecord(module: Module, id: string): Promise<Standard | Repair | Customer | CatalogModel>;
 export async function getRecord(module: Module, id: string) {
   const list = await readCollection(module);
-  if (module === "models" && list.length === 0) {
-    return existing<CatalogModel>(defaultCatalogModels, id);
+  if (module === "models") {
+    return existing<CatalogModel>(mergeWithDefaultCatalog(list as CatalogModel[]), id);
   }
   return existing<Standard | Repair | Customer | CatalogModel>(list, id);
 }
@@ -71,7 +71,7 @@ export async function saveRecord(module: Module, id: string | undefined, payload
   let prepared: Photo[] = [];
   if (module !== "customers" && stagedPhotos.length > 0) {
     const stored = await readCollection(module);
-    const all = module === "models" && stored.length === 0 ? defaultCatalogModels : stored;
+    const all = module === "models" ? mergeWithDefaultCatalog(stored as CatalogModel[]) : stored;
     const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
     if (duplicate) return duplicate;
     const existingRecord = id ? existing<Standard | Repair | CatalogModel>(all, id) : undefined;
@@ -97,7 +97,7 @@ export async function saveRecord(module: Module, id: string | undefined, payload
 
     if (module === "models") {
       const stored = await readCollection("models");
-      const all = stored.length > 0 ? stored : [...defaultCatalogModels];
+      const all = mergeWithDefaultCatalog(stored);
       const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
       if (duplicate) return duplicate;
       const old = id ? existing(all, id) : undefined;
@@ -159,7 +159,7 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       const device = standards ? standards.device : repair!.device;
       const modelName = standards ? standards.model : repair!.model;
       const storedModels = await readCollection("models");
-      const existingModels = storedModels.length > 0 ? storedModels : [...defaultCatalogModels];
+      const existingModels = mergeWithDefaultCatalog(storedModels);
       if (!existingModels.some((item) => item.name.toLocaleLowerCase("he") === modelName.toLocaleLowerCase("he"))) {
         const now = new Date().toISOString();
         await writeCollection("models", [...existingModels, {
@@ -191,7 +191,7 @@ export async function deleteRecord(module: Module, id: string, version: string, 
       await writeCollection(module, customers.filter((customer) => customer.id !== id));
     } else if (module === "models") {
       const stored = await readCollection("models");
-      const all = stored.length > 0 ? stored : [...defaultCatalogModels];
+      const all = mergeWithDefaultCatalog(stored);
       const record = existing(all, id);
       recordFields(record, version);
       const targetName = record.name.toLocaleLowerCase("he");

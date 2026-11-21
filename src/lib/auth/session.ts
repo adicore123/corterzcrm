@@ -31,24 +31,36 @@ const authGlobal = globalThis as typeof globalThis & {
 };
 const attempts = authGlobal.cortezAttempts ??= new Map();
 
-function limitLogin(username: string) {
+function checkLoginLimit(username: string) {
   const now = Date.now();
   for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
-  function count(key: string, window: number, limit: number) {
+  const globalEntry = attempts.get("global");
+  const accountEntry = attempts.get("account:" + username);
+  if ((globalEntry && globalEntry.count >= 90) || (accountEntry && accountEntry.count >= 10)) {
+    throw new AppError(429, "בוצעו יותר מדי ניסיונות כניסה. יש לנסות שוב מאוחר יותר.");
+  }
+}
+
+function recordFailedLogin(username: string) {
+  const now = Date.now();
+  function bump(key: string, window: number) {
     const entry = attempts.get(key) ?? { count: 0, until: now + window };
-    if (entry.count >= limit) throw new AppError(429, "בוצעו יותר מדי ניסיונות כניסה. יש לנסות שוב מאוחר יותר.");
     entry.count += 1;
     attempts.set(key, entry);
   }
-  count("global", 60_000, 90);
-  count("account:" + username, 10 * 60_000, 10);
+  bump("global", 60_000);
+  bump("account:" + username, 10 * 60_000);
 }
 
 export async function login(username: string, password: string) {
-  limitLogin(username);
+  checkLoginLimit(username);
   const user = (await readCollection("users")).find((item) => item.username === username);
   const valid = await checkPassword(password, user?.passwordHash ?? dummyHash);
   if (!valid || !user || user.disabled) {
+    recordFailedLogin(username);
+    if (user && !valid) {
+      await serialized(() => audit(user.id, "login-failed", "users", user.id)).catch(() => undefined);
+    }
     throw new AppError(401, "שם המשתמש או הסיסמה שגויים.");
   }
   return serialized(async () => {
@@ -144,6 +156,28 @@ export async function resetUserPassword(id: string, password: string, actor: Pub
     const updated = { ...user, passwordHash, updatedAt: new Date().toISOString() };
     await writeCollection("users", users.map((item) => item.id === id ? updated : item));
     await audit(actor.id, "password-reset", "users", id);
+    return publicUser(updated);
+  });
+}
+
+export async function changeOwnPassword(userId: string, currentPassword: string, newPassword: string, currentToken?: string) {
+  const validNew = passwordSchema.parse(newPassword);
+  const user = (await readCollection("users")).find((item) => item.id === userId && !item.disabled);
+  const validCurrent = await checkPassword(currentPassword, user?.passwordHash ?? dummyHash);
+  if (!validCurrent || !user) {
+    throw new AppError(400, "הסיסמה הנוכחית שגויה.");
+  }
+  const passwordHash = await hashPassword(validNew);
+  const keepHash = currentToken && /^[a-f0-9]{64}$/.test(currentToken) ? tokenHash(currentToken) : null;
+  return serialized(async () => {
+    const users = await readCollection("users");
+    const current = users.find((item) => item.id === userId && !item.disabled);
+    if (!current) throw new AppError(401, "יש להיכנס למערכת.");
+    const sessions = await readCollection("sessions");
+    await writeCollection("sessions", sessions.filter((item) => item.userId !== userId || item.hash === keepHash));
+    const updated = { ...current, passwordHash, updatedAt: new Date().toISOString() };
+    await writeCollection("users", users.map((item) => item.id === userId ? updated : item));
+    await audit(userId, "password-change", "users", userId);
     return publicUser(updated);
   });
 }

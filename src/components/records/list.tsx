@@ -3,7 +3,7 @@ import { Bike, ClipboardList, ListFilter, Plus, Search, Users, Wrench } from "lu
 import { Button } from "@/components/ui/button";
 import { customerRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
-import { searchRecords, type RecordFilters } from "@/lib/json-db/queries";
+import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
 import { delayStatuses, devices, repairStatuses, standardStatuses, type Module } from "@/lib/validation/models";
@@ -11,13 +11,15 @@ import { delayStatuses, devices, repairStatuses, standardStatuses, type Module }
 const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike };
 
 export async function RecordList({ module, filters, deleted }: { module: Module; filters: RecordFilters; deleted: boolean }) {
-  const [records, contacts, repairs, standards] = await Promise.all([
+  const [records, contacts, repairs, standards, models] = await Promise.all([
     searchRecords(module, filters),
     module === "repairs" ? readCollection("customers") : [],
     module === "customers" || module === "models" ? readCollection("repairs") : [],
     module === "models" ? readCollection("standards") : [],
+    module === "standards" || module === "repairs" ? catalogModels() : [],
   ]);
   const names = new Map(contacts.map((item) => [item.id, item.name]));
+  const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const counts = new Map<string, number>();
   const modelRepairs = new Map<string, number>();
   const modelStandards = new Map<string, number>();
@@ -31,8 +33,8 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
     modelStandards.set(key, (modelStandards.get(key) ?? 0) + 1);
   }
   const rows = records.map((item) => {
-    if ("tasks" in item) return standardRow(item, "list");
-    if ("serial" in item) return repairRow(item, names);
+    if ("tasks" in item) return standardRow(item, "list", modelsMap);
+    if ("serial" in item) return repairRow(item, names, false, modelsMap);
     if ("phone" in item) return customerRow(item, counts.get(item.id) ?? 0);
     const key = item.name.toLocaleLowerCase("he");
     return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0);

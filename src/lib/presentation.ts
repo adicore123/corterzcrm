@@ -28,3 +28,10 @@ export const roleLabel = { admin: "מנהל מערכת", employee: "עובד" };
 export function phoneHref(phone: string) {
   return "tel:" + phone.replace(/[^+0-9]/g, "");
 }
+
+export function whatsappHref(phone: string, message?: string) {
+  const digits = phone.replace(/\D/g, "");
+  const intl = digits.startsWith("0") ? "972" + digits.slice(1) : digits;
+  const base = "https://wa.me/" + intl;
+  return message ? base + "?text=" + encodeURIComponent(message) : base;
+}

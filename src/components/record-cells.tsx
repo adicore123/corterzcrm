@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Bike, Phone } from "lucide-react";
-import { formatDate, phoneHref } from "@/lib/presentation";
+import { Bike, MessageCircle, Phone } from "lucide-react";
+import { formatDate, phoneHref, whatsappHref } from "@/lib/presentation";
 import type { CatalogModel, Customer, Repair, Standard } from "@/lib/validation/models";
 import { Status } from "./ui/status";
 
@@ -30,8 +30,14 @@ export function CustomerLink({ id, names }: { id: string; names: Map<string, str
   return name ? <Link className="text-link" href={"/customers/" + id} prefetch={false}>{name}</Link> : "—";
 }
 
-export function PhoneLink({ phone }: { phone: string }) {
-  return <a className="phone-link" href={phoneHref(phone)}><Phone size={14} aria-hidden /><bdi dir="ltr">{phone}</bdi></a>;
+export function PhoneLink({ phone, whatsappMessage }: { phone: string; whatsappMessage?: string }) {
+  return <span className="phone-actions">
+    <a className="phone-link" href={phoneHref(phone)}><Phone size={14} aria-hidden /><bdi dir="ltr">{phone}</bdi></a>
+    <a className="whatsapp-link no-print" href={whatsappHref(phone, whatsappMessage)} target="_blank" rel="noopener noreferrer"
+      aria-label={"שליחת הודעת וואטסאפ ל־" + phone} title="פתיחת שיחה ב־WhatsApp">
+      <MessageCircle size={14} aria-hidden />
+    </a>
+  </span>;
 }
 
 export function TaskProgress({ tasks }: { tasks: Standard["tasks"] }) {
@@ -43,22 +49,26 @@ export function TaskProgress({ tasks }: { tasks: Standard["tasks"] }) {
   </span>;
 }
 
-export function standardRow(item: Standard, mode: "list" | "recent" | "delayed") {
+export function standardRow(item: Standard, mode: "list" | "recent" | "delayed", modelsMap?: Map<string, CatalogModel>) {
   const progress = <TaskProgress tasks={item.tasks} />;
   const status = <Status value={item.status} />;
   const delay = <Status value={item.delay} />;
   const date = formatDate(item.updatedAt);
-  const cells = mode === "list" ? [item.model, item.device, status, delay, progress, date]
-    : mode === "delayed" ? [item.model, status, item.delayReason] : [item.model, status, date];
+  const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
+  const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
+  const cells = mode === "list" ? [modelCell, item.device, status, delay, progress, date]
+    : mode === "delayed" ? [modelCell, status, item.delayReason] : [modelCell, status, date];
   return { id: item.id, label: item.number, href: "/standards/" + item.id,
     cells: [<RecordNumber key="number" number={item.number} />, ...cells] };
 }
 
-export function repairRow(item: Repair, names: Map<string, string>, recent = false) {
+export function repairRow(item: Repair, names: Map<string, string>, recent = false, modelsMap?: Map<string, CatalogModel>) {
   const customer = <CustomerLink id={item.customerId} names={names} />;
   const status = <Status value={item.status} />;
-  const cells = recent ? [item.model, customer, formatDate(item.createdAt), status]
-    : [item.model, <bdi key="serial">{item.serial}</bdi>, customer, status, formatDate(item.updatedAt)];
+  const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
+  const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
+  const cells = recent ? [modelCell, customer, formatDate(item.createdAt), status]
+    : [modelCell, <bdi key="serial">{item.serial}</bdi>, customer, status, formatDate(item.updatedAt)];
   return { id: item.id, label: item.number, href: "/repairs/" + item.id,
     cells: [<RecordNumber key="number" number={item.number} />, ...cells] };
 }
