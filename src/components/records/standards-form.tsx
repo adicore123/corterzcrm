@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ClipboardCheck, ClipboardList, Images, ListChecks, Plus, Trash2 } from "lucide-react";
 import { newRequestId } from "@/lib/client-api";
-import { delayStatuses, standardsInput, standardStatuses, type Standard, type StandardInput } from "@/lib/validation/models";
+import { delayStatuses, standardsInput, standardStatuses, type CatalogModel, type Standard, type StandardInput } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { DeviceFields, Editor, Section } from "./form-parts";
@@ -13,24 +14,43 @@ import { useEditor, usePhotoDraft } from "./use-editor";
 
 const defaults: StandardInput = { number: "", device: "קורקינט חשמלי", model: "", status: "חדש", delay: "ללא עיכוב", delayReason: "", notes: "", tasks: [] };
 
-export function StandardsForm({ record, models, cloud }: { record?: Standard; models: string[]; cloud: boolean }) {
-  const { control, register, handleSubmit, formState: { errors, isDirty, isSubmitting } } = useForm<StandardInput>({
-    resolver: zodResolver(standardsInput), defaultValues: record ? standardsInput.parse(record) : defaults,
+export function StandardsForm({ record, models, catalog = [], initialModel, cloud }: {
+  record?: Standard; models: string[]; catalog?: CatalogModel[]; initialModel?: CatalogModel; cloud: boolean;
+}) {
+  const [addedModels, setAddedModels] = useState<CatalogModel[]>([]);
+  const { control, register, handleSubmit, setValue, formState: { errors, isDirty, isSubmitting } } = useForm<StandardInput>({
+    resolver: zodResolver(standardsInput),
+    defaultValues: record ? standardsInput.parse(record) : {
+      ...defaults,
+      device: initialModel?.device ?? defaults.device,
+      model: initialModel?.name ?? defaults.model,
+    },
   });
   const tasks = useFieldArray({ name: "tasks", control, keyName: "fieldKey" });
   const values = useWatch({ name: "tasks", control });
   const delay = useWatch({ name: "delay", control });
+  const selectedDevice = useWatch({ name: "device", control });
+  const selectedModel = useWatch({ name: "model", control });
   const photos = usePhotoDraft(record?.photos ?? []);
   const editor = useEditor("standards", record, isDirty, photos, cloud);
   const completed = values.filter((value) => value.done).length;
   const title = record ? "עריכת תיק תקינה" : "תיק מכון תקנים חדש";
+  const allCatalog = [...addedModels, ...catalog.filter((item) => !addedModels.some((added) => added.id === item.id))];
+  const allModelNames = Array.from(new Set([...addedModels.map((item) => item.name), ...models]));
 
   return <Editor module="standards" title={title} cancel={record ? "/standards/" + record.id : "/standards"}
-    loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} onSubmit={handleSubmit(editor.save)}>
+    loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+    onSubmit={handleSubmit(editor.save)}>
     <Section title="פרטי הכלי" icon={ClipboardList}>
       <div className="fields-grid"><Field label="מספר תיק" error={errors.number?.message}>{(props) =>
         <input {...props} {...register("number")} maxLength={120} required dir="auto" />
-      }</Field><DeviceFields device={register("device")} model={register("model")} models={models}
+      }</Field><DeviceFields device={register("device")} model={register("model")} models={allModelNames}
+        catalog={allCatalog} selectedDevice={selectedDevice} selectedModel={selectedModel}
+        onModelCreated={(created) => {
+          setAddedModels((items) => [...items, created]);
+          setValue("device", created.device, { shouldDirty: true, shouldValidate: true });
+          setValue("model", created.name, { shouldDirty: true, shouldValidate: true });
+        }}
         deviceError={errors.device?.message} modelError={errors.model?.message} /></div>
     </Section>
     <Section title="מצב הטיפול" icon={ClipboardCheck}>

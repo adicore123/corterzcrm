@@ -5,8 +5,12 @@ import { requireAdmin } from "../auth/session";
 import { prepareBlobPhotos, uploadList } from "../uploads/blob-images";
 import { prepareMongoPhotos } from "../uploads/mongo-images";
 import { maxPhotos, removePhotos, savePhotos } from "../uploads/images";
-import { customerInput, repairInput, standardsInput, uuid, type Customer, type Module, type Photo, type PublicUser, type Repair, type Standard } from "../validation/models";
+import {
+  customerInput, modelInput, repairInput, standardsInput, uuid,
+  type CatalogModel, type Customer, type Module, type Photo, type PublicUser, type Repair, type Standard,
+} from "../validation/models";
 import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
+import { defaultCatalogModels } from "./cortez-catalog";
 import { usesBlobStorage } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
 
@@ -26,10 +30,15 @@ function existing<T extends { id: string }>(records: T[], id: string) {
 export function getRecord(module: "standards", id: string): Promise<Standard>;
 export function getRecord(module: "repairs", id: string): Promise<Repair>;
 export function getRecord(module: "customers", id: string): Promise<Customer>;
-export function getRecord(module: "standards" | "repairs", id: string): Promise<Standard | Repair>;
-export function getRecord(module: Module, id: string): Promise<Standard | Repair | Customer>;
+export function getRecord(module: "models", id: string): Promise<CatalogModel>;
+export function getRecord(module: "standards" | "repairs" | "models", id: string): Promise<Standard | Repair | CatalogModel>;
+export function getRecord(module: Module, id: string): Promise<Standard | Repair | Customer | CatalogModel>;
 export async function getRecord(module: Module, id: string) {
-  return existing<Standard | Repair | Customer>(await readCollection(module), id);
+  const list = await readCollection(module);
+  if (module === "models" && list.length === 0) {
+    return existing<CatalogModel>(defaultCatalogModels, id);
+  }
+  return existing<Standard | Repair | Customer | CatalogModel>(list, id);
 }
 
 function recordFields(old: { id: string; createdAt: string; updatedAt: string } | undefined, version?: string, requestId?: string) {
@@ -55,13 +64,17 @@ export async function saveRecord(module: Module, id: string | undefined, payload
   if (cloud && files.length || !cloud && stagedPhotos.length || module === "customers" && stagedPhotos.length) {
     throw new AppError(400, "שיטת העלאת התמונות אינה תואמת לאחסון.");
   }
-  const input = module === "standards" ? standardsInput.parse(payload) : module === "repairs" ? repairInput.parse(payload) : customerInput.parse(payload);
+  const input = module === "standards" ? standardsInput.parse(payload)
+    : module === "repairs" ? repairInput.parse(payload)
+    : module === "models" ? modelInput.parse(payload)
+    : customerInput.parse(payload);
   let prepared: Photo[] = [];
   if (module !== "customers" && stagedPhotos.length > 0) {
-    const all = await readCollection(module);
+    const stored = await readCollection(module);
+    const all = module === "models" && stored.length === 0 ? defaultCatalogModels : stored;
     const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
     if (duplicate) return duplicate;
-    const existingRecord = id ? existing<Standard | Repair>(all, id) : undefined;
+    const existingRecord = id ? existing<Standard | Repair | CatalogModel>(all, id) : undefined;
     if (existingRecord) recordFields(existingRecord, version);
     retain(existingRecord?.photos ?? [], keptPhotos, stagedPhotos.length);
     prepared = usesMongoStorage()
@@ -80,6 +93,48 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       await writeCollection(module, upsert(all, record, Boolean(old)));
       await audit(actor.id, old ? "update" : "create", module, record.id);
       return record;
+    }
+
+    if (module === "models") {
+      const stored = await readCollection("models");
+      const all = stored.length > 0 ? stored : [...defaultCatalogModels];
+      const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
+      if (duplicate) return duplicate;
+      const old = id ? existing(all, id) : undefined;
+      const base = recordFields(old, version, requestId);
+      const { retained, removed } = retain(old?.photos ?? [], keptPhotos, files.length + prepared.length);
+      const modelData = modelInput.parse(input);
+      if (all.some((item) => item.id !== id && item.name.toLocaleLowerCase("he") === modelData.name.toLocaleLowerCase("he"))) {
+        throw new AppError(409, "שם הדגם כבר קיים במאגר.");
+      }
+      const added = cloud ? prepared : await savePhotos("models", files);
+      try {
+        const record: CatalogModel = {
+          ...modelData,
+          imageUrl: modelData.imageUrl || old?.imageUrl,
+          ...base,
+          photos: [...retained, ...added],
+        };
+        await writeCollection("models", upsert(all, record, Boolean(old)));
+        if (old && (old.name !== record.name || old.device !== record.device)) {
+          const oldNameLower = old.name.toLocaleLowerCase("he");
+          const [standards, repairs] = await Promise.all([readCollection("standards"), readCollection("repairs")]);
+          if (standards.some((item) => item.model.toLocaleLowerCase("he") === oldNameLower)) {
+            await writeCollection("standards", standards.map((item) =>
+              item.model.toLocaleLowerCase("he") === oldNameLower ? { ...item, model: record.name, device: record.device } : item));
+          }
+          if (repairs.some((item) => item.model.toLocaleLowerCase("he") === oldNameLower)) {
+            await writeCollection("repairs", repairs.map((item) =>
+              item.model.toLocaleLowerCase("he") === oldNameLower ? { ...item, model: record.name, device: record.device } : item));
+          }
+        }
+        await audit(actor.id, old ? "update" : "create", "models", base.id);
+        if (!cloud) await removePhotos("models", removed);
+        return record;
+      } catch (error) {
+        if (!cloud) await removePhotos("models", added);
+        throw error;
+      }
     }
 
     const all = await readCollection(module);
@@ -101,6 +156,16 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       const common = { ...base, number: standards ? standards.number : old?.number ?? await reserveNumber("repairs"), photos: [...retained, ...added] };
       if (standards) await writeCollection("standards", upsert(await readCollection("standards"), { ...standards, ...common }, Boolean(old)));
       if (repair) await writeCollection("repairs", upsert(await readCollection("repairs"), { ...repair, ...common }, Boolean(old)));
+      const device = standards ? standards.device : repair!.device;
+      const modelName = standards ? standards.model : repair!.model;
+      const storedModels = await readCollection("models");
+      const existingModels = storedModels.length > 0 ? storedModels : [...defaultCatalogModels];
+      if (!existingModels.some((item) => item.name.toLocaleLowerCase("he") === modelName.toLocaleLowerCase("he"))) {
+        const now = new Date().toISOString();
+        await writeCollection("models", [...existingModels, {
+          id: randomUUID(), device, name: modelName, notes: "", photos: [], createdAt: now, updatedAt: now,
+        }]);
+      }
       await audit(actor.id, old ? "update" : "create", module, base.id);
       if (!cloud) await removePhotos(module, removed);
       return common;
@@ -124,6 +189,18 @@ export async function deleteRecord(module: Module, id: string, version: string, 
         throw new AppError(409, "לא ניתן למחוק לקוח עם תיקונים משויכים.");
       }
       await writeCollection(module, customers.filter((customer) => customer.id !== id));
+    } else if (module === "models") {
+      const stored = await readCollection("models");
+      const all = stored.length > 0 ? stored : [...defaultCatalogModels];
+      const record = existing(all, id);
+      recordFields(record, version);
+      const targetName = record.name.toLocaleLowerCase("he");
+      const [standards, repairs] = await Promise.all([readCollection("standards"), readCollection("repairs")]);
+      if ([...standards, ...repairs].some((item) => item.model.toLocaleLowerCase("he") === targetName)) {
+        throw new AppError(409, "לא ניתן למחוק דגם עם תיקי תקינה או תיקונים משויכים.");
+      }
+      await writeCollection("models", all.filter((item) => item.id !== id));
+      if (!usesBlobStorage()) await removePhotos("models", record.photos);
     } else if (module === "standards") {
       const all = await readCollection(module);
       const record = existing(all, id);

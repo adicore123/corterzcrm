@@ -43,3 +43,21 @@ export function Confirm({ open, onOpenChange, title, description, action, busy, 
     </AlertDialog.Portal>
   </AlertDialog.Root>;
 }
+
+export function UnsavedDialog({ open, onConfirm, onCancel, description = "יש שינויים שלא נשמרו. לצאת מהטופס?" }: {
+  open: boolean; onConfirm: () => void; onCancel: () => void; description?: string;
+}) {
+  return <AlertDialog.Root open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+    <AlertDialog.Portal>
+      <AlertDialog.Overlay className="dialog-overlay" />
+      <AlertDialog.Content className="dialog-content" dir="rtl">
+        <AlertDialog.Title>יציאה ללא שמירה</AlertDialog.Title>
+        <AlertDialog.Description className="muted">{description}</AlertDialog.Description>
+        <div className="dialog-actions">
+          <Button variant="destructive" onClick={onConfirm}>יציאה ללא שמירה</Button>
+          <AlertDialog.Cancel asChild><Button variant="outline" onClick={onCancel}>המשך עריכה</Button></AlertDialog.Cancel>
+        </div>
+      </AlertDialog.Content>
+    </AlertDialog.Portal>
+  </AlertDialog.Root>;
+}

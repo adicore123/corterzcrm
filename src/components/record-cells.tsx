@@ -1,8 +1,25 @@
 import Link from "next/link";
-import { Phone } from "lucide-react";
+import { Bike, Phone } from "lucide-react";
 import { formatDate, phoneHref } from "@/lib/presentation";
-import type { Customer, Repair, Standard } from "@/lib/validation/models";
+import type { CatalogModel, Customer, Repair, Standard } from "@/lib/validation/models";
 import { Status } from "./ui/status";
+
+export function modelThumbUrl(model: Pick<CatalogModel, "id" | "imageUrl" | "photos">) {
+  if (model.photos.length > 0) return "/api/images/models/" + model.id + "/" + model.photos[0].id;
+  return model.imageUrl || undefined;
+}
+
+export function ModelBadge({ model, linked = false }: { model: Pick<CatalogModel, "id" | "name" | "imageUrl" | "photos">; linked?: boolean }) {
+  const src = modelThumbUrl(model);
+  const content = <span className="model-cell">
+    {src ? (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img src={src} alt="" aria-hidden className="model-thumb" loading="lazy" />
+    ) : <span className="model-thumb model-thumb-empty" aria-hidden><Bike size={15} /></span>}
+    <span>{model.name}</span>
+  </span>;
+  return linked ? <Link className="text-link" href={"/models/" + model.id} prefetch={false}>{content}</Link> : content;
+}
 
 export function RecordNumber({ number }: { number: string }) {
   return <bdi className="record-number" dir="ltr">{number}</bdi>;
@@ -49,4 +66,13 @@ export function repairRow(item: Repair, names: Map<string, string>, recent = fal
 export function customerRow(item: Customer, count: number) {
   return { id: item.id, label: item.name, href: "/customers/" + item.id,
     cells: [item.name, item.store || "—", <PhoneLink key="phone" phone={item.phone} />, count] };
+}
+
+export function modelRow(item: CatalogModel, standardsCount: number, repairsCount: number) {
+  return {
+    id: item.id,
+    label: item.name,
+    href: "/models/" + item.id,
+    cells: [<ModelBadge key="model" model={item} />, item.device, standardsCount, repairsCount],
+  };
 }

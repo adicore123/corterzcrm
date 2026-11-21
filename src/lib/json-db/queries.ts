@@ -1,5 +1,6 @@
 import { readCollection } from "./store";
-import type { Customer, Module, Repair, Standard } from "../validation/models";
+import { defaultCatalogModels } from "./cortez-catalog";
+import type { CatalogModel, Customer, Module, Repair, Standard } from "../validation/models";
 
 export type RecordFilters = { q?: string; status?: string; delay?: string; sort?: string };
 const matches = (value: string, query: string) => value.toLocaleLowerCase("he").includes(query);
@@ -26,23 +27,46 @@ export async function dashboard() {
 
 export async function searchRecords(module: Module, filters: RecordFilters) {
   const q = (filters.q ?? "").trim().slice(0, 120).toLocaleLowerCase("he");
-  const all = await readCollection(module);
-  const filtered = all.filter((item: Standard | Repair | Customer) => {
+  const digits = q.replace(/\D/g, "");
+  const phoneQuery = Boolean(digits) && /^\+?[\d\s()-]+$/.test(q);
+  const [rawAll, customers] = await Promise.all([
+    module === "models" ? catalogModels() : readCollection(module),
+    module === "repairs" && q ? readCollection("customers") : Promise.resolve([] as Customer[]),
+  ]);
+  const customerMap = new Map(customers.map((customer) => [customer.id, customer]));
+  const matchesCustomer = (customer: Customer) =>
+    [customer.name, customer.store, customer.phone].some((value) => matches(value, q))
+    || (phoneQuery && customer.phone.replace(/\D/g, "").includes(digits));
+
+  const filtered = (rawAll as Array<Standard | Repair | Customer | CatalogModel>).filter((item) => {
     if ("number" in item) {
       if (filters.status === "active" ? item.status === "הסתיים" : filters.status && filters.status !== item.status) return false;
       if ("delay" in item && filters.delay && filters.delay !== item.delay) return false;
-      return [item.number, item.model, "serial" in item ? item.serial : ""].some((value) => matches(value, q));
+      if ([item.number, item.model, "serial" in item ? item.serial : ""].some((value) => matches(value, q))) return true;
+      if ("customerId" in item && q) {
+        const customer = customerMap.get(item.customerId);
+        if (customer && matchesCustomer(customer)) return true;
+      }
+      return false;
     }
-    const digits = q.replace(/\D/g, "");
-    return [item.name, item.store, item.phone].some((value) => matches(value, q))
-      || (Boolean(digits) && /^\+?[\d\s()-]+$/.test(q) && item.phone.replace(/\D/g, "").includes(digits));
+    if ("phone" in item) return matchesCustomer(item);
+    if (filters.status && filters.status !== item.device) return false;
+    return [item.name, item.device, item.notes].some((value) => matches(value, q));
   });
   if (filters.sort === "oldest") return filtered.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   if (filters.sort === "created") return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (module === "models" && !filters.sort) return filtered.sort((a, b) => ("name" in a && "name" in b ? a.name.localeCompare(b.name, "he") : 0));
   return newest(filtered);
 }
 
+export async function catalogModels(): Promise<CatalogModel[]> {
+  const stored = await readCollection("models");
+  const list = stored.length > 0 ? stored : defaultCatalogModels;
+  return [...list].sort((a, b) => a.name.localeCompare(b.name, "he"));
+}
+
 export async function knownModels() {
-  const [standards, repairs] = await Promise.all([readCollection("standards"), readCollection("repairs")]);
-  return Array.from(new Set([...standards, ...repairs].map((item) => item.model))).sort((a, b) => a.localeCompare(b, "he"));
+  const [models, standards, repairs] = await Promise.all([catalogModels(), readCollection("standards"), readCollection("repairs")]);
+  return Array.from(new Set([...models.map((item) => item.name), ...standards.map((item) => item.model), ...repairs.map((item) => item.model)]))
+    .sort((a, b) => a.localeCompare(b, "he"));
 }

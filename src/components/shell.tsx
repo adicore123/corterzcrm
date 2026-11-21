@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
 import {
-  CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PanelRightClose,
+  Bike, CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PanelRightClose,
   PanelRightOpen, Settings, Users, Wrench, X,
 } from "lucide-react";
 import { labels, roleLabel } from "@/lib/presentation";
@@ -16,7 +16,7 @@ import { Button } from "./ui/button";
 
 const navigation = [
   ["dashboard", LayoutDashboard], ["standards", ClipboardList], ["repairs", Wrench],
-  ["customers", Users], ["settings", Settings],
+  ["customers", Users], ["models", Bike], ["settings", Settings],
 ] as const;
 
 export function Shell({ user, today, children }: { user: PublicUser; today: string; children: ReactNode }) {

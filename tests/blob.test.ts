@@ -5,7 +5,8 @@ import test from "node:test";
 import { put } from "@vercel/blob/client";
 import sharp from "sharp";
 import { getGlobalDispatcher, MockAgent, setGlobalDispatcher } from "undici";
-import { createUser, getUser, login } from "../src/lib/auth/session";
+import { createUser, getUser, login, resetUserPassword } from "../src/lib/auth/session";
+import { searchRecords } from "../src/lib/json-db/queries";
 import { deleteRecord, getRecord, saveRecord } from "../src/lib/json-db/records";
 import { createBackup, listBackups } from "../src/lib/json-db/store";
 import { authorizeUpload, prepareBlobPhotos, readBlobPhoto } from "../src/lib/uploads/blob-images";
@@ -103,6 +104,18 @@ test("Blob SDK creates a private record and image, and a backup retains that ima
     assert.equal((await sharp(Buffer.from(await new Response(image).arrayBuffer())).metadata()).format, "webp");
     const backup = await createBackup();
     assert.deepEqual(await listBackups(), [backup.id]);
+    const customer = await saveRecord("customers", undefined, { name: "דני בדיקה", store: "קורטז ת״א", phone: "054-9876543" }, [], admin);
+    const repair = await saveRecord("repairs", undefined, {
+      device: "קורקינט חשמלי", model: "דגם תיקון", serial: "SN-99", customerId: customer.id, fault: "פנצ׳ר", work: "", status: "התקבל",
+    }, [], admin);
+    assert.equal((await searchRecords("repairs", { q: "דני בדיקה" }))[0]?.id, repair.id);
+    assert.equal((await searchRecords("repairs", { q: "0549876543" }))[0]?.id, repair.id);
+    const empSession = await login(employee.username, password);
+    const newPassword = randomUUID();
+    await resetUserPassword(employee.id, newPassword, admin);
+    assert.equal(await getUser(empSession.token), null);
+    const relogin = await login(employee.username, newPassword);
+    assert.equal((await getUser(relogin.token))?.id, employee.id);
     await deleteRecord("standards", record.id, record.updatedAt, admin);
     const archived = files.get("cortez/v1/backups/" + backup.id + ".json");
     assert.ok(archived);

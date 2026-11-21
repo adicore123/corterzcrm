@@ -2,10 +2,11 @@ import { randomUUID } from "node:crypto";
 import { cp, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../errors";
-import { blobTransaction, listBlobBackups, readBlobCollection, usesBlobStorage, writeBlobBackup, writeBlobCollection } from "./blob-store";
+import { blobTransaction, listBlobBackups, readBlobBackup, readBlobCollection, usesBlobStorage, writeBlobBackup, writeBlobCollection } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
-import { listMongoBackups, mongoTransaction, readMongoCollection, writeMongoBackup, writeMongoCollection } from "./mongo-store";
+import { listMongoBackups, mongoTransaction, readMongoBackup, readMongoCollection, writeMongoBackup, writeMongoCollection } from "./mongo-store";
 import { collections, initialCounters, type Collection, type Data } from "./collections";
+import { defaultCatalogModels } from "./cortez-catalog";
 const roots = globalThis as typeof globalThis & {
   cortezStore?: { queue: Promise<unknown>; initializations: Map<string, Promise<void>> };
 };
@@ -52,7 +53,7 @@ function hasCode(error: unknown, code: string): boolean {
 }
 
 async function initialize(root: string) {
-  await Promise.all(["data", "uploads/standards", "uploads/repairs", "backups"]
+  await Promise.all(["data", "uploads/standards", "uploads/repairs", "uploads/models", "backups"]
     .map((directory) => mkdir(path.join(/* turbopackIgnore: true */ root, directory), { recursive: true, mode: 0o700 })));
   const keys = Object.keys(collections) as Collection[];
   const marker = path.join(root, "data", ".initialized");
@@ -73,7 +74,8 @@ async function initialize(root: string) {
         console.error("[cortez] Counter file missing from initialized storage", file);
         throw new AppError(503, "קובץ המספור חסר. יש לשחזר אותו מגיבוי לפני המשך עבודה.");
       }
-      await atomicWrite(file, JSON.stringify(key === "counters" ? initialCounters : []) + "\n");
+      const initialValue = key === "counters" ? initialCounters : key === "models" ? defaultCatalogModels : [];
+      await atomicWrite(file, JSON.stringify(initialValue, null, 2) + "\n");
     }
   }
   if (!alreadyInitialized) await atomicWrite(marker, "1\n");
@@ -136,13 +138,33 @@ export async function audit(actor: string, action: string, entity: string, entit
   try {
     const events = await readCollection("activity");
     events.push({ id: randomUUID(), at: new Date().toISOString(), actor, action, entity, entityId });
-    await writeCollection("activity", events);
+    await writeCollection("activity", events.slice(-2000));
   } catch (error) {
     console.error("[cortez] Audit event failed", { actor, action, entity, entityId }, error);
   }
 }
 
 const backupName = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{8}$/;
+
+export async function readBackup(id: string) {
+  if (!backupName.test(id)) throw new AppError(404, "הגיבוי לא נמצא.");
+  if (usesMongoStorage()) return readMongoBackup(id);
+  if (usesBlobStorage()) return readBlobBackup(id);
+  await ensureStorage();
+  const directory = path.join(storageRoot(), "backups", id);
+  try {
+    const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8")) as { id: string; timestamp: string };
+    const keys = (Object.keys(collections) as Collection[]).filter((key) => key !== "sessions");
+    const entries = await Promise.all(keys.map(async (key) => [
+      key,
+      collections[key].schema.parse(JSON.parse(await readFile(path.join(directory, "data", collections[key].file), "utf8"))),
+    ] as const));
+    return { id: manifest.id, timestamp: manifest.timestamp, state: { format: 1, ...Object.fromEntries(entries), sessions: [] } };
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) throw new AppError(404, "הגיבוי לא נמצא.");
+    throw error;
+  }
+}
 
 export async function listBackups() {
   if (usesMongoStorage()) return listMongoBackups();

@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { createUser, getUser, login, logout, requireAdmin, sessionCookie, setUserDisabled } from "@/lib/auth/session";
+import { createUser, getUser, login, logout, requireAdmin, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import { deleteRecord, getRecord, saveRecord } from "@/lib/json-db/records";
-import { audit, createBackup, serialized } from "@/lib/json-db/store";
+import { audit, createBackup, readBackup, serialized } from "@/lib/json-db/store";
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
-import { modules, usernameSchema, uuid } from "@/lib/validation/models";
+import { modules, passwordSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 type Route = { params: Promise<{ segments: string[] }> };
 const privateHeaders = { "Cache-Control": "private, no-store" };
 const validModule = z.enum(modules);
-const photoModule = z.enum(["standards", "repairs"]);
+const photoModule = z.enum(["standards", "repairs", "models"]);
 
 function json(value: unknown, status = 200) {
   return NextResponse.json(value, { status, headers: privateHeaders });
@@ -105,8 +105,19 @@ async function parseBody(request: NextRequest, allowFiles = false) {
 
 export async function GET(request: NextRequest, { params }: Route) {
   try {
-    await requireUser(request);
+    const user = await requireUser(request);
     const [resource, module, id, photo, ...extra] = (await params).segments;
+    if (resource === "settings" && module === "backups" && id && !photo && !extra.length) {
+      requireAdmin(user);
+      const backup = await readBackup(id);
+      return new NextResponse(JSON.stringify(backup, null, 2) + "\n", {
+        headers: {
+          ...privateHeaders,
+          "Content-Type": "application/json; charset=utf-8",
+          "Content-Disposition": `attachment; filename="cortez-backup-${id}.json"`,
+        },
+      });
+    }
     if (resource !== "images" || !photo || extra.length) throw new AppError(404, "הנתיב לא נמצא.");
     const kind = photoModule.parse(module);
     const record = await getRecord(kind, uuid.parse(id));
@@ -114,7 +125,7 @@ export async function GET(request: NextRequest, { params }: Route) {
     if (!image) throw new AppError(404, "התמונה לא נמצאה.");
     const body = usesMongoStorage() ? await readMongoPhoto(kind, image.id)
       : usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
-    return new NextResponse(body, { headers: { ...privateHeaders, "Content-Type": image.type } });
+    return new NextResponse(body, { headers: { "Cache-Control": "private, max-age=31536000, immutable", "Content-Type": image.type } });
   } catch (error) {
     return errorResponse(error);
   }
@@ -172,7 +183,11 @@ async function mutate(request: NextRequest, { params }: Route) {
       if (sub === "users" && method === "POST") return json(await createUser((await parseBody(request)).value, user), 201);
       if (sub === "users" && method === "PATCH") {
         const { value } = await parseBody(request);
-        const input = z.object({ id: uuid, disabled: z.boolean() }).parse(value);
+        const input = z.union([
+          z.object({ id: uuid, disabled: z.boolean() }),
+          z.object({ id: uuid, password: passwordSchema }),
+        ]).parse(value);
+        if ("password" in input) return json(await resetUserPassword(input.id, input.password, user));
         return json(await setUserDisabled(input.id, input.disabled, user));
       }
       if (sub === "backups" && method === "POST") {

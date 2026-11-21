@@ -5,9 +5,10 @@ export const standardStatuses = ["חדש", "בטיפול", "הסתיים"] as co
 export const repairStatuses = ["התקבל", "בטיפול", "הסתיים"] as const;
 export const delayStatuses = ["ללא עיכוב", "מתעכב"] as const;
 export const roles = ["admin", "employee"] as const;
-export const modules = ["standards", "repairs", "customers"] as const;
+export const modules = ["standards", "repairs", "customers", "models"] as const;
 export type Module = (typeof modules)[number];
 export type PhotoModule = Exclude<Module, "customers">;
+export type Device = (typeof devices)[number];
 
 export const uuid = z.uuid({ error: "המזהה אינו תקין." });
 const date = z.iso.datetime();
@@ -49,6 +50,15 @@ export const customerInput = z.object({
       "יש להזין מספר טלפון תקין."),
 });
 
+export const modelInput = z.object({
+  device: z.enum(devices),
+  name: required("שם דגם"),
+  imageUrl: z.string().trim().max(500, { error: "כתובת התמונה ארוכה מדי." })
+    .refine((value) => !value || /^https?:\/\/.+/i.test(value), "יש להזין כתובת תמונה תקינה (http/https).")
+    .optional(),
+  notes: optional(4000),
+});
+
 export const photoSchema = z.object({
   id: uuid,
   name: z.string().max(255),
@@ -64,6 +74,9 @@ export const repairSchema = repairInput.extend({
   ...record, number: z.string().regex(/^REP-\d{4,}$/), photos: z.array(photoSchema).max(10),
 });
 export const customerSchema = customerInput.extend(record);
+export const catalogModelSchema = modelInput.extend({
+  ...record, photos: z.array(photoSchema).max(10),
+});
 export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9._@+-]{2,79}$/, "יש להזין שם משתמש באותיות לטיניות או בספרות (3–80 תווים).");
 export const passwordSchema = z.string().min(12, "הסיסמה חייבת לכלול לפחות 12 תווים.").max(128, "הסיסמה ארוכה מדי.");
 export const userInput = z.object({
@@ -84,9 +97,11 @@ export const activitySchema = z.object({
 export type StandardInput = z.infer<typeof standardsInput>;
 export type RepairInput = z.infer<typeof repairInput>;
 export type CustomerInput = z.infer<typeof customerInput>;
+export type ModelInput = z.infer<typeof modelInput>;
 export type Standard = z.infer<typeof standardSchema>;
 export type Repair = z.infer<typeof repairSchema>;
 export type Customer = z.infer<typeof customerSchema>;
+export type CatalogModel = z.infer<typeof catalogModelSchema>;
 export type User = z.infer<typeof userSchema>;
 export type PublicUser = Omit<User, "passwordHash">;
 export type Photo = z.infer<typeof photoSchema>;

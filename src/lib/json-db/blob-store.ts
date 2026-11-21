@@ -3,6 +3,7 @@ import { cache } from "react";
 import { z } from "zod";
 import { AppError } from "../errors";
 import { collections, initialCounters, type Collection, type Data } from "./collections";
+import { defaultCatalogModels } from "./cortez-catalog";
 import { createVersionedStore } from "./versioned";
 
 export const stateSchema = z.object({
@@ -10,6 +11,7 @@ export const stateSchema = z.object({
   standards: collections.standards.schema,
   repairs: collections.repairs.schema,
   customers: collections.customers.schema,
+  models: collections.models.schema.default(() => [...defaultCatalogModels]),
   users: collections.users.schema,
   counters: collections.counters.schema,
   activity: collections.activity.schema,
@@ -29,7 +31,7 @@ export function usesBlobStorage() {
 
 function emptyState(): State {
   return {
-    format: 1, standards: [], repairs: [], customers: [], users: [], activity: [], sessions: [],
+    format: 1, standards: [], repairs: [], customers: [], models: [...defaultCatalogModels], users: [], activity: [], sessions: [],
     counters: { ...initialCounters },
   };
 }
@@ -95,4 +97,10 @@ export async function listBlobBackups() {
 export async function writeBlobBackup(id: string, timestamp: string) {
   const { value } = await readVersion();
   await put(backupPrefix + id + ".json", JSON.stringify({ id, timestamp, state: { ...value, sessions: [] } }), jsonOptions);
+}
+
+export async function readBlobBackup(id: string) {
+  const stored = await get(backupPrefix + id + ".json", { ...privateAccess, useCache: false });
+  if (!stored || stored.statusCode !== 200) throw new AppError(404, "הגיבוי לא נמצא.");
+  return await new Response(stored.stream).json() as unknown;
 }

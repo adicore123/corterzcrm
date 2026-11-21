@@ -8,7 +8,7 @@ test("initializes, serializes reservations, keeps them across deletions, and pre
   const root = await mkdtemp(join(tmpdir(), "cortez-db-"));
   process.env.CORTEZ_STORAGE_DIR = root;
   try {
-    const { readCollection, reserveNumber, serialized, createBackup, writeCollection } = await import("../src/lib/json-db/store");
+    const { readCollection, reserveNumber, serialized, createBackup, readBackup, writeCollection } = await import("../src/lib/json-db/store");
     const empty = await readCollection("customers");
     assert.deepEqual(empty, []);
     const values = await Promise.all(Array.from({ length: 30 }, () => serialized(() => reserveNumber("repairs"))));
@@ -17,6 +17,9 @@ test("initializes, serializes reservations, keeps them across deletions, and pre
     await assert.rejects(() => writeCollection("customers", [{} as never]));
     const backup = await serialized(createBackup);
     assert.deepEqual(JSON.parse(await readFile(join(root, "backups", backup.id, "data", "counters.json"), "utf8")), { standards: 0, repairs: 31 });
+    const exported = await readBackup(backup.id) as { id: string; state: { counters: { repairs: number } } };
+    assert.equal(exported.id, backup.id);
+    assert.equal(exported.state.counters.repairs, 31);
 
     const file = join(root, "data", "customers.json");
     await writeFile(file, "{damaged");

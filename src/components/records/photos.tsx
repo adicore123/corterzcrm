@@ -3,10 +3,9 @@
 import { useId, useState } from "react";
 import { Camera, ImagePlus, Images, X } from "lucide-react";
 import { Modal } from "@/components/ui/dialog";
-import type { Photo } from "@/lib/validation/models";
+import type { Photo, PhotoModule } from "@/lib/validation/models";
 import type { PhotoDraft } from "./use-editor";
 
-type PhotoModule = "standards" | "repairs";
 const accept = "image/jpeg,image/png,image/webp";
 const urlFor = (module: PhotoModule, recordId: string, photoId: string) => "/api/images/" + module + "/" + recordId + "/" + photoId;
 

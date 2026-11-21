@@ -137,8 +137,11 @@ try {
   await field(page, "מספר תיק").fill("TEST-100");
   await field(page, "סוג מכשיר").selectOption("אופניים חשמליים");
   await field(page, "שם הדגם").fill("דגם בדיקה 2");
-  page.once("dialog", (dialog) => dialog.dismiss());
   await link(page, "ביטול").click();
+  const unsavedDialog = page.getByRole("alertdialog", { name: "יציאה ללא שמירה" });
+  await visible(unsavedDialog);
+  await button(unsavedDialog, "המשך עריכה").click();
+  await unsavedDialog.waitFor({ state: "hidden" });
   assert.match(page.url(), /\/standards\/new$/);
   await field(page, "סטטוס טיפול").selectOption("בטיפול");
   await field(page, "סטטוס עיכוב").selectOption("מתעכב");
@@ -173,6 +176,8 @@ try {
   await button(page, "תמונה 1").click();
   await visible(page.getByRole("dialog", { name: "תמונה 1" }));
   await button(page, "סגירה").click();
+  await button(page, "סימון משימה כהושלמה: בדיקת תאורה").click();
+  await visible(button(page, "ביטול סימון משימה: בדיקת תאורה"));
   await link(page, "עריכה").click();
   await field(page, "סטטוס טיפול").selectOption("הסתיים");
   await button(page, "מחיקת משימה 2").click();
@@ -213,6 +218,9 @@ try {
   assert.equal(repair.customerId, contact.id);
   assert.equal(repair.photos.length, 1);
   await page.goto("/repairs");
+  await field(page, "חיפוש לפי מספר תיקון, דגם או מספר סידורי").fill("לקוח בדיקה");
+  await button(page, "חיפוש").click();
+  await visible(link(page, repair.number));
   await field(page, "חיפוש לפי מספר תיקון, דגם או מספר סידורי").fill("SER-TEST-73");
   await field(page, "סינון לפי סטטוס").selectOption("התקבל");
   await button(page, "חיפוש").click();
@@ -242,6 +250,16 @@ try {
   await field(page, "שם לקוח").fill("לקוח נוסף");
   await field(page, "מספר טלפון").fill("052-5557788");
   await save(page, "customers");
+
+  stage = "models catalog and linking";
+  await page.goto("/models");
+  await visible(heading(page, "מאגר דגמים"));
+  await visible(link(page, "CORTEZ 10X"));
+  await field(page, "חיפוש לפי שם דגם או סוג מכשיר").fill("דגם בדיקה 2");
+  await button(page, "חיפוש").click();
+  await link(page, "דגם בדיקה 2").click();
+  await visible(heading(page, "תיקי מכון תקנים של דגם זה"));
+  await visible(link(page, original.number));
 
   stage = "authorization, idempotency, concurrency, backup and restart";
   await admin.goto("/dashboard");
@@ -279,6 +297,9 @@ try {
   await visible(admin.getByText("גיבוי מלא נשמר בשרת."));
   const backups = await readdir(join(root, "backups"));
   assert.equal(backups.length, 1);
+  const downloadedBackup = await desktop.request.get("/api/settings/backups/" + backups[0]);
+  assert.equal(downloadedBackup.status(), 200);
+  assert.equal((await downloadedBackup.json()).id, backups[0]);
   assert.deepEqual(await readFile(join(root, "backups", backups[0], "uploads", "standards", original.photos[0].id + ".webp")),
     await readFile(join(root, "uploads", "standards", original.photos[0].id + ".webp")));
   assert.equal((await readDb("users")).some((item) => Object.values(item).includes(employeePassword)), false);

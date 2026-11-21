@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import { AppError } from "../errors";
-import { userInput, type PublicUser, type User } from "../validation/models";
+import { passwordSchema, userInput, type PublicUser, type User } from "../validation/models";
 
 const derive = promisify(scrypt);
 const ttl = 12 * 60 * 60 * 1000;
@@ -124,6 +124,26 @@ export async function setUserDisabled(id: string, disabled: boolean, actor: Publ
     const updated = { ...user, disabled, updatedAt: new Date().toISOString() };
     await writeCollection("users", users.map((item) => item.id === id ? updated : item));
     await audit(actor.id, disabled ? "disable" : "enable", "users", id);
+    return publicUser(updated);
+  });
+}
+
+export async function resetUserPassword(id: string, password: string, actor: PublicUser) {
+  requireAdmin(actor);
+  const validPassword = passwordSchema.parse(password);
+  const passwordHash = await hashPassword(validPassword);
+  return serialized(async () => {
+    const users = await readCollection("users");
+    const user = users.find((item) => item.id === id);
+    if (!user) throw new AppError(404, "המשתמש לא נמצא.");
+    if (id !== actor.id) {
+      const sessions = await readCollection("sessions");
+      await writeCollection("sessions", sessions.filter((item) => item.userId !== id));
+    }
+    attempts.delete("account:" + user.username);
+    const updated = { ...user, passwordHash, updatedAt: new Date().toISOString() };
+    await writeCollection("users", users.map((item) => item.id === id ? updated : item));
+    await audit(actor.id, "password-reset", "users", id);
     return publicUser(updated);
   });
 }

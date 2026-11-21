@@ -5,12 +5,13 @@ import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { readCollection } from "@/lib/json-db/store";
 import { getRecord } from "@/lib/json-db/records";
-import { knownModels } from "@/lib/json-db/queries";
+import { catalogModels, knownModels } from "@/lib/json-db/queries";
 import { labels } from "@/lib/presentation";
 import { modules, uuid } from "@/lib/validation/models";
 import { CustomerForm } from "@/components/records/customer-form";
 import { RecordDetail } from "@/components/records/detail";
 import { RecordList } from "@/components/records/list";
+import { ModelForm } from "@/components/records/model-form";
 import { RepairForm } from "@/components/records/repair-form";
 import { StandardsForm } from "@/components/records/standards-form";
 
@@ -47,11 +48,16 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
     throw error;
   });
   if (record && !action) return <RecordDetail module={kind} record={record} admin={user.role === "admin"} saved={value("saved") === "1"} />;
-  if (kind === "customers") return <CustomerForm record={record && "name" in record ? record : undefined} />;
+  if (kind === "customers") return <CustomerForm record={record && "phone" in record ? record : undefined} />;
   const cloud = usesBlobStorage();
-  if (kind === "standards") return <StandardsForm record={record && "tasks" in record ? record : undefined} models={await knownModels()} cloud={cloud} />;
-  const [models, customers] = await Promise.all([knownModels(), readCollection("customers")]);
+  if (kind === "models") return <ModelForm record={record && !("phone" in record) && !("model" in record) ? record : undefined} cloud={cloud} />;
+  const [models, catalog] = await Promise.all([knownModels(), catalogModels()]);
+  const initialModel = catalog.find((item) => item.id === value("model"));
+  if (kind === "standards") {
+    return <StandardsForm record={record && "tasks" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
+  }
+  const customers = await readCollection("customers");
   customers.sort((a, b) => a.name.localeCompare(b.name, "he"));
-  return <RepairForm record={record && "serial" in record ? record : undefined} models={models} customers={customers} cloud={cloud}
-    customerId={customers.find((customer) => customer.id === value("customer"))?.id} />;
+  return <RepairForm record={record && "serial" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel}
+    customers={customers} cloud={cloud} customerId={customers.find((customer) => customer.id === value("customer"))?.id} />;
 }

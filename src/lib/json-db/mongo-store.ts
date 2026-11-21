@@ -57,3 +57,10 @@ export async function writeMongoBackup(id: string, timestamp: string) {
   await db.collection<{ _id: string; timestamp: string; state: State }>("backups")
     .insertOne({ _id: id, timestamp, state: { ...value, sessions: [] } });
 }
+
+export async function readMongoBackup(id: string) {
+  const db = await mongoDatabase();
+  const backup = await db.collection<{ _id: string; timestamp: string; state: State }>("backups").findOne({ _id: id });
+  if (!backup) throw new AppError(404, "הגיבוי לא נמצא.");
+  return { id: backup._id, timestamp: backup.timestamp, state: backup.state };
+}
