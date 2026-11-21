@@ -35,7 +35,7 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
   const allModelNames = Array.from(new Set([...addedModels.map((item) => item.name), ...models]));
 
   return <Editor module="repairs" title={record ? "עריכת תיקון" : "תיקון חדש"} cancel={record ? "/repairs/" + record.id : "/repairs"}
-    loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
     onSubmit={handleSubmit(editor.save)}>
     <Section title="כלי ולקוח" icon={ClipboardList}>
       <div className="fields-grid">

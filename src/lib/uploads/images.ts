@@ -7,8 +7,9 @@ import { atomicWrite, storageRoot } from "../json-db/store";
 import { uuid, type Photo, type PhotoModule } from "../validation/models";
 
 export const maxPhotos = 10;
-export const maxImageBytes = 8 * 1024 * 1024;
+export const maxImageBytes = 12 * 1024 * 1024;
 export const acceptedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+const supportedSharpFormats = new Set(["jpeg", "png", "webp", "heif", "avif"]);
 
 function imagePath(module: PhotoModule, id: string) {
   return path.join(storageRoot(), "uploads", module, uuid.parse(id) + ".webp");
@@ -32,13 +33,21 @@ export async function removePhotos(module: PhotoModule, photos: Photo[]) {
 }
 
 export async function normalizePhoto(bytes: Buffer, type: string, fitFunctionResponse = false) {
-  if (!acceptedImageTypes.includes(type) || !bytes.length || bytes.length > maxImageBytes) {
-    throw new AppError(400, "יש לבחור תמונות JPG, PNG או WebP בגודל של עד 8 מ״ב לתמונה.");
+  const normalizedType = type.split(";")[0].trim().toLowerCase().replace("image/jpg", "image/jpeg");
+  const allowedIncoming = !normalizedType || normalizedType === "application/octet-stream" || normalizedType.startsWith("image/");
+  if (!allowedIncoming || !bytes.length || bytes.length > maxImageBytes) {
+    throw new AppError(400, "יש לבחור תמונות JPG, PNG או WebP בגודל של עד 12 מ״ב לתמונה.");
   }
   try {
-    const image = sharp(bytes, { limitInputPixels: 50_000_000, failOn: "warning" });
+    // Allow high-MP mobile cameras (e.g., 108MP) and ignore trailing vendor metadata (Samsung Motion Photo / XMP warnings).
+    const image = sharp(bytes, { limitInputPixels: 160_000_000, failOn: "none" });
     const info = await image.metadata();
-    if ("image/" + info.format !== type) throw new Error("Incorrect image type");
+    if (!info.format || !supportedSharpFormats.has(info.format) || !info.width || !info.height) {
+      throw new Error("Unsupported image format");
+    }
+    if (acceptedImageTypes.includes(normalizedType) && ("image/" + info.format) !== normalizedType) {
+      throw new Error("Incorrect image type");
+    }
     const result = await image.clone().rotate().resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: true })
       .webp({ quality: 86 }).toBuffer();
     if (!fitFunctionResponse || result.length <= 4_000_000) return result;
@@ -54,7 +63,7 @@ export async function savePhotos(module: PhotoModule, files: File[]) {
   try {
     for (const file of files) {
       if (file.size > maxImageBytes) {
-        throw new AppError(400, "יש לבחור תמונות JPG, PNG או WebP בגודל של עד 8 מ״ב לתמונה.");
+        throw new AppError(400, "יש לבחור תמונות JPG, PNG או WebP בגודל של עד 12 מ״ב לתמונה.");
       }
       const buffer = await normalizePhoto(Buffer.from(await file.arrayBuffer()), file.type);
       const photo = { id: randomUUID(), name: file.name.slice(0, 255), type: "image/webp" as const, bytes: buffer.length };

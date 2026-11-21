@@ -50,7 +50,9 @@ export async function uploadBlobRecord(
     const { pathname, token } = await requestJson<{ pathname: string; token: string }>("/api/uploads/" + module, "POST", { id });
     try {
       await put(pathname, file, {
-        access: "private", token,
+        access: "private",
+        token,
+        contentType: file.type || "image/jpeg",
         onUploadProgress: ({ loaded }) => progress(Math.min(99, Math.floor((uploaded + loaded) * 100 / total))),
       });
     } catch {

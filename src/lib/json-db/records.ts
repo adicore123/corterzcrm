@@ -112,6 +112,11 @@ export async function saveRecord(module: Module, id: string | undefined, payload
         const record: CatalogModel = {
           ...modelData,
           imageUrl: modelData.imageUrl || old?.imageUrl,
+          summary: modelData.summary ?? old?.summary,
+          msrp: modelData.msrp !== undefined ? modelData.msrp : old?.msrp,
+          productUrl: modelData.productUrl || old?.productUrl,
+          galleryUrls: modelData.galleryUrls ?? old?.galleryUrls,
+          specs: modelData.specs ?? old?.specs,
           ...base,
           photos: [...retained, ...added],
         };

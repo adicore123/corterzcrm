@@ -6,7 +6,7 @@ import { Modal } from "@/components/ui/dialog";
 import type { Photo, PhotoModule } from "@/lib/validation/models";
 import type { PhotoDraft } from "./use-editor";
 
-const accept = "image/jpeg,image/png,image/webp";
+const accept = "image/jpeg,image/png,image/webp,image/heic,image/heif,image/*";
 const urlFor = (module: PhotoModule, recordId: string, photoId: string) => "/api/images/" + module + "/" + recordId + "/" + photoId;
 
 function PhotoPreview({ url, label, name }: { url: string; label: string; name: string }) {
@@ -35,20 +35,31 @@ export function PhotoPicker({ module, id, photos }: { module: PhotoModule; id?: 
   return <>
     <div className="upload-zone">
       <span className="upload-mark"><Images size={22} aria-hidden /></span>
-      <div className="upload-copy"><strong>תמונות מצורפות</strong><span>עד 10 תמונות, 8 מ״ב לתמונה</span></div>
+      <div className="upload-copy"><strong>תמונות מצורפות</strong><span>עד 10 תמונות · התאמה ודחיסה אוטומטית גם ממצלמת הנייד</span></div>
       <div className="upload-controls">
         <div className="upload-option">
           <input type="file" id={gallery} className="sr-only" accept={accept} multiple disabled={count >= 10}
-            onChange={(event) => { photos.add(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const selected = Array.from(input.files ?? []);
+              if (selected.length) await photos.add(selected, false);
+              input.value = "";
+            }} />
           <label className="button button-outline" htmlFor={gallery}><ImagePlus size={17} /> בחירת תמונות</label>
         </div>
         <div className="upload-option">
           <input type="file" id={camera} className="sr-only" accept="image/*" capture="environment" disabled={count >= 10}
-            onChange={(event) => { photos.add(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const selected = Array.from(input.files ?? []);
+              if (selected.length) await photos.add(selected, true);
+              input.value = "";
+            }} />
           <label className="button button-outline" htmlFor={camera}><Camera size={17} /> צילום תמונה</label>
         </div>
       </div>
     </div>
+    {photos.processing && <p className="muted" role="status">מעבד ודוחס תמונות…</p>}
     {photos.error && <p className="error-message" role="alert">{photos.error}</p>}
     {count > 0 && <div className="photo-grid">
       {id && photos.kept.map((photo, index) => <div className="photo-item" key={photo.id}>

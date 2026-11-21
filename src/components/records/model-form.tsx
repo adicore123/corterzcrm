@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useForm } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Bike, Images, Plus, Save } from "lucide-react";
+import { Bike, Images, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { newRequestId, requestJson } from "@/lib/client-api";
 import { devices, modelInput, type CatalogModel, type Device, type ModelInput } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
@@ -13,18 +13,27 @@ import { Editor, Section } from "./form-parts";
 import { PhotoPicker } from "./photos";
 import { useEditor, usePhotoDraft } from "./use-editor";
 
-const defaults: ModelInput = { device: "קורקינט חשמלי", name: "", imageUrl: "", notes: "" };
+const defaults: ModelInput = { device: "קורקינט חשמלי", name: "", imageUrl: "", notes: "", summary: "", msrp: null, specs: [] };
 
 export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boolean }) {
-  const { register, handleSubmit, formState: { errors, isDirty, isSubmitting } } = useForm<ModelInput>({
+  const { control, register, handleSubmit, formState: { errors, isDirty, isSubmitting } } = useForm<ModelInput>({
     resolver: zodResolver(modelInput),
-    defaultValues: record ? { device: record.device, name: record.name, imageUrl: record.imageUrl ?? "", notes: record.notes } : defaults,
+    defaultValues: record ? {
+      device: record.device,
+      name: record.name,
+      imageUrl: record.imageUrl ?? "",
+      notes: record.notes,
+      summary: record.summary ?? "",
+      msrp: record.msrp ?? null,
+      specs: record.specs ?? [],
+    } : defaults,
   });
+  const specs = useFieldArray({ name: "specs", control, keyName: "fieldKey" });
   const photos = usePhotoDraft(record?.photos ?? []);
   const editor = useEditor("models", record, isDirty, photos, cloud);
 
   return <Editor module="models" title={record ? "עריכת דגם" : "דגם חדש"} cancel={record ? "/models/" + record.id : "/models"}
-    loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
     onSubmit={handleSubmit(editor.save)}>
     <Section title="פרטי הדגם" icon={Bike}>
       <div className="fields-grid">
@@ -37,10 +46,45 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
         <Field label="קישור לתמונת קטלוג (אופציונלי)" error={errors.imageUrl?.message} className="field-wide">{(props) =>
           <input {...props} {...register("imageUrl")} dir="ltr" maxLength={500} placeholder="https://cortez.co.il/..." />
         }</Field>
-        <Field label="מפרט והערות" error={errors.notes?.message} className="field-wide">{(props) =>
-          <textarea {...props} {...register("notes")} rows={3} maxLength={4000} placeholder="פרטי סוללה, בלמים, הערות תקינה או חלקי חילוף נפוצים" />
+        <Field label="הערות פנימיות" error={errors.notes?.message} className="field-wide">{(props) =>
+          <textarea {...props} {...register("notes")} rows={2} maxLength={4000} placeholder="הערות תקינה או חלקי חילוף פנימיים" />
         }</Field>
       </div>
+    </Section>
+    <Section title="מפרט טכני ופרטי קטלוג" icon={SlidersHorizontal}>
+      <div className="fields-grid">
+        <Field label="מחיר מחירון מומלץ (₪)" error={errors.msrp?.message}>{(props) =>
+          <input {...props} {...register("msrp", {
+            setValueAs: (value) => {
+              if (value === "" || value === null || value === undefined) return null;
+              const num = Number(value);
+              return Number.isFinite(num) ? num : null;
+            },
+          })} type="number" min={0} max={1000000} step={1} dir="ltr" placeholder="למשל 3890" />
+        }</Field>
+        <Field label="תיאור קצר לקטלוג הסוכנים" error={errors.summary?.message} className="field-wide">{(props) =>
+          <textarea {...props} {...register("summary")} rows={2} maxLength={600} placeholder="תיאור תמציתי של הדגם שיוצג ללקוחות בקטלוג הסוכנים" />
+        }</Field>
+      </div>
+      <div className="spec-inputs">
+        {specs.fields.map((spec, index) => <div className="spec-edit-row" key={spec.fieldKey}>
+          <div>
+            <input {...register(`specs.${index}.label`)} aria-label={"שם מאפיין " + (index + 1)}
+              aria-invalid={Boolean(errors.specs?.[index]?.label)} placeholder="מאפיין (למשל סוללה)" maxLength={80} />
+            {errors.specs?.[index]?.label && <span className="field-error" role="alert">{errors.specs[index]?.label?.message}</span>}
+          </div>
+          <div>
+            <input {...register(`specs.${index}.value`)} aria-label={"ערך מאפיין " + (index + 1)}
+              aria-invalid={Boolean(errors.specs?.[index]?.value)} placeholder="ערך (למשל 48V/15.6Ah)" maxLength={240} />
+            {errors.specs?.[index]?.value && <span className="field-error" role="alert">{errors.specs[index]?.value?.message}</span>}
+          </div>
+          <Button size="icon" variant="ghost" onClick={() => specs.remove(index)} aria-label={"מחיקת מאפיין " + (index + 1)}><Trash2 size={16} /></Button>
+        </div>)}
+      </div>
+      <Button variant="outline" disabled={specs.fields.length >= 40}
+        onClick={() => specs.append({ label: "", value: "" }, { focusName: "specs." + specs.fields.length + ".label" })}>
+        <Plus size={17} /> הוספת מאפיין טכני
+      </Button>
     </Section>
     <Section title="תמונות הדגם" icon={Images}>
       {record?.imageUrl && <div className="catalog-image-banner">

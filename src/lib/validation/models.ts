@@ -15,6 +15,7 @@ const date = z.iso.datetime();
 const required = (label: string, max = 120) => z.string().trim().min(1, { error: "יש להזין " + label + "." }).max(max, { error: "הטקסט ארוך מדי." });
 const optional = (max: number) => z.string().trim().max(max, { error: "הטקסט ארוך מדי." });
 export const taskSchema = z.object({ id: uuid, title: required("שם משימה", 240), done: z.boolean() });
+export const specSchema = z.object({ label: required("שם מאפיין", 80), value: required("ערך", 240) });
 
 export const standardsInput = z.object({
   number: required("מספר תיק", 120),
@@ -57,6 +58,16 @@ export const modelInput = z.object({
     .refine((value) => !value || /^https?:\/\/.+/i.test(value), "יש להזין כתובת תמונה תקינה (http/https).")
     .optional(),
   notes: optional(4000),
+  summary: optional(600).optional(),
+  msrp: z.number().nonnegative().max(1_000_000).nullable().optional(),
+  productUrl: z.string().trim().max(500, { error: "הקישור ארוך מדי." })
+    .refine((value) => !value || /^https?:\/\/.+/i.test(value), "יש להזין קישור תקין.")
+    .optional(),
+  galleryUrls: z.array(
+    z.string().trim().max(500, { error: "כתובת התמונה ארוכה מדי." })
+      .refine((value) => /^https?:\/\/.+/i.test(value), "כתובת תמונה אינה תקינה."),
+  ).max(12).optional(),
+  specs: z.array(specSchema).max(40).optional(),
 });
 
 export const photoSchema = z.object({
@@ -98,6 +109,7 @@ export type StandardInput = z.infer<typeof standardsInput>;
 export type RepairInput = z.infer<typeof repairInput>;
 export type CustomerInput = z.infer<typeof customerInput>;
 export type ModelInput = z.infer<typeof modelInput>;
+export type ModelSpec = z.infer<typeof specSchema>;
 export type Standard = z.infer<typeof standardSchema>;
 export type Repair = z.infer<typeof repairSchema>;
 export type Customer = z.infer<typeof customerSchema>;

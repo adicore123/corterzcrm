@@ -39,7 +39,7 @@ export function StandardsForm({ record, models, catalog = [], initialModel, clou
   const allModelNames = Array.from(new Set([...addedModels.map((item) => item.name), ...models]));
 
   return <Editor module="standards" title={title} cancel={record ? "/standards/" + record.id : "/standards"}
-    loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
     onSubmit={handleSubmit(editor.save)}>
     <Section title="פרטי הכלי" icon={ClipboardList}>
       <div className="fields-grid"><Field label="מספר תיק" error={errors.number?.message}>{(props) =>

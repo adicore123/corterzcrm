@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
 import {
   Bike, CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PanelRightClose,
-  PanelRightOpen, Settings, Users, Wrench, X,
+  PanelRightOpen, Settings, Sparkles, Users, Wrench, X,
 } from "lucide-react";
 import { labels, roleLabel } from "@/lib/presentation";
 import type { PublicUser } from "@/lib/validation/models";
@@ -16,7 +16,7 @@ import { Button } from "./ui/button";
 
 const navigation = [
   ["dashboard", LayoutDashboard], ["standards", ClipboardList], ["repairs", Wrench],
-  ["customers", Users], ["models", Bike], ["settings", Settings],
+  ["customers", Users], ["models", Bike], ["catalog", Sparkles], ["settings", Settings],
 ] as const;
 
 export function Shell({ user, today, children }: { user: PublicUser; today: string; children: ReactNode }) {

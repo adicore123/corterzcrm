@@ -17,8 +17,13 @@ const privateAccess = { access: "private" as const };
 export async function authorizeUpload(kind: PhotoModule, user: string, id: string) {
   const pathname = stagingPath(kind, user, id);
   const token = await generateClientTokenFromReadWriteToken({
-    pathname, maximumSizeInBytes: maxImageBytes, allowedContentTypes: acceptedImageTypes, validUntil: Date.now() + 20 * 60 * 1000,
-    addRandomSuffix: false, allowOverwrite: false, ttlDays: 1,
+    pathname,
+    maximumSizeInBytes: maxImageBytes,
+    allowedContentTypes: [...acceptedImageTypes, "image/heic", "image/heif", "application/octet-stream"],
+    validUntil: Date.now() + 20 * 60 * 1000,
+    addRandomSuffix: false,
+    allowOverwrite: false,
+    ttlDays: 1,
   });
   return { pathname, token };
 }

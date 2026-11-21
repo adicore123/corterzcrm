@@ -103,11 +103,49 @@ async function parseBody(request: NextRequest, allowFiles = false) {
   }
 }
 
+async function fetchCatalogImage(rawUrl: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new AppError(400, "כתובת התמונה אינה מורשית.");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "cortez.co.il" || !parsed.pathname.startsWith("/wp-content/uploads/")) {
+    throw new AppError(400, "כתובת התמונה אינה מורשית.");
+  }
+  let response = await fetch(parsed.toString(), { redirect: "manual" });
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location");
+    if (!location) throw new AppError(404, "התמונה לא נמצאה.");
+    const redirected = new URL(location, parsed);
+    if (redirected.protocol !== "https:" || redirected.hostname !== "cortez.co.il" || !redirected.pathname.startsWith("/wp-content/uploads/")) {
+      throw new AppError(400, "כתובת התמונה אינה מורשית.");
+    }
+    response = await fetch(redirected.toString(), { redirect: "manual" });
+  }
+  if (!response.ok) throw new AppError(404, "התמונה לא נמצאה.");
+  const contentType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!contentType.startsWith("image/")) throw new AppError(400, "הקובץ אינו תמונה תקינה.");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new AppError(400, "גודל התמונה אינו תקין.");
+  return new NextResponse(bytes, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
+
 export async function GET(request: NextRequest, { params }: Route) {
   try {
-    const user = await requireUser(request);
     const [resource, module, id, photo, ...extra] = (await params).segments;
+    if (resource === "catalog-image" && !module) {
+      const rawUrl = request.nextUrl.searchParams.get("url") ?? "";
+      return await fetchCatalogImage(rawUrl);
+    }
     if (resource === "settings" && module === "backups" && id && !photo && !extra.length) {
+      const user = await requireUser(request);
       requireAdmin(user);
       const backup = await readBackup(id);
       return new NextResponse(JSON.stringify(backup, null, 2) + "\n", {
@@ -120,12 +158,16 @@ export async function GET(request: NextRequest, { params }: Route) {
     }
     if (resource !== "images" || !photo || extra.length) throw new AppError(404, "הנתיב לא נמצא.");
     const kind = photoModule.parse(module);
+    if (kind !== "models") {
+      await requireUser(request);
+    }
     const record = await getRecord(kind, uuid.parse(id));
     const image = record.photos.find((item) => item.id === uuid.parse(photo));
     if (!image) throw new AppError(404, "התמונה לא נמצאה.");
     const body = usesMongoStorage() ? await readMongoPhoto(kind, image.id)
       : usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
-    return new NextResponse(body, { headers: { "Cache-Control": "private, max-age=31536000, immutable", "Content-Type": image.type } });
+    const cacheHeader = kind === "models" ? "public, max-age=31536000, immutable" : "private, max-age=31536000, immutable";
+    return new NextResponse(body, { headers: { "Cache-Control": cacheHeader, "Content-Type": image.type } });
   } catch (error) {
     return errorResponse(error);
   }

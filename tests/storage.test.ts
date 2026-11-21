@@ -30,3 +30,13 @@ test("initializes, serializes reservations, keeps them across deletions, and pre
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("normalizePhoto accepts Samsung-style JPEG with trailing metadata and rejects corrupt buffers", async () => {
+  const { default: sharp } = await import("sharp");
+  const { normalizePhoto } = await import("../src/lib/uploads/images");
+  const baseJpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: "#ba1517" } }).jpeg().toBuffer();
+  const samsungMotionPhoto = Buffer.concat([baseJpeg, Buffer.from("MotionPhoto_Data\0\0\x01\x02\x03")]);
+  const webp = await normalizePhoto(samsungMotionPhoto, "image/jpeg");
+  assert.equal((await sharp(webp).metadata()).format, "webp");
+  await assert.rejects(() => normalizePhoto(Buffer.from("bad image"), "image/jpeg"), { status: 400 });
+});

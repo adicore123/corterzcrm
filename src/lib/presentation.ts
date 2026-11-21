@@ -6,6 +6,7 @@ export const labels = {
   repairs: "תיקונים",
   customers: "לקוחות",
   models: "מאגר דגמים",
+  catalog: "קטלוג סוכנים",
   settings: "הגדרות",
 };
 

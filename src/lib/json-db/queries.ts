@@ -52,7 +52,8 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
     }
     if ("phone" in item) return matchesCustomer(item);
     if (filters.status && filters.status !== item.device) return false;
-    return [item.name, item.device, item.notes].some((value) => matches(value, q));
+    return [item.name, item.device, item.notes ?? "", item.summary ?? ""].some((value) => matches(value, q))
+      || (item.specs ?? []).some((spec) => matches(spec.label, q) || matches(spec.value, q));
   });
   if (filters.sort === "oldest") return filtered.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   if (filters.sort === "created") return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -62,12 +63,27 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
 
 export function mergeWithDefaultCatalog(stored: CatalogModel[]): CatalogModel[] {
   if (stored.length === 0) return [...defaultCatalogModels];
+  const seedById = new Map(defaultCatalogModels.map((seed) => [seed.id, seed]));
+  const seedByName = new Map(defaultCatalogModels.map((seed) => [seed.name.toLocaleLowerCase("he"), seed]));
+  const enrichedStored = stored.map((storedItem) => {
+    const seed = seedById.get(storedItem.id) ?? seedByName.get(storedItem.name.toLocaleLowerCase("he"));
+    if (!seed) return storedItem;
+    return {
+      ...storedItem,
+      imageUrl: storedItem.imageUrl || seed.imageUrl,
+      summary: storedItem.summary || seed.summary,
+      msrp: storedItem.msrp !== undefined ? storedItem.msrp : seed.msrp,
+      productUrl: storedItem.productUrl || seed.productUrl,
+      galleryUrls: storedItem.galleryUrls?.length ? storedItem.galleryUrls : seed.galleryUrls,
+      specs: storedItem.specs?.length ? storedItem.specs : seed.specs,
+    };
+  });
   const byId = new Set(stored.map((item) => item.id));
   const byName = new Set(stored.map((item) => item.name.toLocaleLowerCase("he")));
   const missingDefaults = defaultCatalogModels.filter(
     (seed) => !byId.has(seed.id) && !byName.has(seed.name.toLocaleLowerCase("he")),
   );
-  return [...stored, ...missingDefaults];
+  return [...enrichedStored, ...missingDefaults];
 }
 
 export async function catalogModels(): Promise<CatalogModel[]> {

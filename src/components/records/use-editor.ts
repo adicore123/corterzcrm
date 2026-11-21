@@ -8,35 +8,110 @@ import type { Module, Photo } from "@/lib/validation/models";
 type PendingPhoto = { file: File; preview: string };
 const unsavedMessage = "יש שינויים שלא נשמרו. לצאת מהטופס?";
 const supportedImages = ["image/jpeg", "image/png", "image/webp"];
-const maxUploadBytes = 8 * 1024 * 1024;
-const compressThresholdBytes = 2 * 1024 * 1024;
+const maxUploadBytes = 12 * 1024 * 1024;
+const compressThresholdBytes = 1.5 * 1024 * 1024;
 
-async function prepareClientImage(file: File): Promise<File | null> {
-  if (file.size <= 0) return null;
-  const supported = supportedImages.includes(file.type);
-  if (supported && file.size <= compressThresholdBytes) return file;
-  if (!supported && !file.type.startsWith("image/")) return null;
+function inferMimeType(file: File, fromCamera: boolean): string {
+  const raw = (file.type || "").split(";")[0].trim().toLowerCase().replace("image/jpg", "image/jpeg");
+  if (raw && raw !== "application/octet-stream") return raw;
+  const name = (file.name || "").toLowerCase();
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".heic")) return "image/heic";
+  if (name.endsWith(".heif")) return "image/heif";
+  return fromCamera ? "image/jpeg" : "";
+}
+
+type DecodedImage = {
+  width: number;
+  height: number;
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+  cleanup: () => void;
+};
+
+async function decodeClientImage(file: File): Promise<DecodedImage> {
   try {
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => createImageBitmap(file));
+    return {
+      width: bitmap.width,
+      height: bitmap.height,
+      draw: (ctx, w, h) => ctx.drawImage(bitmap, 0, 0, w, h),
+      cleanup: () => bitmap.close(),
+    };
+  } catch {
+    const url = URL.createObjectURL(file);
     try {
-      const scale = Math.min(1, 2600 / Math.max(bitmap.width, bitmap.height, 1));
-      const width = Math.max(1, Math.round(bitmap.width * scale));
-      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const img = new Image();
+      img.src = url;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Image load failed"));
+        if (typeof img.decode === "function") {
+          img.decode().then(resolve, () => undefined);
+        }
+      });
+      return {
+        width: img.naturalWidth || img.width,
+        height: img.naturalHeight || img.height,
+        draw: (ctx, w, h) => ctx.drawImage(img, 0, 0, w, h),
+        cleanup: () => URL.revokeObjectURL(url),
+      };
+    } catch (error) {
+      URL.revokeObjectURL(url);
+      throw error;
+    }
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, quality));
+}
+
+async function prepareClientImage(file: File, fromCamera = false): Promise<File | null> {
+  if (file.size <= 0) return null;
+  const inferred = inferMimeType(file, fromCamera);
+  const supported = supportedImages.includes(inferred);
+  if (!fromCamera && supported && file.size <= compressThresholdBytes) {
+    // Snapshot bytes immediately so Android content:// handles remain readable until submit.
+    const buffer = await file.arrayBuffer().catch(() => null);
+    if (!buffer) return null;
+    return new File([buffer], file.name || "photo.jpg", { type: inferred });
+  }
+  if (!supported && !inferred.startsWith("image/")) return null;
+  try {
+    const decoded = await decodeClientImage(file);
+    try {
+      const scale = Math.min(1, 2200 / Math.max(decoded.width, decoded.height, 1));
+      const width = Math.max(1, Math.round(decoded.width * scale));
+      const height = Math.max(1, Math.round(decoded.height * scale));
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
       const context = canvas.getContext("2d");
-      if (!context) return supported && file.size <= maxUploadBytes ? file : null;
-      context.drawImage(bitmap, 0, 0, width, height);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.86));
-      if (!blob || blob.size > maxUploadBytes) return supported && file.size <= maxUploadBytes ? file : null;
-      const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
-      return new File([blob], baseName.slice(0, 245) + ".webp", { type: "image/webp" });
+      if (!context) throw new Error("No 2d context");
+      decoded.draw(context, width, height);
+      let blob = await canvasToBlob(canvas, "image/webp", 0.85);
+      if (!blob || blob.type !== "image/webp" || blob.size > 4_000_000) {
+        blob = await canvasToBlob(canvas, "image/jpeg", 0.85);
+      }
+      if (blob && blob.size > 4_000_000) {
+        blob = await canvasToBlob(canvas, "image/jpeg", 0.72);
+      }
+      if (!blob || blob.size > maxUploadBytes) throw new Error("Canvas export failed");
+      const ext = blob.type === "image/jpeg" ? ".jpg" : ".webp";
+      const baseName = (file.name || "photo").replace(/\.[^.]+$/, "") || "photo";
+      return new File([blob], baseName.slice(0, 245) + ext, { type: blob.type });
     } finally {
-      bitmap.close();
+      decoded.cleanup();
     }
   } catch {
-    return supported && file.size <= maxUploadBytes ? file : null;
+    if (file.size <= maxUploadBytes && (supported || inferred === "image/heic" || inferred === "image/heif")) {
+      const buffer = await file.arrayBuffer().catch(() => null);
+      if (!buffer) return null;
+      return new File([buffer], file.name || "photo.jpg", { type: inferred || "image/jpeg" });
+    }
+    return null;
   }
 }
 
@@ -131,24 +206,40 @@ export function usePhotoDraft(initial: Photo[]) {
   const [kept, setKept] = useState(initial);
   const [pending, setPending] = useState<PendingPhoto[]>([]);
   const [error, setError] = useState("");
+  const [processing, setProcessing] = useState(false);
+  const processingCount = useRef(0);
   const objectUrls = useRef(new Set<string>());
   useEffect(() => {
     const urls = objectUrls.current;
     return () => { for (const url of urls) URL.revokeObjectURL(url); urls.clear(); };
   }, []);
 
-  async function add(files: File[]) {
+  async function add(files: File[], fromCamera = false) {
     setError("");
-    const room = 10 - kept.length - pending.length;
-    const processed = (await Promise.all(files.map(prepareClientImage))).filter((file): file is File => file !== null);
-    if (processed.length < files.length) setError("יש לבחור תמונות JPG, PNG או WebP בגודל של עד 8 מ״ב לתמונה.");
-    else if (processed.length > room) setError("ניתן לצרף עד 10 תמונות לרשומה.");
-    const added = processed.slice(0, room).map((file) => {
-      const preview = URL.createObjectURL(file);
-      objectUrls.current.add(preview);
-      return { file, preview };
-    });
-    setPending((items) => [...items, ...added]);
+    processingCount.current += 1;
+    setProcessing(true);
+    try {
+      const room = 10 - kept.length - pending.length;
+      const processed: File[] = [];
+      for (const file of files) {
+        const next = await prepareClientImage(file, fromCamera);
+        if (next) processed.push(next);
+      }
+      if (processed.length < files.length) setError("לא ניתן היה לעבד אחת מהתמונות. יש לבחור תמונה עד 12 מ״ב.");
+      else if (processed.length > room) setError("ניתן לצרף עד 10 תמונות לרשומה.");
+      const added = processed.slice(0, room).map((file) => {
+        const preview = URL.createObjectURL(file);
+        objectUrls.current.add(preview);
+        return { file, preview };
+      });
+      setPending((items) => [...items, ...added]);
+    } finally {
+      processingCount.current -= 1;
+      if (processingCount.current <= 0) {
+        processingCount.current = 0;
+        setProcessing(false);
+      }
+    }
   }
   function removePreview(preview: string) {
     URL.revokeObjectURL(preview);
@@ -160,7 +251,7 @@ export function usePhotoDraft(initial: Photo[]) {
     setKept((items) => items.filter((item) => item.id !== id));
     setError("");
   }
-  return { kept, pending, error, add, removePreview, removeSaved, dirty: pending.length > 0 || kept.length !== initial.length };
+  return { kept, pending, error, processing, add, removePreview, removeSaved, dirty: pending.length > 0 || kept.length !== initial.length };
 }
 
 export type PhotoDraft = ReturnType<typeof usePhotoDraft>;
@@ -176,7 +267,7 @@ export function useEditor(module: Module, record: { id: string; updatedAt: strin
   const unsaved = useUnsaved(dirty || Boolean(photos?.dirty), bypass);
 
   async function save(values: object) {
-    if (sending.current) return;
+    if (sending.current || photos?.processing) return;
     sending.current = true;
     setError("");
     const id = record?.id;

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, Bike, CircleCheck, ClipboardList, Images, Pencil, Plus, Wrench } from "lucide-react";
+import { ArrowRight, Bike, CircleCheck, ClipboardList, Images, Pencil, Plus, SlidersHorizontal, Sparkles, Wrench } from "lucide-react";
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { formatDate, labels } from "@/lib/presentation";
@@ -64,6 +64,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
         </div>
       </div>
       <div className="detail-actions no-print">
+        {isModelRecord && <Button asChild variant="soft"><Link href={"/catalog?model=" + record.id}><Sparkles size={16} /> תצוגת 3D בקטלוג</Link></Button>}
         {("tasks" in record || "serial" in record) && <PrintButton />}
         <Button asChild variant="outline"><Link href={"/" + module + "/" + record.id + "/edit"}><Pencil size={17} /> עריכה</Link></Button>
         {admin && <DeleteButton module={module} id={record.id} version={record.updatedAt} subject={number ?? title} />}
@@ -125,12 +126,20 @@ export async function RecordDetail({ module, record, admin, saved }: {
         <Details rows={[
           ["שם הדגם", record.name],
           ["סוג מכשיר", record.device],
+          ...(record.msrp ? [["מחיר מחירון", "₪" + record.msrp.toLocaleString("he-IL")] as Value] : []),
           ["תיקי מכון תקנים", modelStandards.length],
           ["תיקונים משויכים", modelRepairs.length],
           ...dates,
         ]} />
-        {record.notes && <div className="detail-notes"><h3>מפרט והערות</h3><p>{record.notes}</p></div>}
+        {record.summary && <div className="detail-notes"><h3>תקציר קטלוג</h3><p>{record.summary}</p></div>}
+        {record.notes && <div className="detail-notes"><h3>הערות</h3><p>{record.notes}</p></div>}
       </section>
+      {record.specs && record.specs.length > 0 && <section className="card detail-card">
+        <h2><span className="section-icon"><SlidersHorizontal size={18} /></span>מפרט טכני</h2>
+        <dl className="spec-detail-grid">
+          {record.specs.map((spec) => <div key={spec.label}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}
+        </dl>
+      </section>}
       <section className="card detail-card"><h2><span className="section-icon"><Images size={18} /></span>תמונות הדגם</h2>
         <PhotoGallery module="models" id={record.id} photos={record.photos} /></section>
       <section className="card data-card">
