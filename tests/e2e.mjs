@@ -264,6 +264,12 @@ try {
   stage = "3d agent catalog and public showroom";
   await admin.goto("/catalog");
   await visible(heading(admin, "קטלוג סוכנים · אולם תצוגה תלת־ממדי"));
+  await visible(admin.locator(".showroom-spotlight"));
+  assert.ok((await admin.locator(".showroom-card").count()) >= 32);
+  await button(admin, "שיכוך מלא").click();
+  const fullSuspCount = await admin.locator(".showroom-card").count();
+  assert.ok(fullSuspCount > 0 && fullSuspCount < 32);
+  await button(admin, "שיכוך מלא").click();
   assert.ok((await admin.locator(".showroom-card").count()) >= 32);
   await field(admin, "חיפוש בקטלוג הסוכנים").fill("48V");
   await visible(heading(admin, "CORTEZ A1"));
@@ -276,6 +282,8 @@ try {
   await button(admin, "תצוגת 3D ומפרט עבור CORTEZ 10X").click();
   await visible(heading(admin, "מפרט טכני מלא"));
   await visible(admin.getByRole("dialog").locator("dd", { hasText: "36V/10.4Ah" }));
+  await button(admin, "מעבר לסטודיו לילה").click();
+  await button(admin, "מעבר לסטודיו יום").click();
   await button(admin, "סגירת תצוגת דגם").click();
   const card10x = admin.locator(".showroom-card", { has: heading(admin, "CORTEZ 10X") });
   const cardA1 = admin.locator(".showroom-card", { has: heading(admin, "CORTEZ A1") });
@@ -283,6 +291,7 @@ try {
   await cardA1.getByRole("button", { name: "השוואה" }).click();
   await button(admin, "השוואת דגמים").click();
   await visible(heading(admin, "השוואת דגמי קורטז"));
+  await visible(admin.locator(".compare-winner-badge", { hasText: "מוביל" }).first());
   await button(admin, "סגירת השוואה").click();
   assert.equal((await anonymous.get("/showroom")).status(), 200);
   assert.equal((await anonymous.get("/api/catalog-image?url=https://example.com/evil.png")).status(), 400);
