@@ -48,6 +48,11 @@ function sanitizeLegacyMongoState(raw: unknown): unknown {
       return copy;
     });
   }
+  if (doc.settings && typeof doc.settings === "object") {
+    doc.settings = stripNullsRecursive(doc.settings);
+  } else if (doc.settings === null) {
+    delete doc.settings;
+  }
   return doc;
 }
 
@@ -75,6 +80,7 @@ function initialMongoState(): State {
     activity: [],
     sessions: [],
     counters: { ...initialCounters },
+    settings: {},
   });
 }
 

@@ -7,6 +7,7 @@ import { Bike, Images, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-reac
 import { newRequestId, requestJson } from "@/lib/client-api";
 import { devices, modelInput, type CatalogModel, type Device, type ModelInput } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
+import { useProtectedDelete } from "@/components/ui/delete-password-dialog";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Editor, Section } from "./form-parts";
@@ -46,10 +47,13 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
   const features = useFieldArray({ name: "features", control, keyName: "fieldKey" });
   const photos = usePhotoDraft(record?.photos ?? []);
   const editor = useEditor("models", record, isDirty, photos, cloud);
+  const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
 
-  return <Editor module="models" title={record ? "עריכת דגם" : "דגם חדש"} cancel={record ? "/models/" + record.id : "/models"}
-    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
-    onSubmit={handleSubmit((values) => editor.save({ ...values, galleryUrls: values.galleryUrls?.map((url) => url.trim()).filter(Boolean) }))}>
+  return <>
+    {deleteDialog}
+    <Editor module="models" title={record ? "עריכת דגם" : "דגם חדש"} cancel={record ? "/models/" + record.id : "/models"}
+      loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+      onSubmit={handleSubmit((values) => editor.save({ ...values, galleryUrls: values.galleryUrls?.map((url) => url.trim()).filter(Boolean) }))}>
     <Section title="פרטי הדגם" icon={Bike}>
       <div className="fields-grid">
         <Field label="סוג מכשיר" error={errors.device?.message}>{(props) =>
@@ -85,13 +89,16 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
       {features.fields.map((feature, index) => <div className="catalog-feature-edit" key={feature.fieldKey}>
         <Field label={`כותרת מאפיין ${index + 1}`} error={errors.features?.[index]?.title?.message}>{(props) => <input {...props} {...register(`features.${index}.title`)} maxLength={120} placeholder="למשל מערכת הבלימה" />}</Field>
         <Field label={`הסבר מאפיין ${index + 1}`} error={errors.features?.[index]?.description?.message}>{(props) => <textarea {...props} {...register(`features.${index}.description`)} maxLength={1000} rows={2} placeholder="הסבר מאומת על הרכיב והמשמעות שלו ללקוח" />}</Field>
-        <Button variant="ghost" size="icon" aria-label={`מחיקת הסבר ${index + 1}`} onClick={() => features.remove(index)}><Trash2 size={16} /></Button>
+        <Button variant="ghost" size="icon" aria-label={`מחיקת הסבר ${index + 1}`} onClick={() => {
+        if (record) requestDelete(`למחוק את הסבר ${index + 1}? יש להזין סיסמת מחיקה.`, () => features.remove(index));
+        else features.remove(index);
+      }}><Trash2 size={16} /></Button>
       </div>)}
       <Button variant="outline" disabled={features.fields.length >= 12} onClick={() => features.append({ title: "", description: "" })}><Plus size={16} /> הוספת הסבר על מאפיין</Button>
     </Section>
     <Section title="סטודיו מתקדם, סיור וגרסאות" icon={Images}>
       {errors.studio && <p role="alert" className="field-error">יש לבדוק שכל התחנות, הרכיבים והגרסאות כוללים כותרת ותוכן תקינים, ושכל המידות חיוביות.</p>}
-      <Controller name="studio" control={control} render={({ field }) => <StudioContentEditor value={field.value} onChange={field.onChange} assetUrl={watchedAsset} name={watchedName} />} />
+      <Controller name="studio" control={control} render={({ field }) => <StudioContentEditor value={field.value} onChange={field.onChange} assetUrl={watchedAsset} name={watchedName} onRequestDelete={record ? requestDelete : undefined} />} />
     </Section>
     <Section title="מפרט טכני ופרטי קטלוג" icon={SlidersHorizontal}>
       <div className="fields-grid">
@@ -120,7 +127,10 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
               aria-invalid={Boolean(errors.specs?.[index]?.value)} placeholder="ערך (למשל 48V/15.6Ah)" maxLength={240} />
             {errors.specs?.[index]?.value && <span className="field-error" role="alert">{errors.specs[index]?.value?.message}</span>}
           </div>
-          <Button size="icon" variant="ghost" onClick={() => specs.remove(index)} aria-label={"מחיקת מאפיין " + (index + 1)}><Trash2 size={16} /></Button>
+          <Button size="icon" variant="ghost" aria-label={"מחיקת מאפיין " + (index + 1)} onClick={() => {
+            if (record) requestDelete(`למחוק את מאפיין ${index + 1}? יש להזין סיסמת מחיקה.`, () => specs.remove(index));
+            else specs.remove(index);
+          }}><Trash2 size={16} /></Button>
         </div>)}
       </div>
       <Button variant="outline" disabled={specs.fields.length >= 40}
@@ -134,9 +144,10 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
         <img src={record.imageUrl} alt={record.name} className="catalog-thumb-lg" />
         <div><strong>תמונת קטלוג רשמית</strong><p className="muted">ניתן גם להעלות תמונות נוספות של הדגם מהמכשיר או מהמצלמה.</p></div>
       </div>}
-      <PhotoPicker module="models" id={record?.id} photos={photos} />
+      <PhotoPicker module="models" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} />
     </Section>
-  </Editor>;
+  </Editor>
+  </>;
 }
 
 export function InlineModel({ defaultDevice = "קורקינט חשמלי", onSave }: { defaultDevice?: Device; onSave: (model: CatalogModel) => void }) {

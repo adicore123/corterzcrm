@@ -17,6 +17,7 @@ export const stateSchema = z.object({
   counters: collections.counters.schema,
   activity: collections.activity.schema,
   sessions: collections.sessions.schema,
+  settings: collections.settings.schema.default(() => ({})),
 });
 export type State = z.infer<typeof stateSchema>;
 
@@ -33,7 +34,7 @@ export function usesBlobStorage() {
 function emptyState(): State {
   return {
     format: 1, standards: [], repairs: [], customers: [], models: [...defaultCatalogModels], faults: [], users: [], activity: [], sessions: [],
-    counters: { ...initialCounters },
+    counters: { ...initialCounters }, settings: {},
   };
 }
 

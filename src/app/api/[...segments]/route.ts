@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { changeOwnPassword, createUser, getUser, login, logout, requireAdmin, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
+import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, requireAdmin, requireDeletePassword, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
@@ -10,7 +10,7 @@ import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serv
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
-import { modules, passwordSchema, usernameSchema, uuid } from "@/lib/validation/models";
+import { deletePasswordSchema, modules, passwordSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -209,6 +209,14 @@ async function mutate(request: NextRequest, { params }: Route) {
     }
 
     const user = await requireUser(request);
+    if (method === "POST" && resource === "auth" && sub === "verify-delete-password" && !id) {
+      const { value } = await parseBody(request);
+      const input = z.object({
+        password: z.string().trim().min(1, "יש להזין סיסמת מחיקה.").max(64, "סיסמת המחיקה ארוכה מדי."),
+      }).parse(value);
+      await requireDeletePassword(input.password);
+      return json({ ok: true });
+    }
     if (method === "POST" && resource === "auth" && sub === "password" && !id) {
       const { value } = await parseBody(request);
       const input = z.object({
@@ -256,13 +264,25 @@ async function mutate(request: NextRequest, { params }: Route) {
       if (method === "DELETE" && key) {
         requireAdmin(user);
         const { value } = await parseBody(request);
-        const { version } = z.object({ version: z.iso.datetime() }).parse(value);
+        const { version, deletePassword } = z.object({
+          version: z.iso.datetime(),
+          deletePassword: z.string().trim().min(1, "יש להזין סיסמת מחיקה.").max(64, "סיסמת המחיקה ארוכה מדי."),
+        }).parse(value);
+        await requireDeletePassword(deletePassword);
         await deleteRecord(kind, key, version, user);
         return json({ ok: true });
       }
     }
     if (resource === "settings" && !id) {
       requireAdmin(user);
+      if (sub === "delete-password" && method === "PATCH") {
+        const { value } = await parseBody(request);
+        const input = z.object({
+          currentPassword: z.string().trim().min(1, "יש להזין את סיסמת המחיקה הנוכחית.").max(64),
+          newPassword: deletePasswordSchema,
+        }).parse(value);
+        return json(await changeDeletePassword(input.currentPassword, input.newPassword, user));
+      }
       if (sub === "users" && method === "POST") return json(await createUser((await parseBody(request)).value, user), 201);
       if (sub === "users" && method === "PATCH") {
         const { value } = await parseBody(request);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activitySchema, catalogModelSchema, counterSchema, customerSchema, faultGuideSchema, repairSchema, sessionSchema, standardSchema, userSchema } from "../validation/models";
+import { activitySchema, catalogModelSchema, counterSchema, customerSchema, faultGuideSchema, repairSchema, sessionSchema, standardSchema, systemSettingsSchema, userSchema, type SystemSettings } from "../validation/models";
 
 export const collections = {
   standards: { file: "standard-cases.json", schema: z.array(standardSchema) },
@@ -11,8 +11,10 @@ export const collections = {
   counters: { file: "counters.json", schema: counterSchema },
   activity: { file: "activity-logs.json", schema: z.array(activitySchema) },
   sessions: { file: "sessions.json", schema: z.array(sessionSchema) },
+  settings: { file: "settings.json", schema: systemSettingsSchema },
 } as const;
 
 export type Collection = keyof typeof collections;
 export type Data<K extends Collection> = z.infer<(typeof collections)[K]["schema"]>;
 export const initialCounters = { standards: 0, repairs: 0 };
+export const initialSettings: SystemSettings = {};

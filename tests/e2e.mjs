@@ -182,7 +182,22 @@ try {
   await link(page, "עריכה").click();
   await field(page, "סטטוס טיפול").selectOption("הסתיים");
   await button(page, "מחיקת משימה 2").click();
+  const delTaskPwd = page.getByRole("alertdialog", { name: "אישור מחיקה באמצעות סיסמה" });
+  await visible(delTaskPwd);
+  await delTaskPwd.getByLabel("סיסמת מחיקה").fill("0000");
+  await button(delTaskPwd, "מחיקה").click();
+  await visible(delTaskPwd.getByText("סיסמת המחיקה שגויה."));
+  await delTaskPwd.getByLabel("סיסמת מחיקה").fill("5522");
+  await button(delTaskPwd, "מחיקה").click();
+  await delTaskPwd.waitFor({ state: "hidden" });
+
   await button(page, "הסרת תמונה 2").click();
+  const delPhotoPwd = page.getByRole("alertdialog", { name: "אישור מחיקה באמצעות סיסמה" });
+  await visible(delPhotoPwd);
+  await delPhotoPwd.getByLabel("סיסמת מחיקה").fill("5522");
+  await button(delPhotoPwd, "מחיקה").click();
+  await delPhotoPwd.waitFor({ state: "hidden" });
+
   await save(page, "standards");
   const [updated] = await readDb("standard-cases");
   assert.deepEqual([updated.status, updated.delay, updated.tasks.length, updated.photos.length], ["הסתיים", "מתעכב", 1, 1]);
@@ -196,6 +211,17 @@ try {
   await button(page, "חיפוש").click();
   await visible(link(page, original.number));
   await visible(page.locator(".mobile-record-card"));
+  await visible(page.locator(".standard-status-block"));
+  if (process.env.CORTEZ_QA_SCREENSHOTS) await page.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "standards-mobile.png") });
+
+  // Switch status inline right from mobile card without opening the record.
+  await button(page, "סטטוס בטיפול עבור " + original.number).click();
+  await visible(page.locator(".standard-status-block.is-active"));
+  await page.goto("/standards?q=" + encodeURIComponent(original.number));
+  await visible(page.locator(".standard-status-block.is-active"));
+  await button(page, "סטטוס הסתיים עבור " + original.number).click();
+  await visible(page.locator(".standard-status-block.is-done"));
+
   const mobileWaHref = await page.locator(".mobile-record-card .mobile-action-btn.is-whatsapp").first().getAttribute("href");
   assert.ok(mobileWaHref?.startsWith("https://wa.me/972525510004?text="));
   assert.match(decodeURIComponent(mobileWaHref), new RegExp(original.number));
@@ -207,6 +233,13 @@ try {
 
   await admin.goto("/standards");
   await visible(admin.locator(".data-table"));
+  const inlineSelect = admin.locator(".data-table").getByLabel("שינוי סטטוס עבור " + original.number);
+  await visible(inlineSelect);
+  await inlineSelect.selectOption("בטיפול");
+  await visible(admin.locator(".data-table .inline-status-saved"));
+  await inlineSelect.selectOption("הסתיים");
+  await visible(admin.locator(".data-table .inline-status-saved"));
+  if (process.env.CORTEZ_QA_SCREENSHOTS) await admin.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "standards-desktop.png") });
   const desktopWaHref = await admin.locator(".data-table .action-pill-wa").first().getAttribute("href");
   assert.ok(desktopWaHref?.startsWith("https://wa.me/972525510004?text="));
   await admin.locator(".data-table .action-pill-photo").first().click();
@@ -283,9 +316,35 @@ try {
   await desktop.route("**/api/catalog-image?**", (route) => route.fulfill({ contentType: "image/png", body: studioPoster }));
   await admin.goto("/catalog");
   await visible(heading(admin, "הכלי הבא שלכם. מכל זווית."));
-  await visible(admin.locator(".showroom-spotlight"));
-  await visible(admin.locator(".showroom-hero-canvas canvas"));
+  await visible(admin.locator(".coastal-exhibition-stage canvas"));
+  assert.ok(await admin.locator(".coastal-exhibition-stage canvas").evaluate((canvas) => canvas.getBoundingClientRect().height > 200));
+  await button(admin, "שעת הזהב").click();
+  await visible(admin.locator(".coastal-exhibition.is-golden"));
+  if (process.env.CORTEZ_QA_SCREENSHOTS) {
+    await delay(750);
+    await admin.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "catalog-desktop-golden.png") });
+  }
+  await button(admin, "אור יום בחוף").click();
+  assert.equal(await admin.locator('a[href*="wa.me"]').count(), 0, "Catalog must not contain WhatsApp links");
+  if (process.env.CORTEZ_QA_SCREENSHOTS) {
+    await delay(750);
+    await admin.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "catalog-desktop.png") });
+  }
+
+  // Exercise 4-step Ride Finder wizard
+  await admin.locator(".is-finder-trigger").click();
+  const finderDialog = admin.getByRole("dialog");
+  await visible(finderDialog);
+  await button(finderDialog, "המשך").click();
+  await button(finderDialog, "המשך").click();
+  await button(finderDialog, "המשך").click();
+  await button(finderDialog, "גלו את ההתאמות שלי").click();
+  assert.ok((await finderDialog.locator(".ride-finder-card").count()) >= 1);
+  await button(finderDialog, "סגירת אשף התאמה").click();
+
   assert.ok((await admin.locator(".showroom-card").count()) >= 32);
+  const miaCard = admin.locator(".showroom-card", { has: heading(admin, "CORTEZ MIA") });
+  await miaCard.locator(".card-swatch-dot").first().click();
   await button(admin, "שיכוך מלא").click();
   const fullSuspCount = await admin.locator(".showroom-card").count();
   assert.ok(fullSuspCount > 0 && fullSuspCount < 32);
@@ -302,9 +361,10 @@ try {
   await button(admin, "גלריה ומפרט עבור CORTEZ 10X").click();
   await visible(admin.locator(".stage-3d-canvas canvas"));
   assert.ok(await admin.locator(".stage-3d-canvas canvas").evaluate((canvas) => canvas.getBoundingClientRect().height > 250));
-  await button(admin, "מעבר לסטודיו לילה").click();
+  assert.equal(await admin.locator('a[href*="wa.me"]').count(), 0, "Product modal must not contain WhatsApp links");
+  await button(admin, "מעבר לשעת הזהב").click();
   assert.equal(await admin.locator(".stage-3d-shell.is-night").count(), 1);
-  await button(admin, "מעבר לסטודיו יום").click();
+  await button(admin, "מעבר לאור יום בחוף").click();
   await button(admin, "מבט קרוב").click();
   assert.equal(await button(admin, "מבט קרוב").getAttribute("aria-pressed"), "true");
   await button(admin, "מבט ראשי").click();
@@ -320,7 +380,7 @@ try {
   await visible(admin.getByRole("region", { name: "הסבר על מאפיין הדגם" }));
   await button(admin, "מאפיין הבא").click();
   await button(admin, "סגירת הסבר מאפיין").click();
-  await button(admin, "תמונות 8").click();
+  await admin.getByRole("button", { name: /תמונות 8/ }).click();
   await button(admin, "הגדלה ובדיקת פרטים").click();
   await button(admin, "הגדלת תמונה").click();
   await visible(admin.getByText("150%", { exact: true }));
@@ -378,7 +438,8 @@ try {
   const publicHtml = await (await anonymous.get("/showroom")).text();
   assert.equal(publicHtml.includes("INTERNAL-NOTE-NEVER-PUBLIC"), false);
   assert.equal(publicHtml.includes("QA hidden model"), false);
-  await api(desktop.request, "DELETE", "/api/records/models/" + hiddenModel.id, { version: hiddenModel.updatedAt }, 200);
+  await api(desktop.request, "DELETE", "/api/records/models/" + hiddenModel.id, { version: hiddenModel.updatedAt }, 400);
+  await api(desktop.request, "DELETE", "/api/records/models/" + hiddenModel.id, { version: hiddenModel.updatedAt, deletePassword: "5522" }, 200);
   // Saving a legacy model through the editor must not erase legacy metrics or gallery order.
   await admin.goto("/models/" + productId + "/edit");
   await field(admin, "הערות פנימיות").fill("INTERNAL-EDITOR-NOTE");
@@ -458,14 +519,16 @@ try {
   const savedGeometry = (await readDb("models")).find((item) => item.id === geometryModel.id);
   assert.equal(savedGeometry.studio.features[0].nodePath, "0");
   assert.equal(savedGeometry.studio.variants[0].sku, "QA-WHITE");
-  await api(desktop.request, "DELETE", "/api/records/models/" + geometryModel.id, { version: savedGeometry.updatedAt }, 200);
-  await api(desktop.request, "DELETE", "/api/records/models/" + secondGeometry.id, { version: secondGeometry.updatedAt }, 200);
+  await api(desktop.request, "DELETE", "/api/records/models/" + geometryModel.id, { version: savedGeometry.updatedAt, deletePassword: "5522" }, 200);
+  await api(desktop.request, "DELETE", "/api/records/models/" + secondGeometry.id, { version: secondGeometry.updatedAt, deletePassword: "5522" }, 200);
   const anonContext = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const anonPage = await anonContext.newPage();
   captureErrors(anonPage);
   await anonPage.goto("/showroom");
   await visible(heading(anonPage, "CORTEZ 10X"));
+  assert.equal(await anonPage.locator('a[href*="wa.me"]').count(), 0, "Public showroom must not contain WhatsApp links");
   await noOverflow(anonPage);
+  if (process.env.CORTEZ_QA_SCREENSHOTS) await anonPage.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "catalog-mobile-showroom.png") });
   await button(anonPage, "טווח ארוך 45+ ק״מ").click();
   await button(anonPage, "שיכוך מלא").click();
   assert.equal(new URL(anonPage.url()).searchParams.getAll("fit").length, 2);
@@ -473,20 +536,21 @@ try {
   assert.equal(await button(anonPage, "שיכוך מלא").getAttribute("aria-pressed"), "true");
   await anonPage.goto("/showroom/" + productId);
   await visible(heading(anonPage, "CORTEZ 10X"));
+  assert.equal(await anonPage.locator('a[href*="wa.me"]').count(), 0, "Public product page must not contain WhatsApp links");
+  await visible(heading(anonPage, "דגמים נוספים שיעניינו אתכם"));
   await noOverflow(anonPage);
-  await button(anonPage, "הגדלה ובדיקת פרטים").click();
-  await noOverflow(anonPage);
-  await button(anonPage, "סגירת הגדלה").click();
-  await anonPage.emulateMedia({ reducedMotion: "reduce" });
   await visible(anonPage.locator(".stage-3d-canvas canvas"));
   assert.ok(await anonPage.locator(".stage-3d-canvas canvas").evaluate((canvas) => canvas.getBoundingClientRect().height > 250));
   await button(anonPage, "מבט קרוב").click();
-  await button(anonPage, "מעבר לסטודיו לילה").click();
+  await button(anonPage, "מעבר לשעת הזהב").click();
   assert.equal(await anonPage.locator(".stage-3d-shell.is-night").count(), 1);
   await anonPage.locator(".stage-hotspot").first().click();
   await visible(anonPage.getByRole("region", { name: "הסבר על מאפיין הדגם" }));
   await button(anonPage, "סגירת הסבר מאפיין").click();
-  await button(anonPage, "תמונות 8").click();
+  await anonPage.getByRole("button", { name: /תמונות 8/ }).click();
+  await button(anonPage, "הגדלה ובדיקת פרטים").click();
+  await noOverflow(anonPage);
+  await button(anonPage, "סגירת הגדלה").click();
   await button(anonPage, "תמונה הבאה").click();
   await button(anonPage, "מפרט מלא").click();
   await visible(heading(anonPage, "מפרט טכני מלא"));
@@ -631,23 +695,45 @@ try {
 
   await admin.goto(faultPath);
   await button(admin, "מחיקה").click();
-  await button(admin.getByRole("alertdialog"), "מחיקה").click();
+  const faultDelPwd = admin.getByRole("alertdialog", { name: "מחיקת רשומה" });
+  await faultDelPwd.getByLabel("סיסמת מחיקה").fill("9999");
+  await button(faultDelPwd, "מחיקה").click();
+  await visible(faultDelPwd.getByText("סיסמת המחיקה שגויה."));
+  await faultDelPwd.getByLabel("סיסמת מחיקה").fill("5522");
+  await button(faultDelPwd, "מחיקה").click();
   await admin.waitForURL("**/faults?deleted=1");
   assert.equal((await desktop.request.get(`/api/files/faults/${faultId}/${pdfAtt.id}`)).status(), 404);
 
-  stage = "confirmed deletion and logout";
+  stage = "confirmed deletion with password settings change and logout";
+  // Change system delete password in /settings from default 5522 -> 8899
+  await admin.goto("/settings");
+  await button(admin, "שינוי סיסמת מחיקה").click();
+  const delPwdModal = admin.getByRole("dialog", { name: "שינוי סיסמת מחיקה" });
+  await field(delPwdModal, "סיסמת מחיקה נוכחית").fill("5522");
+  await field(delPwdModal, "סיסמת מחיקה חדשה").fill("8899");
+  await field(delPwdModal, "אימות סיסמת מחיקה חדשה").fill("8899");
+  await button(delPwdModal, "שמירת סיסמת מחיקה").click();
+  await visible(admin.getByText("סיסמת המחיקה עודכנה בהצלחה."));
+
   await admin.goto(customerPath);
   await button(admin, "מחיקה").click();
-  await button(admin.getByRole("alertdialog"), "מחיקה").click();
+  const custDelPwd = admin.getByRole("alertdialog", { name: "מחיקת רשומה" });
+  await custDelPwd.getByLabel("סיסמת מחיקה").fill("8899");
+  await button(custDelPwd, "מחיקה").click();
   await visible(admin.getByText("לא ניתן למחוק לקוח עם תיקונים משויכים."));
   await admin.goto(repairPath);
   await button(admin, "מחיקה").click();
-  await button(admin.getByRole("alertdialog"), "מחיקה").click();
+  const repairDelPwd = admin.getByRole("alertdialog", { name: "מחיקת רשומה" });
+  await repairDelPwd.getByLabel("סיסמת מחיקה").fill("8899");
+  await button(repairDelPwd, "מחיקה").click();
   await admin.waitForURL("**/repairs?deleted=1");
   await visible(admin.getByText("הרשומה נמחקה."));
   await admin.goto(standardPath);
+  await api(desktop.request, "DELETE", "/api/records/standards/" + standardId, { version: updated.updatedAt, deletePassword: "5522" }, 403);
   await button(admin, "מחיקה").click();
-  await button(admin.getByRole("alertdialog"), "מחיקה").click();
+  const stdDelPwd = admin.getByRole("alertdialog", { name: "מחיקת רשומה" });
+  await stdDelPwd.getByLabel("סיסמת מחיקה").fill("8899");
+  await button(stdDelPwd, "מחיקה").click();
   await admin.waitForURL("**/standards?deleted=1");
   assert.equal((await desktop.request.get(imagePath)).status(), 404);
   await api(desktop.request, "POST", "/api/records/standards", input, 409);

@@ -7,6 +7,7 @@ import {
   formatRepairWhatsapp, formatStandardWhatsapp,
 } from "@/lib/whatsapp-card";
 import type { CardPhoto } from "./card-actions";
+import { InlineStandardStatus } from "./records/inline-standard-status";
 import type { TableRow } from "./record-table";
 import { Status } from "./ui/status";
 
@@ -66,7 +67,7 @@ export function TaskProgress({ tasks }: { tasks: Standard["tasks"] }) {
 
 export function standardRow(item: Standard, mode: "list" | "recent" | "delayed", modelsMap?: Map<string, CatalogModel>): TableRow {
   const progress = <TaskProgress tasks={item.tasks} />;
-  const status = <Status value={item.status} />;
+  const status = <InlineStandardStatus key={"status-" + mode} record={item} variant="table" />;
   const delay = <Status value={item.delay} />;
   const date = formatDate(item.updatedAt);
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
@@ -87,10 +88,8 @@ export function standardRow(item: Standard, mode: "list" | "recent" | "delayed",
       subtitle: item.device,
       modelImageUrl: modelThumbUrl(catalogModel),
       fallbackIcon: "bike",
-      badges: [
-        <Status key="status" value={item.status} />,
-        ...(item.delay === "מתעכב" ? [<Status key="delay" value={item.delay} />] : []),
-      ],
+      badges: item.delay === "מתעכב" ? [<Status key="delay" value={item.delay} />] : [],
+      statusControl: <InlineStandardStatus record={item} variant="mobile" />,
       accent,
       highlightNote: item.delay === "מתעכב" && item.delayReason
         ? { label: "סיבת עיכוב", text: item.delayReason, tone: "amber" }

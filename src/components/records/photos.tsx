@@ -3,6 +3,7 @@
 import { useId, useState } from "react";
 import { Camera, ImagePlus, Images, X } from "lucide-react";
 import { Modal } from "@/components/ui/dialog";
+import { useProtectedDelete } from "@/components/ui/delete-password-dialog";
 import type { Photo, PhotoModule } from "@/lib/validation/models";
 import type { PhotoDraft } from "./use-editor";
 
@@ -28,11 +29,15 @@ export function PhotoGallery({ module, photos, id }: { module: PhotoModule; phot
     url={urlFor(module, id, photo.id)} label={"תמונה " + (index + 1)} />)}</div>;
 }
 
-export function PhotoPicker({ module, id, photos }: { module: PhotoModule; id?: string; photos: PhotoDraft }) {
+export function PhotoPicker({ module, id, photos, onAuthorizeDelete }: {
+  module: PhotoModule; id?: string; photos: PhotoDraft; onAuthorizeDelete?: (password: string) => void;
+}) {
   const gallery = useId();
   const camera = useId();
+  const { requestDelete, dialog } = useProtectedDelete(onAuthorizeDelete);
   const count = photos.kept.length + photos.pending.length;
   return <>
+    {dialog}
     <div className="upload-zone">
       <span className="upload-mark"><Images size={22} aria-hidden /></span>
       <div className="upload-copy"><strong>תמונות מצורפות</strong><span>עד 10 תמונות · תומך גם ב־HEIC מ־Samsung ו־iPhone (עד 20 מ״ב)</span></div>
@@ -64,7 +69,14 @@ export function PhotoPicker({ module, id, photos }: { module: PhotoModule; id?: 
     {count > 0 && <div className="photo-grid">
       {id && photos.kept.map((photo, index) => <div className="photo-item" key={photo.id}>
         <PhotoPreview url={urlFor(module, id, photo.id)} label={"תמונה " + (index + 1)} name={photo.name} />
-        <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + (index + 1)} onClick={() => photos.removeSaved(photo.id)}><X size={16} /></button>
+        <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + (index + 1)}
+          onClick={() => {
+            if (onAuthorizeDelete) {
+              requestDelete(`להסיר את תמונה ${index + 1}? יש להזין סיסמת מחיקה.`, () => photos.removeSaved(photo.id));
+            } else {
+              photos.removeSaved(photo.id);
+            }
+          }}><X size={16} /></button>
       </div>)}
       {photos.pending.map((photo, index) => {
         const number = photos.kept.length + index + 1;

@@ -4,7 +4,8 @@ import { defaultCatalogModels } from "../src/lib/json-db/cortez-catalog";
 import { mergeWithDefaultCatalog } from "../src/lib/json-db/queries";
 import { modelInput } from "../src/lib/validation/models";
 import { publicCatalogModels } from "../src/lib/catalog/public-model";
-import { extractKeySpecs, filterCatalog, getProductFeatures, parseMetrics } from "../src/components/catalog/catalog-utils";
+import { extractKeySpecs, filterCatalog, getProductFeatures, matchRideFinderModels, parseMetrics } from "../src/components/catalog/catalog-utils";
+import { getCoastalAsset, getPrimaryExhibitImage, resolveModelVariants } from "../src/lib/catalog/coastal-assets";
 import { readCatalogState, writeCatalogState } from "../src/lib/catalog/catalog-state";
 
 const base = defaultCatalogModels[0];
@@ -72,4 +73,31 @@ test("feature explanations retain original component values and support authored
   assert.ok(features.some((feature) => feature.description.includes("36V/10.4Ah") && feature.description.includes("Wh")));
   const authored = [{ title: "בדיקה", description: "תיאור מאומת" }];
   assert.deepEqual(getProductFeatures({ ...base, features: authored }), authored);
+});
+
+test("coastal assets map all 28 official exhibits and variants while keeping extra CRM models valid", () => {
+  assert.equal(defaultCatalogModels.length, 32);
+  const mappedCount = defaultCatalogModels.filter((m) => Boolean(getCoastalAsset(m)?.exhibitUrl)).length;
+  assert.equal(mappedCount, 28);
+
+  const mia = defaultCatalogModels.find((m) => m.name === "CORTEZ MIA")!;
+  assert.equal(getPrimaryExhibitImage(mia), "/catalog/exhibits/cortez-mia.webp");
+  assert.equal(resolveModelVariants(mia).length, 5);
+
+  const extra = defaultCatalogModels.find((m) => m.name === "MAX 36")!;
+  assert.equal(getPrimaryExhibitImage(extra), extra.imageUrl);
+
+  const uploaded = { ...base, photos: [{ id: "11111111-1111-4111-8111-111111111111", name: "custom.webp", type: "image/webp" as const, bytes: 100 }] };
+  assert.equal(getPrimaryExhibitImage(uploaded), `/api/images/models/${base.id}/11111111-1111-4111-8111-111111111111`);
+
+  const matches = matchRideFinderModels(defaultCatalogModels, {
+    category: "אופניים חשמליים",
+    style: "long",
+    minRange: 45,
+    maxBudget: 7500,
+    requireFullSuspension: true,
+    requireHydraulic: true,
+  });
+  assert.ok(matches.length >= 1 && matches.length <= 3);
+  assert.ok(matches.every((m) => m.model.device === "אופניים חשמליים" && (m.model.msrp ?? 0) <= 7500));
 });

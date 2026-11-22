@@ -41,7 +41,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
     return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0);
   });
   const copy = moduleCopy[module];
-  const columns = module === "standards" ? ["מספר תיק", "דגם", "סוג מכשיר", "טיפול", "עיכוב", "משימות", "עדכון אחרון"]
+  const columns = module === "standards" ? ["מספר תיק", "דגם", "סוג מכשיר", "סטטוס", "עיכוב", "משימות", "עדכון אחרון"]
     : module === "repairs" ? ["מספר תיקון", "דגם", "מספר סידורי", "לקוח", "סטטוס", "עדכון אחרון"]
     : module === "models" ? ["שם דגם", "סוג מכשיר", "תיקי תקינה", "תיקונים"]
     : module === "faults" ? ["דגם", "סוג מכשיר", "תקלות נפוצות", "קבצים", "פתיחת הגבלה", "תיקוני מעבדה", "עדכון אחרון"]

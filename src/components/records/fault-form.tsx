@@ -11,6 +11,7 @@ import {
   type CatalogModel, type FaultGuide, type FaultGuideInput,
 } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
+import { useProtectedDelete } from "@/components/ui/delete-password-dialog";
 import { Field } from "@/components/ui/field";
 import { DeviceFields, Editor, Section } from "./form-parts";
 import { PhotoPicker } from "./photos";
@@ -56,11 +57,16 @@ export function FaultForm({
 
   const selectedDevice = useWatch({ control, name: "device" });
   const selectedModel = useWatch({ control, name: "model" });
+  const watchedVideoLinks = useWatch({ control, name: "videoLinks" });
+  const watchedCommonFaults = useWatch({ control, name: "commonFaults" });
   const commonFaults = useFieldArray({ name: "commonFaults", control, keyName: "fieldKey" });
   const videoLinks = useFieldArray({ name: "videoLinks", control, keyName: "fieldKey" });
   const photos = usePhotoDraft(record?.photos ?? []);
   const attachments = useAttachmentDraft(record?.attachments ?? []);
   const editor = useEditor("faults", record, isDirty, photos, cloud, attachments);
+  const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
+  const savedFaultIds = new Set((record?.commonFaults ?? []).map((item) => item.id));
+  const savedVideoIds = new Set((record?.videoLinks ?? []).map((item) => item.id));
 
   const handleModelSelected = useCallback((picked: CatalogModel) => {
     setValue("device", picked.device, { shouldDirty: true, shouldValidate: true });
@@ -73,10 +79,12 @@ export function FaultForm({
   const pendingFiles = attachments.pending.filter((item) => item.kind === "file");
   const totalAttachments = attachments.kept.length + attachments.pending.length;
 
-  return <Editor module="faults" title={record ? "עריכת מדריך תקלות ופתיחת הגבלה" : "מדריך תקלות ופתיחת הגבלה חדש"}
-    cancel={record ? "/faults/" + record.id : "/faults"}
-    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error}
-    progress={editor.progress} unsaved={editor.unsaved} onSubmit={handleSubmit(editor.save)}>
+  return <>
+    {deleteDialog}
+    <Editor module="faults" title={record ? "עריכת מדריך תקלות ופתיחת הגבלה" : "מדריך תקלות ופתיחת הגבלה חדש"}
+      cancel={record ? "/faults/" + record.id : "/faults"}
+      loading={isSubmitting || editor.leaving || photos.processing} error={editor.error}
+      progress={editor.progress} unsaved={editor.unsaved} onSubmit={handleSubmit(editor.save)}>
 
     <Section title="זיהוי הדגם" icon={ShieldAlert}>
       <div className="fields-grid">
@@ -133,7 +141,8 @@ export function FaultForm({
             <Film size={18} aria-hidden />
             <div><strong>{item.name}</strong><small>{formatBytes(item.bytes)} · סרטון שמור</small></div>
           </div>
-          <Button size="icon" variant="ghost" aria-label={"הסרת סרטון " + item.name} onClick={() => attachments.removeSaved(item.id)}><X size={16} /></Button>
+          <Button size="icon" variant="ghost" aria-label={"הסרת סרטון " + item.name}
+            onClick={() => requestDelete(`להסיר את הסרטון ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>
         </div>)}
         {pendingVideos.map((item) => <div className="attachment-row is-pending" key={item.id}>
           <div className="attachment-meta">
@@ -164,7 +173,14 @@ export function FaultForm({
                 aria-invalid={Boolean(errors.videoLinks?.[index]?.url)} placeholder="https://youtube.com/watch?v=..." maxLength={1000} />
               {errors.videoLinks?.[index]?.url && <span className="field-error" role="alert">{errors.videoLinks[index]?.url?.message}</span>}
             </div>
-            <Button size="icon" variant="ghost" onClick={() => videoLinks.remove(index)} aria-label={"מחיקת קישור סרטון " + (index + 1)}><Trash2 size={16} /></Button>
+            <Button size="icon" variant="ghost" aria-label={"מחיקת קישור סרטון " + (index + 1)} onClick={() => {
+              const id = watchedVideoLinks?.[index]?.id;
+              if (id && savedVideoIds.has(id)) {
+                requestDelete(`למחוק את קישור סרטון ${index + 1}? יש להזין סיסמת מחיקה.`, () => videoLinks.remove(index));
+              } else {
+                videoLinks.remove(index);
+              }
+            }}><Trash2 size={16} /></Button>
           </div>)}
         </div>
         <Button variant="outline" disabled={videoLinks.fields.length >= 10}
@@ -181,7 +197,14 @@ export function FaultForm({
           <input type="hidden" {...register(`commonFaults.${index}.id`)} />
           <div className="fault-edit-head">
             <strong>תקלה #{index + 1}</strong>
-            <Button size="icon" variant="ghost" onClick={() => commonFaults.remove(index)} aria-label={"מחיקת תקלה " + (index + 1)}><Trash2 size={16} /></Button>
+            <Button size="icon" variant="ghost" aria-label={"מחיקת תקלה " + (index + 1)} onClick={() => {
+              const id = watchedCommonFaults?.[index]?.id;
+              if (id && savedFaultIds.has(id)) {
+                requestDelete(`למחוק את תקלה #${index + 1}? יש להזין סיסמת מחיקה.`, () => commonFaults.remove(index));
+              } else {
+                commonFaults.remove(index);
+              }
+            }}><Trash2 size={16} /></Button>
           </div>
           <div className="fields-grid">
             <Field label="קוד תקלה (אופציונלי)" error={errors.commonFaults?.[index]?.code?.message}>{(props) =>
@@ -240,7 +263,8 @@ export function FaultForm({
             <FileText size={18} aria-hidden />
             <div><strong>{item.name}</strong><small>{formatBytes(item.bytes)} · קובץ שמור</small></div>
           </div>
-          <Button size="icon" variant="ghost" aria-label={"הסרת קובץ " + item.name} onClick={() => attachments.removeSaved(item.id)}><X size={16} /></Button>
+          <Button size="icon" variant="ghost" aria-label={"הסרת קובץ " + item.name}
+            onClick={() => requestDelete(`להסיר את הקובץ ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>
         </div>)}
         {pendingFiles.map((item) => <div className="attachment-row is-pending" key={item.id}>
           <div className="attachment-meta">
@@ -253,10 +277,11 @@ export function FaultForm({
     </Section>
 
     <Section title="תמונות אבחון וחיווט והערות נוספות" icon={Images}>
-      <PhotoPicker module="faults" id={record?.id} photos={photos} />
+      <PhotoPicker module="faults" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} />
       <Field label="הערות פנימיות לצוות" error={errors.notes?.message} className="field-wide">{(props) =>
         <textarea {...props} {...register("notes")} rows={2} maxLength={4000} placeholder="דגשים נוספים לטכנאים ולסוכנים" />
       }</Field>
     </Section>
-  </Editor>;
+  </Editor>
+  </>;
 }

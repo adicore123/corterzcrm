@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AppError } from "../errors";
-import { requireAdmin } from "../auth/session";
+import { requireAdmin, requireDeletePassword } from "../auth/session";
 import { prepareBlobPhotos, uploadList } from "../uploads/blob-images";
 import { prepareMongoPhotos } from "../uploads/mongo-images";
 import { maxAttachments, removeAttachments, stagedAttachmentList, verifyStagedAttachments } from "../uploads/attachments";
@@ -19,6 +19,7 @@ import { stripUndefined } from "./mongo-store";
 const saveOptions = z.object({
   version: z.iso.datetime().optional(),
   requestId: uuid.optional(),
+  deletePassword: z.string().trim().max(64).optional(),
   keptPhotos: z.array(uuid).max(maxPhotos).optional(),
   stagedPhotos: uploadList.optional(),
   keptAttachments: z.array(uuid).max(maxAttachments).optional(),
@@ -71,7 +72,7 @@ function upsert<T extends { id: string }>(all: T[], record: T, editing: boolean)
 }
 
 export async function saveRecord(module: Module, id: string | undefined, payload: unknown, files: File[], actor: PublicUser) {
-  const { version, requestId, keptPhotos, stagedPhotos = [], keptAttachments, stagedAttachments = [] } = saveOptions.parse(payload);
+  const { version, requestId, deletePassword, keptPhotos, stagedPhotos = [], keptAttachments, stagedAttachments = [] } = saveOptions.parse(payload);
   const cloud = usesBlobStorage();
   if (cloud && files.length || !cloud && stagedPhotos.length || module === "customers" && stagedPhotos.length
     || module !== "faults" && stagedAttachments.length) {
@@ -130,6 +131,9 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       const modelData = modelInput.parse(input);
       if (all.some((item) => item.id !== id && item.name.toLocaleLowerCase("he") === modelData.name.toLocaleLowerCase("he"))) {
         throw new AppError(409, "שם הדגם כבר קיים במאגר.");
+      }
+      if (old && removed.length > 0) {
+        await requireDeletePassword(deletePassword);
       }
       const added = cloud ? prepared : await savePhotos("models", files);
       try {
@@ -193,6 +197,11 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       if (all.some((item) => item.id !== id && item.model.toLocaleLowerCase("he") === faultData.model.toLocaleLowerCase("he"))) {
         throw new AppError(409, "כבר קיים מדריך תקלות ופתיחת הגבלה עבור דגם זה. ניתן לערוך את המדריך הקיים.");
       }
+      const removedCommonFaults = Boolean(old && old.commonFaults.some((fault) => !faultData.commonFaults.some((next) => next.id === fault.id)));
+      const removedVideos = Boolean(old && old.videoLinks.some((link) => !faultData.videoLinks.some((next) => next.id === link.id)));
+      if (old && (removed.length > 0 || removedFiles.length > 0 || removedCommonFaults || removedVideos)) {
+        await requireDeletePassword(deletePassword);
+      }
       const added = cloud ? prepared : await savePhotos("faults", files);
       try {
         const record: FaultGuide = stripUndefined({
@@ -233,6 +242,10 @@ export async function saveRecord(module: Module, id: string | undefined, payload
     }
     if (repair && !(await readCollection("customers")).some((customer) => customer.id === repair.customerId)) {
       throw new AppError(400, "יש לבחור לקוח קיים.");
+    }
+    const removedTasks = Boolean(standards && old && "tasks" in old && old.tasks.some((task) => !standards.tasks.some((next) => next.id === task.id)));
+    if (old && (removed.length > 0 || removedTasks)) {
+      await requireDeletePassword(deletePassword);
     }
     const added = cloud ? prepared : await savePhotos(module, files);
     try {

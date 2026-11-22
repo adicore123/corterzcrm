@@ -4,17 +4,25 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Plus, Users } from "lucide-react";
+import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Lock, Plus, ShieldCheck, Users } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { formatDate, roleLabel } from "@/lib/presentation";
 import { requestJson } from "@/lib/client-api";
-import { passwordSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
+import { deletePasswordSchema, passwordSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
 import { useUnsaved } from "@/components/records/use-editor";
 
 const resetPasswordSchema = z.object({ password: passwordSchema });
+const changeDeletePwdSchema = z.object({
+  currentPassword: z.string().trim().min(1, "יש להזין את סיסמת המחיקה הנוכחית.").max(64),
+  newPassword: deletePasswordSchema,
+  confirmPassword: z.string().trim().min(1, "יש לאמת את סיסמת המחיקה החדשה.").max(64),
+}).refine((values) => values.newPassword === values.confirmPassword, {
+  path: ["confirmPassword"],
+  message: "אימות הסיסמה אינו תואם.",
+});
 const ownPasswordSchema = z.object({
   currentPassword: z.string().min(1, "יש להזין את הסיסמה הנוכחית.").max(128, "הסיסמה ארוכה מדי."),
   newPassword: passwordSchema,
@@ -32,6 +40,7 @@ const actionLabels: Record<string, string> = {
   enable: "הפעלת משתמש",
   "password-reset": "איפוס סיסמה",
   "password-change": "שינוי סיסמה",
+  "delete-password-change": "שינוי סיסמת מחיקה",
 };
 
 const entityLabels: Record<string, string> = {
@@ -39,8 +48,10 @@ const entityLabels: Record<string, string> = {
   repairs: "תיקון",
   customers: "לקוח",
   models: "דגם",
+  faults: "תקלות ופתיחות הגבלה",
   users: "משתמש",
   storage: "אחסון",
+  settings: "הגדרות מערכת",
 };
 
 export function OwnPasswordControl() {
@@ -99,11 +110,13 @@ function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, activity = [], cloud }: {
-  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean;
+export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false }: {
+  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [deletePwdOpen, setDeletePwdOpen] = useState(false);
+  const [deletePwdError, setDeletePwdError] = useState("");
   const [resetTarget, setResetTarget] = useState<PublicUser | null>(null);
   const [action, setAction] = useState("");
   const [error, setError] = useState("");
@@ -117,7 +130,15 @@ export function AdminSettings({ users, self, backups, activity = [], cloud }: {
   const passwordForm = useForm<z.infer<typeof resetPasswordSchema>>({
     resolver: zodResolver(resetPasswordSchema), defaultValues: { password: "" },
   });
-  const unsaved = useUnsaved((open && isDirty) || (Boolean(resetTarget) && passwordForm.formState.isDirty), ignore);
+  const deletePwdForm = useForm<z.infer<typeof changeDeletePwdSchema>>({
+    resolver: zodResolver(changeDeletePwdSchema), defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
+  });
+  const unsaved = useUnsaved(
+    (open && isDirty)
+      || (Boolean(resetTarget) && passwordForm.formState.isDirty)
+      || (deletePwdOpen && deletePwdForm.formState.isDirty),
+    ignore,
+  );
 
   async function run(key: string, path: string, method: string, message: string, payload?: unknown) {
     if (action) return;
@@ -159,6 +180,23 @@ export function AdminSettings({ users, self, backups, activity = [], cloud }: {
       router.refresh();
     } catch (error) {
       setResetError((error as Error).message);
+    }
+  });
+
+  const submitDeletePassword = deletePwdForm.handleSubmit(async (value) => {
+    setDeletePwdError("");
+    setNotice("");
+    try {
+      await requestJson("/api/settings/delete-password", "PATCH", {
+        currentPassword: value.currentPassword,
+        newPassword: value.newPassword,
+      });
+      setDeletePwdOpen(false);
+      deletePwdForm.reset();
+      setNotice("סיסמת המחיקה עודכנה בהצלחה.");
+      router.refresh();
+    } catch (error) {
+      setDeletePwdError((error as Error).message);
     }
   });
 
@@ -220,6 +258,43 @@ export function AdminSettings({ users, self, backups, activity = [], cloud }: {
           </Button>
         </form>
       </Modal>
+    </section>
+    <section className="card detail-card">
+      <div className="section-heading">
+        <h2><span className="section-icon"><Lock size={18} /></span>סיסמת מחיקה במערכת</h2>
+        <Modal open={deletePwdOpen} onOpenChange={(next) => {
+          if (!next) {
+            if (deletePwdForm.formState.isSubmitting) return;
+            unsaved.requestClose(() => { deletePwdForm.reset(); setDeletePwdError(""); setDeletePwdOpen(false); });
+            return;
+          }
+          setDeletePwdError("");
+          setDeletePwdOpen(true);
+        }} title="שינוי סיסמת מחיקה" description="עדכון הסיסמה הנדרשת לפני כל מחיקה במערכת (רשומות, תמונות, קבצים ומשימות)"
+          trigger={<Button variant="outline" size="sm"><KeyRound size={15} /> שינוי סיסמת מחיקה</Button>}>
+          <form className="dialog-form" noValidate onSubmit={submitDeletePassword}>
+            <Field label="סיסמת מחיקה נוכחית" error={deletePwdForm.formState.errors.currentPassword?.message}>
+              {(props) => <input {...props} {...deletePwdForm.register("currentPassword")} type="password" autoComplete="off" dir="ltr" required maxLength={64} />}
+            </Field>
+            <Field label="סיסמת מחיקה חדשה" hint="4–64 תווים" error={deletePwdForm.formState.errors.newPassword?.message}>
+              {(props) => <input {...props} {...deletePwdForm.register("newPassword")} type="password" autoComplete="new-password" dir="ltr" required maxLength={64} />}
+            </Field>
+            <Field label="אימות סיסמת מחיקה חדשה" error={deletePwdForm.formState.errors.confirmPassword?.message}>
+              {(props) => <input {...props} {...deletePwdForm.register("confirmPassword")} type="password" autoComplete="new-password" dir="ltr" required maxLength={64} />}
+            </Field>
+            {deletePwdError && <p className="error-message" role="alert">{deletePwdError}</p>}
+            <Button type="submit" disabled={deletePwdForm.formState.isSubmitting}>
+              {deletePwdForm.formState.isSubmitting ? "שומר…" : "שמירת סיסמת מחיקה"}
+            </Button>
+          </form>
+        </Modal>
+      </div>
+      <p className="muted">כל פעולת מחיקה במערכת (רשומות, תמונות, קבצים או משימות שמורות) דורשת אימות באמצעות סיסמת מחיקה.</p>
+      <div className="mt-2">
+        <span className={hasCustomDeletePassword ? "status status-green" : "status status-blue"}>
+          <ShieldCheck size={14} aria-hidden /> {hasCustomDeletePassword ? "מוגדרת סיסמת מחיקה מותאמת אישית" : "מוגדרת סיסמת ברירת המחדל של המערכת"}
+        </span>
+      </div>
     </section>
     <section className="card detail-card">
       <div className="section-heading"><h2><span className="section-icon"><DatabaseBackup size={18} /></span>גיבויים</h2>

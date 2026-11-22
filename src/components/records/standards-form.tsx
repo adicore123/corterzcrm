@@ -7,6 +7,7 @@ import { ClipboardCheck, ClipboardList, Images, ListChecks, Plus, Trash2 } from 
 import { newRequestId } from "@/lib/client-api";
 import { delayStatuses, standardsInput, standardStatuses, type CatalogModel, type Standard, type StandardInput } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
+import { useProtectedDelete } from "@/components/ui/delete-password-dialog";
 import { Field } from "@/components/ui/field";
 import { DeviceFields, Editor, Section } from "./form-parts";
 import { PhotoPicker } from "./photos";
@@ -33,14 +34,18 @@ export function StandardsForm({ record, models, catalog = [], initialModel, clou
   const selectedModel = useWatch({ name: "model", control });
   const photos = usePhotoDraft(record?.photos ?? []);
   const editor = useEditor("standards", record, isDirty, photos, cloud);
+  const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
+  const savedTaskIds = new Set((record?.tasks ?? []).map((item) => item.id));
   const completed = values.filter((value) => value.done).length;
   const title = record ? "עריכת תיק תקינה" : "תיק מכון תקנים חדש";
   const allCatalog = [...addedModels, ...catalog.filter((item) => !addedModels.some((added) => added.id === item.id))];
   const allModelNames = Array.from(new Set([...addedModels.map((item) => item.name), ...models]));
 
-  return <Editor module="standards" title={title} cancel={record ? "/standards/" + record.id : "/standards"}
-    loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
-    onSubmit={handleSubmit(editor.save)}>
+  return <>
+    {deleteDialog}
+    <Editor module="standards" title={title} cancel={record ? "/standards/" + record.id : "/standards"}
+      loading={isSubmitting || editor.leaving || photos.processing} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
+      onSubmit={handleSubmit(editor.save)}>
     <Section title="פרטי הכלי" icon={ClipboardList}>
       <div className="fields-grid"><Field label="מספר תיק" error={errors.number?.message}>{(props) =>
         <input {...props} {...register("number")} maxLength={120} required dir="auto" />
@@ -82,13 +87,21 @@ export function StandardsForm({ record, models, catalog = [], initialModel, clou
         <div><input {...register(`tasks.${index}.title`)} aria-label={"שם משימה " + (index + 1)}
           aria-invalid={Boolean(errors.tasks?.[index]?.title)} placeholder="תיאור המשימה" maxLength={240} />
           {errors.tasks?.[index]?.title && <span className="field-error" role="alert">{errors.tasks[index]?.title?.message}</span>}</div>
-        <Button size="icon" variant="ghost" onClick={() => tasks.remove(index)} aria-label={"מחיקת משימה " + (index + 1)}><Trash2 size={16} /></Button>
+        <Button size="icon" variant="ghost" aria-label={"מחיקת משימה " + (index + 1)} onClick={() => {
+          const id = values[index]?.id;
+          if (id && savedTaskIds.has(id)) {
+            requestDelete(`למחוק את משימה ${index + 1}? יש להזין סיסמת מחיקה.`, () => tasks.remove(index));
+          } else {
+            tasks.remove(index);
+          }
+        }}><Trash2 size={16} /></Button>
       </div>)}</div>
       <Button variant="outline" disabled={tasks.fields.length >= 100}
         onClick={() => tasks.append({ id: newRequestId(), title: "", done: false }, { focusName: "tasks." + tasks.fields.length + ".title" })}>
         <Plus size={17} /> הוספת משימה
       </Button>
     </Section>
-    <Section title="תמונות" icon={Images}><PhotoPicker module="standards" id={record?.id} photos={photos} /></Section>
-  </Editor>;
+    <Section title="תמונות" icon={Images}><PhotoPicker module="standards" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} /></Section>
+  </Editor>
+  </>;
 }

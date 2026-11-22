@@ -65,11 +65,11 @@ export function QuickStatus({ module, record }: {
   }
 
   return <div className="quick-status-bar no-print" role="group" aria-label="שינוי סטטוס מהיר">
-    <span className="quick-status-label">עדכון סטטוס מהיר:</span>
+    <span className="quick-status-label">שינוי סטטוס מהיר:</span>
     <div className="quick-status-buttons">
       {options.map((option) => {
         const active = status === option;
-        return <Button key={option} size="sm" variant={active ? "default" : "outline"}
+        return <Button key={option} size="default" variant={active ? "default" : "outline"}
           disabled={Boolean(busy)} aria-pressed={active} onClick={() => updateStatus(option)}>
           {busy === option ? "מעדכן…" : option}
         </Button>;

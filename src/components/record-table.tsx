@@ -17,6 +17,7 @@ export type RecordCardMeta = {
   avatarText?: string;
   fallbackIcon?: "bike" | "customer" | "fault";
   badges?: ReactNode[];
+  statusControl?: ReactNode;
   accent?: "red" | "amber" | "green" | "blue" | "neutral";
   highlightNote?: { label: string; text: string; tone?: "amber" | "neutral" };
   meta: CardMetaItem[];
@@ -123,6 +124,8 @@ export function RecordTable({ columns, rows, empty, icon: Icon = ClipboardList, 
             )}
           </div>
         </div>
+
+        {card.statusControl}
 
         {card.highlightNote && (
           <div className={"mobile-card-highlight" + (card.highlightNote.tone === "amber" ? " is-amber" : "")}>

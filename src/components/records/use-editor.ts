@@ -386,10 +386,15 @@ export function useEditor(
   const bypass = useRef(false);
   const sending = useRef(false);
   const requestId = useRef("");
+  const deletePasswordRef = useRef("");
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [leaving, setLeaving] = useState(false);
   const unsaved = useUnsaved(dirty || Boolean(photos?.dirty) || Boolean(attachments?.dirty), bypass);
+
+  function authorizeDelete(password: string) {
+    deletePasswordRef.current = password;
+  }
 
   async function save(values: object) {
     if (sending.current || photos?.processing) return;
@@ -414,6 +419,7 @@ export function useEditor(
         ...values,
         version: record?.updatedAt,
         requestId: requestId.current || undefined,
+        ...(deletePasswordRef.current ? { deletePassword: deletePasswordRef.current } : {}),
         keptPhotos: photos?.kept.map((item) => item.id),
         ...(attachments ? { keptAttachments: attachments.kept.map((item) => item.id) } : {}),
         ...(stagedAttachments?.length ? { stagedAttachments } : {}),
@@ -436,7 +442,7 @@ export function useEditor(
       setProgress(null);
     }
   }
-  return { save, error, leaving, progress, unsaved };
+  return { save, authorizeDelete, error, leaving, progress, unsaved };
 }
 
 export type UnsavedState = ReturnType<typeof useUnsaved>;

@@ -2,11 +2,12 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import { AppError } from "../errors";
-import { passwordSchema, userInput, type PublicUser, type User } from "../validation/models";
+import { passwordSchema, deletePasswordSchema, userInput, type PublicUser, type User } from "../validation/models";
 
 const derive = promisify(scrypt);
 const ttl = 12 * 60 * 60 * 1000;
 export const sessionCookie = "cortez_session";
+export const DEFAULT_DELETE_PASSWORD = "5522";
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 const dummyHash = "0".repeat(32) + ":" + "0".repeat(128);
 
@@ -19,6 +20,49 @@ async function checkPassword(password: string, hash: string) {
   const [salt, expected] = hash.split(":");
   const actual = await derive(password, salt, 64) as Buffer;
   return timingSafeEqual(actual, Buffer.from(expected, "hex"));
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest();
+}
+
+export async function verifyDeletePassword(candidate: string): Promise<boolean> {
+  const trimmed = candidate.trim();
+  if (!trimmed) return false;
+  const settings = await readCollection("settings");
+  if (settings.deletePasswordHash) {
+    return checkPassword(trimmed, settings.deletePasswordHash);
+  }
+  return timingSafeEqual(sha256(trimmed), sha256(DEFAULT_DELETE_PASSWORD));
+}
+
+export async function requireDeletePassword(candidate: unknown): Promise<void> {
+  if (typeof candidate !== "string" || !candidate.trim()) {
+    throw new AppError(400, "יש להזין סיסמת מחיקה.");
+  }
+  if (!(await verifyDeletePassword(candidate))) {
+    throw new AppError(403, "סיסמת המחיקה שגויה.");
+  }
+}
+
+export async function changeDeletePassword(currentPassword: string, newPassword: string, actor: PublicUser) {
+  requireAdmin(actor);
+  if (typeof currentPassword !== "string" || !currentPassword.trim()) {
+    throw new AppError(400, "יש להזין את סיסמת המחיקה הנוכחית.");
+  }
+  const validNew = deletePasswordSchema.parse(newPassword);
+  const validCurrent = await verifyDeletePassword(currentPassword);
+  if (!validCurrent) {
+    throw new AppError(400, "סיסמת המחיקה הנוכחית שגויה.");
+  }
+  const deletePasswordHash = await hashPassword(validNew);
+  return serialized(async () => {
+    const active = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled && item.role === "admin");
+    if (!active) throw new AppError(403, "פעולה זו זמינה למנהלי מערכת בלבד.");
+    await writeCollection("settings", { deletePasswordHash, updatedAt: new Date().toISOString() });
+    await audit(actor.id, "delete-password-change", "settings", "delete-password");
+    return { ok: true };
+  });
 }
 
 export function publicUser(user: User): PublicUser {

@@ -5,7 +5,7 @@ import { AppError } from "../errors";
 import { blobTransaction, listBlobBackups, readBlobBackup, readBlobCollection, usesBlobStorage, writeBlobBackup, writeBlobCollection } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
 import { listMongoBackups, mongoTransaction, readMongoBackup, readMongoCollection, writeMongoBackup, writeMongoCollection } from "./mongo-store";
-import { collections, initialCounters, type Collection, type Data } from "./collections";
+import { collections, initialCounters, initialSettings, type Collection, type Data } from "./collections";
 import { defaultCatalogModels } from "./cortez-catalog";
 const roots = globalThis as typeof globalThis & {
   cortezStore?: { queue: Promise<unknown>; initializations: Map<string, Promise<void>> };
@@ -74,7 +74,7 @@ async function initialize(root: string) {
         console.error("[cortez] Counter file missing from initialized storage", file);
         throw new AppError(503, "קובץ המספור חסר. יש לשחזר אותו מגיבוי לפני המשך עבודה.");
       }
-      const initialValue = key === "counters" ? initialCounters : key === "models" ? defaultCatalogModels : [];
+      const initialValue = key === "counters" ? initialCounters : key === "models" ? defaultCatalogModels : key === "settings" ? initialSettings : [];
       await atomicWrite(file, JSON.stringify(initialValue, null, 2) + "\n");
     }
   }
@@ -155,10 +155,17 @@ export async function readBackup(id: string) {
   try {
     const manifest = JSON.parse(await readFile(path.join(directory, "manifest.json"), "utf8")) as { id: string; timestamp: string };
     const keys = (Object.keys(collections) as Collection[]).filter((key) => key !== "sessions");
-    const entries = await Promise.all(keys.map(async (key) => [
-      key,
-      collections[key].schema.parse(JSON.parse(await readFile(path.join(directory, "data", collections[key].file), "utf8"))),
-    ] as const));
+    const entries = await Promise.all(keys.map(async (key) => {
+      try {
+        return [
+          key,
+          collections[key].schema.parse(JSON.parse(await readFile(path.join(directory, "data", collections[key].file), "utf8"))),
+        ] as const;
+      } catch (error) {
+        if (hasCode(error, "ENOENT") && key === "settings") return [key, initialSettings] as const;
+        throw error;
+      }
+    }));
     return { id: manifest.id, timestamp: manifest.timestamp, state: { format: 1, ...Object.fromEntries(entries), sessions: [] } };
   } catch (error) {
     if (hasCode(error, "ENOENT")) throw new AppError(404, "הגיבוי לא נמצא.");

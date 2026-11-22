@@ -80,6 +80,6 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
         </Field>
       </div>
     </Section>
-    <Section title="תמונות" icon={Images}><PhotoPicker module="repairs" id={record?.id} photos={photos} /></Section>
+    <Section title="תמונות" icon={Images}><PhotoPicker module="repairs" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} /></Section>
   </Editor>;
 }

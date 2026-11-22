@@ -1,6 +1,6 @@
 export type StudioEnvironment = "day" | "night" | "gallery";
 export const studioEnvironments = {
-  day: { title: "סטודיו בהיר", background: 0xf4f5f8, deck: 0xfcfcfd, collar: 0xd7dbe4, ambient: 1.15, accent: 2, exposure: 1.08 },
-  night: { title: "סטודיו לילה", background: 0x0d0e14, deck: 0x1b1d25, collar: 0x282a35, ambient: .65, accent: 5.2, exposure: 1 },
-  gallery: { title: "גלריית טיטניום", background: 0x222931, deck: 0x555e69, collar: 0x747f8d, ambient: .95, accent: 2.8, exposure: 1.15 },
+  day: { title: "אור יום בחוף", background: 0xc4dce0, deck: 0xe6d4b8, collar: 0xd9be97, ambient: 1.15, accent: 2, exposure: 1.08 },
+  night: { title: "שעת הזהב", background: 0x3b281c, deck: 0xb98d5e, collar: 0xe6a15c, ambient: 0.85, accent: 4.2, exposure: 1.04 },
+  gallery: { title: "דמדומי חוף", background: 0x162238, deck: 0x2c3c55, collar: 0x5c7296, ambient: 0.78, accent: 3.2, exposure: 1.0 },
 } satisfies Record<StudioEnvironment, { title: string; background: number; deck: number; collar: number; ambient: number; accent: number; exposure: number }>;

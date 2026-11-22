@@ -11,9 +11,9 @@ export const metadata: Metadata = { title: "הגדרות" };
 
 export default async function SettingsPage() {
   const user = await authorizedUser();
-  const [users, backups, activity] = user.role === "admin"
-    ? await Promise.all([readCollection("users"), listBackups(), readCollection("activity")])
-    : [[], [], []];
+  const [users, backups, activity, systemSettings] = user.role === "admin"
+    ? await Promise.all([readCollection("users"), listBackups(), readCollection("activity"), readCollection("settings")])
+    : [[], [], [], {}];
   const recentActivity = [...activity].reverse().slice(0, 25);
 
   return <div className="page-stack">
@@ -30,6 +30,6 @@ export default async function SettingsPage() {
       </dl>
     </section>
     {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups}
-      activity={recentActivity} cloud={usesBlobStorage()} />}
+      activity={recentActivity} cloud={usesBlobStorage()} hasCustomDeletePassword={Boolean(systemSettings.deletePasswordHash)} />}
   </div>;
 }

@@ -123,8 +123,19 @@ export function parseMetrics(model: CatalogModel): ModelMetrics {
 
 export type FitFilter = "long-range" | "full-susp" | "hydraulic";
 export type CatalogFilterState = {
-  search?: string; category?: string; fits?: FitFilter[]; maxPrice?: number;
+  search?: string;
+  category?: string;
+  fits?: FitFilter[];
+  maxPrice?: number;
+  voltage?: string;
+  suspension?: string;
 };
+
+export function extractBatteryVoltage(model: CatalogModel): number | null {
+  const battery = (model.specs ?? []).find((spec) => spec.label.includes("סוללה"))?.value ?? model.summary ?? "";
+  const match = battery.match(/(\d+(?:\.\d+)?)\s*[vV]/);
+  return match ? Math.round(Number(match[1])) : null;
+}
 
 export function filterCatalog(models: CatalogModel[], state: CatalogFilterState): CatalogModel[] {
   const query = state.search?.trim().toLocaleLowerCase("he") ?? "";
@@ -132,10 +143,91 @@ export function filterCatalog(models: CatalogModel[], state: CatalogFilterState)
     if (state.category === "2027" && !is2027Model(model)) return false;
     if (state.category && !["all", "2027"].includes(state.category) && model.device !== state.category) return false;
     if (state.maxPrice && (model.msrp == null || model.msrp > state.maxPrice)) return false;
+    if (state.voltage) {
+      const voltage = extractBatteryVoltage(model);
+      if (!voltage || String(voltage) !== state.voltage) return false;
+    }
     const metrics = parseMetrics(model);
+    if (state.suspension === "full" && !metrics.hasFullSuspension) return false;
+    if (state.suspension === "front") {
+      const frontSpec = (model.specs ?? []).find((spec) => spec.label.includes("שיכוך"))?.value ?? "";
+      if (metrics.hasFullSuspension || !frontSpec.includes("יש") && !frontSpec.includes("קדמי")) return false;
+    }
     if (state.fits?.some((fit) => fit === "long-range" ? (metrics.rangeKm ?? 0) < 45 : fit === "full-susp" ? !metrics.hasFullSuspension : !metrics.hasHydraulicBrakes)) return false;
     return !query || [model.name, model.device, model.summary ?? "", ...(model.specs ?? []).flatMap((spec) => [spec.label, spec.value])].some((text) => text.toLocaleLowerCase("he").includes(query));
   });
+}
+
+export type RideFinderStyle = "daily" | "long" | "compact";
+export type RideFinderCriteria = {
+  category: "all" | "אופניים חשמליים" | "קורקינט חשמלי";
+  style: RideFinderStyle;
+  minRange: number;
+  maxBudget: number;
+  requireFullSuspension: boolean;
+  requireHydraulic: boolean;
+};
+
+export type RideFinderMatch = {
+  model: CatalogModel;
+  reasons: string[];
+  score: number;
+};
+
+export function matchRideFinderModels(models: CatalogModel[], criteria: RideFinderCriteria): RideFinderMatch[] {
+  const candidates = models.filter((model) => {
+    if (model.published === false) return false;
+    if (criteria.category !== "all" && model.device !== criteria.category) return false;
+    if (criteria.maxBudget > 0 && (model.msrp == null || model.msrp > criteria.maxBudget)) return false;
+    const metrics = parseMetrics(model);
+    if (criteria.minRange > 0 && (metrics.rangeKm == null || metrics.rangeKm < criteria.minRange)) return false;
+    if (criteria.requireFullSuspension && !metrics.hasFullSuspension) return false;
+    if (criteria.requireHydraulic && !metrics.hasHydraulicBrakes) return false;
+    return true;
+  });
+
+  const scored = candidates.map((model) => {
+    const metrics = parseMetrics(model);
+    const reasons: string[] = [];
+    let score = 0;
+
+    if (is2027Model(model)) {
+      score += 3;
+      reasons.push("סדרת 2027");
+    }
+    if (metrics.rangeKm && metrics.rangeKm >= criteria.minRange + 10) {
+      score += 2;
+      reasons.push(`טווח גבוה (${metrics.rangeKm} ק״מ)`);
+    } else if (metrics.rangeKm) {
+      reasons.push(`עד ${metrics.rangeKm} ק״מ`);
+    }
+    if (metrics.hasFullSuspension) {
+      score += criteria.style === "long" ? 4 : 2;
+      reasons.push("שיכוך מלא");
+    }
+    if (metrics.hasHydraulicBrakes) {
+      score += criteria.requireHydraulic ? 3 : 2;
+      reasons.push("בלמים הידראוליים");
+    }
+    if (criteria.style === "compact" && ((model.metrics?.weightKg ?? 99) <= 22 || model.name.includes("10X") || model.name.includes("SPOT") || model.name.includes("COPPER"))) {
+      score += 4;
+      reasons.push("קומפקטי וזריז לעיר");
+    }
+    if (criteria.style === "daily" && model.msrp && model.msrp <= Math.max(4800, criteria.maxBudget * 0.85)) {
+      score += 2;
+      reasons.push("משתלם ליומיום");
+    }
+    if (isPremiumModel(model)) score += 1;
+
+    return { model, reasons: reasons.slice(0, 3), score };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return (a.model.msrp ?? 999_999) - (b.model.msrp ?? 999_999);
+  });
+
+  return scored.slice(0, 3);
 }
 
 export type SpecGroup = {
