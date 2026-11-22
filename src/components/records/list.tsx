@@ -18,7 +18,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
     module === "models" ? readCollection("standards") : [],
     module === "standards" || module === "repairs" || module === "faults" ? catalogModels() : [],
   ]);
-  const names = new Map(contacts.map((item) => [item.id, item.name]));
+  const customersMap = new Map(contacts.map((item) => [item.id, item]));
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const counts = new Map<string, number>();
   const modelRepairs = new Map<string, number>();
@@ -34,7 +34,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
   }
   const rows = records.map((item) => {
     if ("tasks" in item) return standardRow(item, "list", modelsMap);
-    if ("serial" in item) return repairRow(item, names, false, modelsMap);
+    if ("serial" in item) return repairRow(item, customersMap, false, modelsMap);
     if ("phone" in item) return customerRow(item, counts.get(item.id) ?? 0);
     if ("commonFaults" in item) return faultGuideRow(item, modelRepairs.get(item.model.toLocaleLowerCase("he")) ?? 0, modelsMap);
     const key = item.name.toLocaleLowerCase("he");

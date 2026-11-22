@@ -195,7 +195,23 @@ try {
   await field(page, "מיון רשומות").selectOption("oldest");
   await button(page, "חיפוש").click();
   await visible(link(page, original.number));
+  await visible(page.locator(".mobile-record-card"));
+  const mobileWaHref = await page.locator(".mobile-record-card .mobile-action-btn.is-whatsapp").first().getAttribute("href");
+  assert.ok(mobileWaHref?.startsWith("https://wa.me/972525510004?text="));
+  assert.match(decodeURIComponent(mobileWaHref), new RegExp(original.number));
+  await visible(page.locator(".mobile-record-card .mobile-photo-strip"));
+  await page.locator(".mobile-record-card .mobile-photo-thumb").first().click();
+  await visible(page.getByRole("dialog", { name: "תמונות · דגם בדיקה 2" }));
+  await button(page, "סגירת גלריית תמונות").click();
   await noOverflow(page);
+
+  await admin.goto("/standards");
+  await visible(admin.locator(".data-table"));
+  const desktopWaHref = await admin.locator(".data-table .action-pill-wa").first().getAttribute("href");
+  assert.ok(desktopWaHref?.startsWith("https://wa.me/972525510004?text="));
+  await admin.locator(".data-table .action-pill-photo").first().click();
+  await visible(admin.getByRole("dialog", { name: "תמונות · דגם בדיקה 2" }));
+  await button(admin, "סגירת גלריית תמונות").click();
 
   stage = "repair, inline customer, and customer history";
   await page.goto("/repairs/new");

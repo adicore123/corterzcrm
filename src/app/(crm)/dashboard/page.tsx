@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "סקירה כללית" };
 export default async function DashboardPage() {
   await authorizedUser();
   const data = await dashboard();
-  const names = new Map(data.customers.map((customer) => [customer.id, customer.name]));
+  const customersMap = new Map(data.customers.map((customer) => [customer.id, customer]));
   const modelsMap = new Map(data.models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const metrics = [
     { label: "תיקי תקינה פעילים", value: data.counts.activeStandards, icon: ClipboardList, tone: "red", href: "/standards?status=active" },
@@ -56,7 +56,7 @@ export default async function DashboardPage() {
     </div>
     <section className="card data-card" aria-labelledby="recent-repairs">
       <div className="section-heading"><h2 id="recent-repairs">תיקונים אחרונים</h2><Link className="section-link" href="/repairs" aria-label="כל התיקונים">לכל התיקונים <ArrowLeft size={14} /></Link></div>
-      <RecordTable rows={data.repairs.map((item) => repairRow(item, names, true, modelsMap))} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
+      <RecordTable rows={data.repairs.map((item) => repairRow(item, customersMap, true, modelsMap))} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
         empty="אין תיקונים אחרונים" icon={Wrench} showEmptyHeader />
     </section>
   </div>;

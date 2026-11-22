@@ -8,7 +8,12 @@ import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { embedVideoUrl, formatBytes, formatDate, labels } from "@/lib/presentation";
 import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "@/lib/validation/models";
-import { ModelBadge, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
+import {
+  formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
+  formatRepairWhatsapp, formatStandardWhatsapp,
+} from "@/lib/whatsapp-card";
+import { CardWhatsappButton } from "@/components/card-actions";
+import { ModelBadge, modelThumbUrl, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
@@ -58,8 +63,18 @@ export async function RecordDetail({ module, record, admin, saved }: {
     ? repairs.filter((item) => item.model.toLocaleLowerCase("he") === targetModelLower)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
-  const names = new Map("phone" in record ? [[record.id, record.name]] : customers.map((c) => [c.id, c.name]));
+  const customersMap = new Map("phone" in record ? [[record.id, record]] : customers.map((c) => [c.id, c]));
   const dates: Value[] = [["תאריך פתיחה", formatDate(record.createdAt, true)], ["עודכן לאחרונה", formatDate(record.updatedAt, true)]];
+  const detailWhatsappMessage = "tasks" in record
+    ? formatStandardWhatsapp(record)
+    : "serial" in record
+      ? formatRepairWhatsapp(record, customer)
+      : "phone" in record
+        ? formatCustomerWhatsapp(record, history.length)
+        : isFaultGuide
+          ? formatFaultGuideWhatsapp(record, modelRepairs.length)
+          : formatModelWhatsapp(record as CatalogModel, modelStandards.length, modelRepairs.length);
+  const linkedModelThumb = modelThumbUrl(linkedModel);
 
   return <div className="page-stack">
     <Link className="back-link" href={"/" + module}><ArrowRight size={16} aria-hidden />{labels[module]}</Link>
@@ -74,6 +89,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
         </div>
       </div>
       <div className="detail-actions no-print">
+        <CardWhatsappButton message={detailWhatsappMessage} recordHref={"/" + module + "/" + record.id} label={number ?? title} variant="detail" />
         {isModelRecord && <Button asChild variant="soft"><Link href={"/catalog?model=" + record.id}><Sparkles size={16} /> תצוגת 3D בקטלוג</Link></Button>}
         {isFaultGuide && linkedModel && <Button asChild variant="soft"><Link href={"/models/" + linkedModel.id}><Bike size={16} /> כרטיס הדגם</Link></Button>}
         {("tasks" in record || "serial" in record || isFaultGuide) && <PrintButton />}
@@ -88,6 +104,11 @@ export async function RecordDetail({ module, record, admin, saved }: {
           <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי תיק תקינה</h2>
           <QuickStatus key={record.updatedAt} module="standards" record={record} />
         </div>
+        {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+          <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
+        </div>}
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["סטטוס טיפול", <Status key="status" value={record.status} />],
           ["סטטוס עיכוב", <Status key="delay" value={record.delay} />], ...(record.delay === "מתעכב" ? [["סיבת עיכוב", record.delayReason] as Value] : []), ...dates]} />
         {record.notes && <div className="detail-notes"><h3>הערות</h3><p>{record.notes}</p></div>}
@@ -102,6 +123,11 @@ export async function RecordDetail({ module, record, admin, saved }: {
           <h2><span className="section-icon"><Wrench size={18} /></span>פרטי תיקון</h2>
           <QuickStatus key={record.updatedAt} module="repairs" record={record} />
         </div>
+        {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+          <div><strong>{linkedModel.name}</strong><p className="muted">{record.device} · סידורי <bdi dir="ltr">{record.serial}</bdi></p></div>
+        </div>}
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["מספר סידורי", <bdi key="serial">{record.serial}</bdi>],
           ["לקוח", customer && <Link key="customer" className="text-link" href={"/customers/" + customer.id}>{customer.name}</Link>],
           ...(customer ? [["טלפון לקוח", <PhoneLink key="cphone" phone={customer.phone}
@@ -123,7 +149,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
           <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?customer=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>
         </div>
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-          rows={history.map((item) => repairRow(item, names, true, modelsMap))} empty="אין תיקונים משויכים" showEmptyHeader />
+          rows={history.map((item) => repairRow(item, customersMap, true, modelsMap))} empty="אין תיקונים משויכים" showEmptyHeader />
       </section>
     </>}
     {isModelRecord && <>
@@ -158,14 +184,14 @@ export async function RecordDetail({ module, record, admin, saved }: {
           <Button asChild size="sm" variant="outline"><Link href={"/standards/new?model=" + record.id}><Plus size={16} /> תיק מכון תקנים</Link></Button>
         </div>
         <RecordTable icon={ClipboardList} columns={["מספר תיק", "דגם", "סטטוס", "עודכן לאחרונה"]}
-          rows={modelStandards.map((item) => standardRow(item, "recent"))} empty="אין תיקי תקינה משויכים לדגם זה" showEmptyHeader />
+          rows={modelStandards.map((item) => standardRow(item, "recent", modelsMap))} empty="אין תיקי תקינה משויכים לדגם זה" showEmptyHeader />
       </section>
       <section className="card data-card">
         <div className="section-heading"><h2>תיקונים של דגם זה</h2>
           <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?model=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>
         </div>
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-          rows={modelRepairs.map((item) => repairRow(item, names, true))} empty="אין תיקונים משויכים לדגם זה" showEmptyHeader />
+          rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap))} empty="אין תיקונים משויכים לדגם זה" showEmptyHeader />
       </section>
       <section className="card detail-card">
         <div className="section-heading">
@@ -194,6 +220,11 @@ export async function RecordDetail({ module, record, admin, saved }: {
       return <>
         <section className="card detail-card">
           <h2><span className="section-icon"><ShieldAlert size={18} /></span>סקירת הדגם</h2>
+          {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+            <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
+          </div>}
           <Details rows={[
             ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model],
             ["סוג מכשיר", record.device],
@@ -292,7 +323,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
             </Button>
           </div>
           <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-            rows={modelRepairs.map((item) => repairRow(item, names, true, modelsMap))}
+            rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap))}
             empty="אין תיקונים רשומים לדגם זה במעבדה" showEmptyHeader />
         </section>
       </>;
