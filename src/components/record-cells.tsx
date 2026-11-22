@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Bike, MessageCircle, Phone } from "lucide-react";
+import { Bike, MessageCircle, Phone, Video } from "lucide-react";
 import { formatDate, phoneHref, whatsappHref } from "@/lib/presentation";
-import type { CatalogModel, Customer, Repair, Standard } from "@/lib/validation/models";
+import type { CatalogModel, Customer, FaultGuide, Repair, Standard } from "@/lib/validation/models";
 import { Status } from "./ui/status";
 
 export function modelThumbUrl(model: Pick<CatalogModel, "id" | "imageUrl" | "photos">) {
@@ -84,5 +84,21 @@ export function modelRow(item: CatalogModel, standardsCount: number, repairsCoun
     label: item.name,
     href: "/models/" + item.id,
     cells: [<ModelBadge key="model" model={item} />, item.device, standardsCount, repairsCount],
+  };
+}
+
+export function faultGuideRow(item: FaultGuide, repairsCount: number, modelsMap?: Map<string, CatalogModel>) {
+  const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
+  const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
+  const filesCount = item.attachments.filter((att) => att.kind === "file").length;
+  const videosCount = item.attachments.filter((att) => att.kind === "video").length + item.videoLinks.length;
+  const videoBadge = videosCount > 0
+    ? <span key="vid" className="status status-green"><Video size={13} aria-hidden /> {videosCount === 1 ? "יש סרטון" : `${videosCount} סרטונים`}</span>
+    : <span key="vid" className="status status-neutral">ללא סרטון</span>;
+  return {
+    id: item.id,
+    label: item.model,
+    href: "/faults/" + item.id,
+    cells: [modelCell, item.device, item.commonFaults.length, filesCount, videoBadge, repairsCount, formatDate(item.updatedAt)],
   };
 }

@@ -4,10 +4,11 @@ import { AppError } from "../errors";
 import { requireAdmin } from "../auth/session";
 import { prepareBlobPhotos, uploadList } from "../uploads/blob-images";
 import { prepareMongoPhotos } from "../uploads/mongo-images";
+import { maxAttachments, removeAttachments, stagedAttachmentList, verifyStagedAttachments } from "../uploads/attachments";
 import { maxPhotos, removePhotos, savePhotos } from "../uploads/images";
 import {
-  customerInput, modelInput, repairInput, standardsInput, uuid,
-  type CatalogModel, type Customer, type Module, type Photo, type PublicUser, type Repair, type Standard,
+  customerInput, faultGuideInput, modelInput, repairInput, standardsInput, uuid,
+  type Attachment, type CatalogModel, type Customer, type FaultGuide, type Module, type Photo, type PublicUser, type Repair, type Standard,
 } from "../validation/models";
 import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
 import { mergeWithDefaultCatalog } from "./queries";
@@ -20,6 +21,8 @@ const saveOptions = z.object({
   requestId: uuid.optional(),
   keptPhotos: z.array(uuid).max(maxPhotos).optional(),
   stagedPhotos: uploadList.optional(),
+  keptAttachments: z.array(uuid).max(maxAttachments).optional(),
+  stagedAttachments: stagedAttachmentList.optional(),
 });
 
 function existing<T extends { id: string }>(records: T[], id: string) {
@@ -32,14 +35,15 @@ export function getRecord(module: "standards", id: string): Promise<Standard>;
 export function getRecord(module: "repairs", id: string): Promise<Repair>;
 export function getRecord(module: "customers", id: string): Promise<Customer>;
 export function getRecord(module: "models", id: string): Promise<CatalogModel>;
-export function getRecord(module: "standards" | "repairs" | "models", id: string): Promise<Standard | Repair | CatalogModel>;
-export function getRecord(module: Module, id: string): Promise<Standard | Repair | Customer | CatalogModel>;
+export function getRecord(module: "faults", id: string): Promise<FaultGuide>;
+export function getRecord(module: "standards" | "repairs" | "models" | "faults", id: string): Promise<Standard | Repair | CatalogModel | FaultGuide>;
+export function getRecord(module: Module, id: string): Promise<Standard | Repair | Customer | CatalogModel | FaultGuide>;
 export async function getRecord(module: Module, id: string) {
   const list = await readCollection(module);
   if (module === "models") {
     return existing<CatalogModel>(mergeWithDefaultCatalog(list as CatalogModel[]), id);
   }
-  return existing<Standard | Repair | Customer | CatalogModel>(list, id);
+  return existing<Standard | Repair | Customer | CatalogModel | FaultGuide>(list, id);
 }
 
 function recordFields(old: { id: string; createdAt: string; updatedAt: string } | undefined, version?: string, requestId?: string) {
@@ -55,19 +59,28 @@ function retain(photos: Photo[], kept: string[] | undefined, additions: number) 
   return { retained, removed: photos.filter((photo) => !retained.includes(photo)) };
 }
 
+function retainAttachments(attachments: Attachment[], kept: string[] | undefined, additions: number) {
+  const retained = kept ? attachments.filter((item) => kept.includes(item.id)) : attachments;
+  if (kept && retained.length !== new Set(kept).size) throw new AppError(400, "אחד הקבצים אינו משויך לרשומה.");
+  if (retained.length + additions > maxAttachments) throw new AppError(400, "ניתן לצרף עד 15 קבצים וסרטונים לרשומה.");
+  return { retained, removed: attachments.filter((item) => !retained.includes(item)) };
+}
+
 function upsert<T extends { id: string }>(all: T[], record: T, editing: boolean) {
   return editing ? all.map((item) => item.id === record.id ? record : item) : [...all, record];
 }
 
 export async function saveRecord(module: Module, id: string | undefined, payload: unknown, files: File[], actor: PublicUser) {
-  const { version, requestId, keptPhotos, stagedPhotos = [] } = saveOptions.parse(payload);
+  const { version, requestId, keptPhotos, stagedPhotos = [], keptAttachments, stagedAttachments = [] } = saveOptions.parse(payload);
   const cloud = usesBlobStorage();
-  if (cloud && files.length || !cloud && stagedPhotos.length || module === "customers" && stagedPhotos.length) {
-    throw new AppError(400, "שיטת העלאת התמונות אינה תואמת לאחסון.");
+  if (cloud && files.length || !cloud && stagedPhotos.length || module === "customers" && stagedPhotos.length
+    || module !== "faults" && stagedAttachments.length) {
+    throw new AppError(400, "שיטת העלאת הקבצים אינה תואמת לאחסון.");
   }
   const input = module === "standards" ? standardsInput.parse(payload)
     : module === "repairs" ? repairInput.parse(payload)
     : module === "models" ? modelInput.parse(payload)
+    : module === "faults" ? faultGuideInput.parse(payload)
     : customerInput.parse(payload);
   let prepared: Photo[] = [];
   if (module !== "customers" && stagedPhotos.length > 0) {
@@ -75,12 +88,22 @@ export async function saveRecord(module: Module, id: string | undefined, payload
     const all = module === "models" ? mergeWithDefaultCatalog(stored as CatalogModel[]) : stored;
     const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
     if (duplicate) return duplicate;
-    const existingRecord = id ? existing<Standard | Repair | CatalogModel>(all, id) : undefined;
+    const existingRecord = id ? existing<Standard | Repair | CatalogModel | FaultGuide>(all, id) : undefined;
     if (existingRecord) recordFields(existingRecord, version);
     retain(existingRecord?.photos ?? [], keptPhotos, stagedPhotos.length);
     prepared = usesMongoStorage()
       ? await prepareMongoPhotos(module, actor.id, stagedPhotos)
       : await prepareBlobPhotos(module, actor.id, stagedPhotos);
+  }
+  let verifiedAttachments: Attachment[] = [];
+  if (module === "faults" && stagedAttachments.length > 0) {
+    const all = await readCollection("faults");
+    const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
+    if (duplicate) return duplicate;
+    const existingRecord = id ? existing<FaultGuide>(all, id) : undefined;
+    if (existingRecord) recordFields(existingRecord, version);
+    retainAttachments(existingRecord?.attachments ?? [], keptAttachments, stagedAttachments.length);
+    verifiedAttachments = await verifyStagedAttachments(stagedAttachments);
   }
   return serialized(async () => {
     const activeUser = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled);
@@ -133,7 +156,9 @@ export async function saveRecord(module: Module, id: string | undefined, payload
         await writeCollection("models", upsert(all, record, Boolean(old)));
         if (old && (old.name !== record.name || old.device !== record.device)) {
           const oldNameLower = old.name.toLocaleLowerCase("he");
-          const [standards, repairs] = await Promise.all([readCollection("standards"), readCollection("repairs")]);
+          const [standards, repairs, faults] = await Promise.all([
+            readCollection("standards"), readCollection("repairs"), readCollection("faults"),
+          ]);
           if (standards.some((item) => item.model.toLocaleLowerCase("he") === oldNameLower)) {
             await writeCollection("standards", standards.map((item) =>
               item.model.toLocaleLowerCase("he") === oldNameLower ? { ...item, model: record.name, device: record.device } : item));
@@ -142,12 +167,55 @@ export async function saveRecord(module: Module, id: string | undefined, payload
             await writeCollection("repairs", repairs.map((item) =>
               item.model.toLocaleLowerCase("he") === oldNameLower ? { ...item, model: record.name, device: record.device } : item));
           }
+          if (faults.some((item) => item.model.toLocaleLowerCase("he") === oldNameLower)) {
+            await writeCollection("faults", faults.map((item) =>
+              item.model.toLocaleLowerCase("he") === oldNameLower ? { ...item, model: record.name, device: record.device } : item));
+          }
         }
         await audit(actor.id, old ? "update" : "create", "models", base.id);
         if (!cloud) await removePhotos("models", removed);
         return record;
       } catch (error) {
         if (!cloud) await removePhotos("models", added);
+        throw error;
+      }
+    }
+
+    if (module === "faults") {
+      const all = await readCollection("faults");
+      const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
+      if (duplicate) return duplicate;
+      const old = id ? existing(all, id) : undefined;
+      const base = recordFields(old, version, requestId);
+      const { retained, removed } = retain(old?.photos ?? [], keptPhotos, files.length + prepared.length);
+      const { retained: retainedFiles, removed: removedFiles } = retainAttachments(old?.attachments ?? [], keptAttachments, verifiedAttachments.length);
+      const faultData = faultGuideInput.parse(input);
+      if (all.some((item) => item.id !== id && item.model.toLocaleLowerCase("he") === faultData.model.toLocaleLowerCase("he"))) {
+        throw new AppError(409, "כבר קיים מדריך תקלות ופתיחת הגבלה עבור דגם זה. ניתן לערוך את המדריך הקיים.");
+      }
+      const added = cloud ? prepared : await savePhotos("faults", files);
+      try {
+        const record: FaultGuide = stripUndefined({
+          ...faultData,
+          ...base,
+          photos: [...retained, ...added],
+          attachments: [...retainedFiles, ...verifiedAttachments],
+        });
+        await writeCollection("faults", upsert(all, record, Boolean(old)));
+        const storedModels = await readCollection("models");
+        const existingModels = mergeWithDefaultCatalog(storedModels);
+        if (!existingModels.some((item) => item.name.toLocaleLowerCase("he") === faultData.model.toLocaleLowerCase("he"))) {
+          const now = new Date().toISOString();
+          await writeCollection("models", [...existingModels, {
+            id: randomUUID(), device: faultData.device, name: faultData.model, published: false, notes: "", photos: [], createdAt: now, updatedAt: now,
+          }]);
+        }
+        await audit(actor.id, old ? "update" : "create", "faults", base.id);
+        if (!cloud) await removePhotos("faults", removed);
+        await removeAttachments(removedFiles);
+        return record;
+      } catch (error) {
+        if (!cloud) await removePhotos("faults", added);
         throw error;
       }
     }
@@ -216,6 +284,13 @@ export async function deleteRecord(module: Module, id: string, version: string, 
       }
       await writeCollection("models", all.filter((item) => item.id !== id));
       if (!usesBlobStorage()) await removePhotos("models", record.photos);
+    } else if (module === "faults") {
+      const all = await readCollection(module);
+      const record = existing(all, id);
+      recordFields(record, version);
+      await writeCollection(module, all.filter((item) => item.id !== id));
+      if (!usesBlobStorage()) await removePhotos("faults", record.photos);
+      await removeAttachments(record.attachments);
     } else if (module === "standards") {
       const all = await readCollection(module);
       const record = existing(all, id);

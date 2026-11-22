@@ -31,13 +31,31 @@ test("initializes, serializes reservations, keeps them across deletions, and pre
   }
 });
 
-test("normalizePhoto accepts Samsung-style JPEG with trailing metadata and rejects corrupt buffers", async () => {
+test("normalizePhoto accepts Samsung-style JPEG, mismatched MIME (WhatsApp/Android), detects HEIC headers, and rejects SVG/corrupt buffers", async () => {
   const { default: sharp } = await import("sharp");
-  const { normalizePhoto } = await import("../src/lib/uploads/images");
+  const { isHeicBuffer, normalizePhoto } = await import("../src/lib/uploads/images");
   const baseJpeg = await sharp({ create: { width: 40, height: 30, channels: 3, background: "#ba1517" } }).jpeg().toBuffer();
   const samsungMotionPhoto = Buffer.concat([baseJpeg, Buffer.from("MotionPhoto_Data\0\0\x01\x02\x03")]);
   const webp = await normalizePhoto(samsungMotionPhoto, "image/jpeg");
   assert.equal((await sharp(webp).metadata()).format, "webp");
+
+  // WhatsApp / Android often label PNG or WebP bytes as image/jpeg — must decode cleanly instead of rejecting.
+  const pngBytes = await sharp({ create: { width: 32, height: 24, channels: 4, background: { r: 20, g: 20, b: 24, alpha: 1 } } }).png().toBuffer();
+  const webpFromMismatchedPng = await normalizePhoto(pngBytes, "image/jpeg");
+  assert.equal((await sharp(webpFromMismatchedPng).metadata()).format, "webp");
+
+  const webpBytes = await sharp({ create: { width: 32, height: 24, channels: 3, background: "#224466" } }).webp().toBuffer();
+  const webpFromMismatchedWebp = await normalizePhoto(webpBytes, "image/jpeg");
+  assert.equal((await sharp(webpFromMismatchedWebp).metadata()).format, "webp");
+
+  // ISO BMFF HEIC vs AVIF header detection
+  const heicHeader = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31]);
+  const avifHeader = Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66, 0, 0, 0, 0, 0x6d, 0x69, 0x66, 0x31]);
+  assert.equal(isHeicBuffer(heicHeader), true);
+  assert.equal(isHeicBuffer(avifHeader), false);
+  assert.equal(isHeicBuffer(baseJpeg), false);
+
+  await assert.rejects(() => normalizePhoto(Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>"), "image/svg+xml"), { status: 400 });
   await assert.rejects(() => normalizePhoto(Buffer.from("bad image"), "image/jpeg"), { status: 400 });
 });
 

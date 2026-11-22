@@ -4,6 +4,7 @@ const config: NextConfig = {
   poweredByHeader: false,
   agentRules: false,
   devIndicators: false,
+  serverExternalPackages: ["heic-decode", "libheif-js"],
   async headers() {
     return [{
       source: "/:path*",

@@ -10,6 +10,7 @@ import { labels } from "@/lib/presentation";
 import { modules, uuid } from "@/lib/validation/models";
 import { CustomerForm } from "@/components/records/customer-form";
 import { RecordDetail } from "@/components/records/detail";
+import { FaultForm } from "@/components/records/fault-form";
 import { RecordList } from "@/components/records/list";
 import { ModelForm } from "@/components/records/model-form";
 import { RepairForm } from "@/components/records/repair-form";
@@ -53,6 +54,9 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   if (kind === "models") return <ModelForm record={record && !("phone" in record) && !("model" in record) ? record : undefined} cloud={cloud} />;
   const [models, catalog] = await Promise.all([knownModels(), catalogModels()]);
   const initialModel = catalog.find((item) => item.id === value("model"));
+  if (kind === "faults") {
+    return <FaultForm record={record && "commonFaults" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
+  }
   if (kind === "standards") {
     return <StandardsForm record={record && "tasks" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
   }

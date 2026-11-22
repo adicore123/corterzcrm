@@ -332,6 +332,7 @@ try {
     ["תיקונים", "**/repairs", "תיקונים"],
     ["לקוחות", "**/customers", "לקוחות"],
     ["מאגר דגמים", "**/models", "מאגר דגמים"],
+    ["תקלות ופתיחות הגבלה", "**/faults", "תקלות ופתיחות הגבלה"],
     ["הגדרות", "**/settings", "הגדרות"],
     ["קטלוג סוכנים", "**/catalog", "הכלי הבא שלכם. מכל זווית."],
   ]) {
@@ -546,7 +547,80 @@ try {
   assert.equal(adminCookie.httpOnly, true);
   assert.equal(adminCookie.sameSite, "Lax");
 
+  stage = "faults and unlock guides module + mismatched-mime upload";
+  await admin.goto("/faults");
+  await visible(heading(admin, "תקלות ופתיחות הגבלה"));
+  await link(admin, "מדריך חדש לדגם").click();
+  await admin.waitForURL("**/faults/new");
+  await field(admin, "שם הדגם").fill("CORTEZ 10X");
+  await field(admin, "הוראות פתיחת הגבלה שלב אחר שלב").fill("לחיצה ממושכת על + ו- וכניסה ל-P08");
+  await button(admin, "הוספת קישור לסרטון").click();
+  await field(admin, "כותרת סרטון 1").fill("הדרכת פתיחת הגבלה");
+  await field(admin, "קישור סרטון 1").fill("https://youtu.be/dQw4w9WgXcQ");
+  await button(admin, "הוספת תקלה נפוצה").click();
+  await field(admin, "קוד תקלה (אופציונלי)").fill("E07");
+  await field(admin, "כותרת התקלה").fill("תקלת חיישן בלם");
+  await field(admin, "תסמינים וגורם אפשרי").fill("סמל בלם מהבהב על הצג");
+  await field(admin, "פתרון מומלץ ודרכי טיפול").fill("בדיקת כבל חיישן בלם בידית שמאל");
+
+  const samplePdf = Buffer.from("%PDF-1.4\n1 0 obj <<>> endobj\n%%EOF\n");
+  const sampleMp4 = Buffer.from("00000018ftypmp4200000000mp42isom_e2e_video_payload_bytes_1234567890");
+  const pngWithJpgName = await sharp({ create: { width: 80, height: 60, channels: 4, background: { r: 186, g: 21, b: 23, alpha: 1 } } }).png().toBuffer();
+  await admin.locator('input[type="file"][accept*="application/pdf"]').setInputFiles({
+    name: "cortez-10x-errors.pdf", mimeType: "application/pdf", buffer: samplePdf,
+  });
+  await admin.locator('input[type="file"][accept*="video/mp4"]').setInputFiles({
+    name: "unlock-10x.mp4", mimeType: "video/mp4", buffer: sampleMp4,
+  });
+  await admin.locator('input[type="file"][accept*="image/heic"]').setInputFiles({
+    name: "whatsapp-photo.jpg", mimeType: "image/jpeg", buffer: pngWithJpgName,
+  });
+  await save(admin, "faults");
+  const faultPath = new URL(admin.url()).pathname;
+  const faultId = faultPath.split("/").pop();
+  await visible(heading(admin, "CORTEZ 10X"));
+  await visible(admin.getByText("E07", { exact: true }));
+  await visible(admin.getByText("cortez-10x-errors.pdf"));
+  await visible(admin.locator("video.unlock-video-player"));
+  await visible(admin.locator(".unlock-video-embed iframe"));
+
+  const savedFault = (await readDb("fault-guides")).find((item) => item.id === faultId);
+  assert.ok(savedFault);
+  assert.equal(savedFault.photos.length, 1);
+  const pdfAtt = savedFault.attachments.find((item) => item.kind === "file");
+  const vidAtt = savedFault.attachments.find((item) => item.kind === "video");
+  assert.ok(pdfAtt && vidAtt);
+  assert.equal((await desktop.request.get(`/api/files/faults/${faultId}/${pdfAtt.id}`)).status(), 200);
+  assert.equal((await desktop.request.get(`/api/files/faults/${faultId}/${vidAtt.id}`, { headers: { range: "bytes=0-15" } })).status(), 206);
+  assert.equal((await anonymous.get(`/api/files/faults/${faultId}/${pdfAtt.id}`)).status(), 401);
+  assert.equal((await anonymous.get(`/api/images/faults/${faultId}/${savedFault.photos[0].id}`)).status(), 401);
+
+  await button(admin, "הוספת תקלה נפוצה").click();
+  const quickDialog = admin.getByRole("dialog");
+  await quickDialog.getByLabel("קוד תקלה (אופציונלי)").fill("E10");
+  await quickDialog.getByLabel("כותרת התקלה").fill("תקלת תקשורת צג");
+  await quickDialog.getByLabel("פתרון מומלץ").fill("בדיקת כבל ראשי בין בקר לצג");
+  await button(quickDialog, "שמירת תקלה").click();
+  await visible(admin.getByText("E10", { exact: true }));
+
+  await admin.goto("/faults?q=E10");
+  await visible(link(admin, "CORTEZ 10X"));
+  await admin.goto("/models/00000000-0000-4000-8000-000000000001");
+  await visible(heading(admin, "תקלות ופתיחת הגבלה של דגם זה"));
+  await visible(link(admin, "פתיחת המדריך המלא"));
+
+  await page.goto(faultPath);
+  await visible(heading(page, "CORTEZ 10X"));
+  await noOverflow(page);
+
+  await admin.goto(faultPath);
+  await button(admin, "מחיקה").click();
+  await button(admin.getByRole("alertdialog"), "מחיקה").click();
+  await admin.waitForURL("**/faults?deleted=1");
+  assert.equal((await desktop.request.get(`/api/files/faults/${faultId}/${pdfAtt.id}`)).status(), 404);
+
   stage = "confirmed deletion and logout";
+  await admin.goto(customerPath);
   await button(admin, "מחיקה").click();
   await button(admin.getByRole("alertdialog"), "מחיקה").click();
   await visible(admin.getByText("לא ניתן למחוק לקוח עם תיקונים משויכים."));

@@ -4,11 +4,13 @@ export const devices = ["קורקינט חשמלי", "אופניים חשמלי�
 export const standardStatuses = ["חדש", "בטיפול", "הסתיים"] as const;
 export const repairStatuses = ["התקבל", "בטיפול", "הסתיים"] as const;
 export const delayStatuses = ["ללא עיכוב", "מתעכב"] as const;
+export const faultSeverities = ["נפוצה", "קריטית", "תחזוקה"] as const;
 export const roles = ["admin", "employee"] as const;
-export const modules = ["standards", "repairs", "customers", "models"] as const;
+export const modules = ["standards", "repairs", "customers", "models", "faults"] as const;
 export type Module = (typeof modules)[number];
 export type PhotoModule = Exclude<Module, "customers">;
 export type Device = (typeof devices)[number];
+export type FaultSeverity = (typeof faultSeverities)[number];
 
 export const uuid = z.uuid({ error: "המזהה אינו תקין." });
 const date = z.iso.datetime();
@@ -112,6 +114,40 @@ export const photoSchema = z.object({
   bytes: z.number().int().positive(),
 });
 
+export const attachmentSchema = z.object({
+  id: uuid,
+  name: z.string().max(255),
+  type: z.string().max(120),
+  bytes: z.number().int().positive(),
+  kind: z.enum(["file", "video"]),
+});
+
+export const commonFaultSchema = z.object({
+  id: uuid,
+  code: optional(32),
+  title: required("כותרת תקלה", 160),
+  symptoms: optional(1000),
+  solution: optional(2000),
+  severity: z.enum(faultSeverities),
+});
+
+export const unlockVideoLinkSchema = z.object({
+  id: uuid,
+  title: required("כותרת סרטון", 120),
+  url: z.string().trim().min(1, { error: "יש להזין קישור לסרטון." }).max(1000, { error: "הקישור ארוך מדי." })
+    .refine((value) => /^https?:\/\/.+/i.test(value), "יש להזין קישור http/https תקין."),
+});
+
+export const faultGuideInput = z.object({
+  device: z.enum(devices),
+  model: required("שם דגם"),
+  summary: optional(1000),
+  unlockInstructions: optional(4000),
+  commonFaults: z.array(commonFaultSchema).max(50, { error: "ניתן להוסיף עד 50 תקלות נפוצות לדגם." }),
+  videoLinks: z.array(unlockVideoLinkSchema).max(10, { error: "ניתן להוסיף עד 10 קישורי סרטון." }),
+  notes: optional(4000),
+});
+
 const record = { id: uuid, createdAt: date, updatedAt: date };
 export const standardSchema = standardsInput.safeExtend({
   ...record, photos: z.array(photoSchema).max(10),
@@ -122,6 +158,13 @@ export const repairSchema = repairInput.extend({
 export const customerSchema = customerInput.extend(record);
 export const catalogModelSchema = modelInput.extend({
   ...record, photos: z.array(photoSchema).max(10),
+});
+export const faultGuideSchema = faultGuideInput.extend({
+  ...record,
+  commonFaults: z.array(commonFaultSchema).max(50).default([]),
+  videoLinks: z.array(unlockVideoLinkSchema).max(10).default([]),
+  photos: z.array(photoSchema).max(10),
+  attachments: z.array(attachmentSchema).max(15).default([]),
 });
 export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9._@+-]{2,79}$/, "יש להזין שם משתמש באותיות לטיניות או בספרות (3–80 תווים).");
 export const passwordSchema = z.string().min(12, "הסיסמה חייבת לכלול לפחות 12 תווים.").max(128, "הסיסמה ארוכה מדי.");
@@ -144,11 +187,16 @@ export type StandardInput = z.infer<typeof standardsInput>;
 export type RepairInput = z.infer<typeof repairInput>;
 export type CustomerInput = z.infer<typeof customerInput>;
 export type ModelInput = z.infer<typeof modelInput>;
+export type FaultGuideInput = z.infer<typeof faultGuideInput>;
+export type CommonFault = z.infer<typeof commonFaultSchema>;
+export type Attachment = z.infer<typeof attachmentSchema>;
+export type UnlockVideoLink = z.infer<typeof unlockVideoLinkSchema>;
 export type ModelSpec = z.infer<typeof specSchema>;
 export type Standard = z.infer<typeof standardSchema>;
 export type Repair = z.infer<typeof repairSchema>;
 export type Customer = z.infer<typeof customerSchema>;
 export type CatalogModel = z.infer<typeof catalogModelSchema>;
+export type FaultGuide = z.infer<typeof faultGuideSchema>;
 export type User = z.infer<typeof userSchema>;
 export type PublicUser = Omit<User, "passwordHash">;
 export type Photo = z.infer<typeof photoSchema>;

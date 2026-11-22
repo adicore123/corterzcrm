@@ -1,22 +1,22 @@
 import Link from "next/link";
-import { Bike, ClipboardList, ListFilter, Plus, Search, Users, Wrench } from "lucide-react";
+import { Bike, ClipboardList, ListFilter, Plus, Search, ShieldAlert, Users, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { customerRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
+import { customerRow, faultGuideRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
 import { delayStatuses, devices, repairStatuses, standardStatuses, type Module } from "@/lib/validation/models";
 
-const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike };
+const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike, faults: ShieldAlert };
 
 export async function RecordList({ module, filters, deleted }: { module: Module; filters: RecordFilters; deleted: boolean }) {
   const [records, contacts, repairs, standards, models] = await Promise.all([
     searchRecords(module, filters),
     module === "repairs" ? readCollection("customers") : [],
-    module === "customers" || module === "models" ? readCollection("repairs") : [],
+    module === "customers" || module === "models" || module === "faults" ? readCollection("repairs") : [],
     module === "models" ? readCollection("standards") : [],
-    module === "standards" || module === "repairs" ? catalogModels() : [],
+    module === "standards" || module === "repairs" || module === "faults" ? catalogModels() : [],
   ]);
   const names = new Map(contacts.map((item) => [item.id, item.name]));
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
@@ -36,6 +36,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
     if ("tasks" in item) return standardRow(item, "list", modelsMap);
     if ("serial" in item) return repairRow(item, names, false, modelsMap);
     if ("phone" in item) return customerRow(item, counts.get(item.id) ?? 0);
+    if ("commonFaults" in item) return faultGuideRow(item, modelRepairs.get(item.model.toLocaleLowerCase("he")) ?? 0, modelsMap);
     const key = item.name.toLocaleLowerCase("he");
     return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0);
   });
@@ -43,6 +44,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
   const columns = module === "standards" ? ["מספר תיק", "דגם", "סוג מכשיר", "טיפול", "עיכוב", "משימות", "עדכון אחרון"]
     : module === "repairs" ? ["מספר תיקון", "דגם", "מספר סידורי", "לקוח", "סטטוס", "עדכון אחרון"]
     : module === "models" ? ["שם דגם", "סוג מכשיר", "תיקי תקינה", "תיקונים"]
+    : module === "faults" ? ["דגם", "סוג מכשיר", "תקלות נפוצות", "קבצים", "פתיחת הגבלה", "תיקוני מעבדה", "עדכון אחרון"]
     : ["שם לקוח", "חנות", "טלפון", "תיקונים"];
   const filtered = Boolean(filters.q || filters.status || filters.delay || filters.sort);
   const href = "/" + module;
@@ -66,6 +68,12 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
         </select>}
         {module === "models" && <select name="status" aria-label="סינון לפי סוג מכשיר" defaultValue={filters.status ?? ""}>
           <option value="">כל סוגי הכלים</option>
+          {devices.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>}
+        {module === "faults" && <select name="status" aria-label="סינון מדריכי תקלות" defaultValue={filters.status ?? ""}>
+          <option value="">הכל</option>
+          <option value="has-video">כולל סרטון פתיחת הגבלה</option>
+          <option value="has-files">כולל קבצים מצורפים</option>
           {devices.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>}
         {module === "standards" && <select name="delay" aria-label="סינון עיכובים" defaultValue={filters.delay ?? ""}>

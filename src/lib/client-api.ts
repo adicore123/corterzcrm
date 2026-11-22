@@ -52,7 +52,7 @@ export async function uploadBlobRecord(
       await put(pathname, file, {
         access: "private",
         token,
-        contentType: file.type || "image/jpeg",
+        contentType: file.type || "application/octet-stream",
         onUploadProgress: ({ loaded }) => progress(Math.min(99, Math.floor((uploaded + loaded) * 100 / total))),
       });
     } catch {
@@ -63,4 +63,66 @@ export async function uploadBlobRecord(
   }
   progress(100);
   return requestJson<{ id: string }>(endpoint, method, { ...payload, stagedPhotos });
+}
+
+export type PendingAttachmentInput = { file: File; kind: "file" | "video" };
+export type StagedAttachmentPayload = { id: string; name: string; kind: "file" | "video"; type?: string };
+
+function uploadLocalAttachment(id: string, item: PendingAttachmentInput, onProgress: (loaded: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const data = new FormData();
+    data.set("id", id);
+    data.set("kind", item.kind);
+    data.set("file", item.file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/files/faults");
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(xhr.response?.error || "לא ניתן להעלות את הקובץ. יש לנסות שוב."));
+    };
+    xhr.onerror = () => reject(new Error("החיבור נקטע בזמן העלאת הקובץ. יש לנסות שוב."));
+    xhr.send(data);
+  });
+}
+
+export async function uploadFaultAttachments(
+  items: PendingAttachmentInput[], cloud: boolean, progress: (value: number) => void,
+): Promise<StagedAttachmentPayload[]> {
+  if (!items.length) return [];
+  const total = Math.max(items.reduce((sum, item) => sum + item.file.size, 0), 1);
+  let uploaded = 0;
+  const staged: StagedAttachmentPayload[] = [];
+  const blobClient = cloud ? await import("@vercel/blob/client") : null;
+  for (const item of items) {
+    const id = newRequestId();
+    const safeName = (item.file.name || (item.kind === "video" ? "video.mp4" : "file.pdf")).slice(0, 255);
+    if (cloud && blobClient) {
+      const { pathname, token } = await requestJson<{ pathname: string; token: string }>("/api/uploads/attachments", "POST", { id, kind: item.kind });
+      try {
+        await blobClient.put(pathname, item.file, {
+          access: "private",
+          token,
+          contentType: item.file.type || "application/octet-stream",
+          multipart: item.file.size > 5 * 1024 * 1024,
+          onUploadProgress: ({ loaded }) => progress(Math.min(99, Math.floor((uploaded + loaded) * 100 / total))),
+        });
+      } catch {
+        throw new Error(item.kind === "video"
+          ? "לא ניתן להעלות את הסרטון. יש לבדוק את החיבור ולנסות שוב."
+          : "לא ניתן להעלות את הקובץ. יש לבדוק את החיבור ולנסות שוב.");
+      }
+    } else {
+      await uploadLocalAttachment(id, item, (loaded) => {
+        progress(Math.min(99, Math.floor((uploaded + loaded) * 100 / total)));
+      });
+    }
+    staged.push({ id, name: safeName, kind: item.kind, type: item.file.type || undefined });
+    uploaded += item.file.size;
+    progress(Math.min(99, Math.floor(uploaded * 100 / total)));
+  }
+  return staged;
 }

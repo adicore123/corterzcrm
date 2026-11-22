@@ -1,15 +1,19 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, Bike, CircleCheck, ClipboardList, Images, Pencil, Plus, SlidersHorizontal, Sparkles, Wrench } from "lucide-react";
+import {
+  ArrowRight, Bike, CircleCheck, ClipboardList, Download, ExternalLink, Eye, FileText,
+  Images, Pencil, Plus, ShieldAlert, SlidersHorizontal, Sparkles, Unlock, Wrench,
+} from "lucide-react";
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
-import { formatDate, labels } from "@/lib/presentation";
-import type { CatalogModel, Customer, Module, Repair, Standard } from "@/lib/validation/models";
+import { embedVideoUrl, formatBytes, formatDate, labels } from "@/lib/presentation";
+import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "@/lib/validation/models";
 import { ModelBadge, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
 import { DeleteButton } from "./delete-button";
+import { FaultCommonList } from "./fault-quick-add";
 import { PhotoGallery } from "./photos";
 import { PrintButton, QuickStatus } from "./quick-status";
 import { TaskChecklist } from "./task-checklist";
@@ -21,21 +25,26 @@ function Details({ rows }: { rows: Value[] }) {
 }
 
 export async function RecordDetail({ module, record, admin, saved }: {
-  module: Module; record: Standard | Repair | Customer | CatalogModel; admin: boolean; saved: boolean;
+  module: Module; record: Standard | Repair | Customer | CatalogModel | FaultGuide; admin: boolean; saved: boolean;
 }) {
   const number = "number" in record ? record.number : undefined;
   const title = "model" in record ? record.model : record.name;
   const isModelRecord = module === "models" && !("phone" in record) && !("model" in record);
-  const [customers, repairs, standards, models] = await Promise.all([
-    "serial" in record || isModelRecord ? readCollection("customers") : [],
-    "phone" in record || isModelRecord ? readCollection("repairs") : [],
+  const isFaultGuide = module === "faults" && "commonFaults" in record;
+  const [customers, repairs, standards, models, faults] = await Promise.all([
+    "serial" in record || isModelRecord || isFaultGuide ? readCollection("customers") : [],
+    "phone" in record || isModelRecord || isFaultGuide ? readCollection("repairs") : [],
     isModelRecord ? readCollection("standards") : [],
     catalogModels(),
+    isModelRecord ? readCollection("faults") : [],
   ]);
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const customer = "serial" in record ? customers.find((item) => item.id === record.customerId) : undefined;
   const linkedModel = "model" in record
     ? modelsMap.get(record.model.toLocaleLowerCase("he"))
+    : undefined;
+  const modelFaultGuide = isModelRecord
+    ? faults.find((item) => item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
     : undefined;
   const history = "phone" in record
     ? repairs.filter((repair) => repair.customerId === record.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -44,8 +53,9 @@ export async function RecordDetail({ module, record, admin, saved }: {
     ? standards.filter((item) => item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
-  const modelRepairs = isModelRecord
-    ? repairs.filter((item) => item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
+  const targetModelLower = isModelRecord ? record.name.toLocaleLowerCase("he") : isFaultGuide ? record.model.toLocaleLowerCase("he") : "";
+  const modelRepairs = targetModelLower
+    ? repairs.filter((item) => item.model.toLocaleLowerCase("he") === targetModelLower)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
   const names = new Map("phone" in record ? [[record.id, record.name]] : customers.map((c) => [c.id, c.name]));
@@ -60,12 +70,13 @@ export async function RecordDetail({ module, record, admin, saved }: {
           {number && <RecordNumber number={number} />}
           {"status" in record && <Status value={record.status} />}
           {"delay" in record && <Status value={record.delay} />}
-          {isModelRecord && <span className="status status-neutral">{record.device}</span>}
+          {(isModelRecord || isFaultGuide) && <span className="status status-neutral">{record.device}</span>}
         </div>
       </div>
       <div className="detail-actions no-print">
         {isModelRecord && <Button asChild variant="soft"><Link href={"/catalog?model=" + record.id}><Sparkles size={16} /> תצוגת 3D בקטלוג</Link></Button>}
-        {("tasks" in record || "serial" in record) && <PrintButton />}
+        {isFaultGuide && linkedModel && <Button asChild variant="soft"><Link href={"/models/" + linkedModel.id}><Bike size={16} /> כרטיס הדגם</Link></Button>}
+        {("tasks" in record || "serial" in record || isFaultGuide) && <PrintButton />}
         <Button asChild variant="outline"><Link href={"/" + module + "/" + record.id + "/edit"}><Pencil size={17} /> עריכה</Link></Button>
         {admin && <DeleteButton module={module} id={record.id} version={record.updatedAt} subject={number ?? title} />}
       </div>
@@ -156,6 +167,135 @@ export async function RecordDetail({ module, record, admin, saved }: {
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
           rows={modelRepairs.map((item) => repairRow(item, names, true))} empty="אין תיקונים משויכים לדגם זה" showEmptyHeader />
       </section>
+      <section className="card detail-card">
+        <div className="section-heading">
+          <h2><span className="section-icon"><ShieldAlert size={18} /></span>תקלות ופתיחת הגבלה של דגם זה</h2>
+          {modelFaultGuide ? (
+            <Button asChild size="sm"><Link href={"/faults/" + modelFaultGuide.id}>פתיחת המדריך המלא</Link></Button>
+          ) : (
+            <Button asChild size="sm" variant="outline"><Link href={"/faults/new?model=" + record.id}><Plus size={16} /> יצירת מדריך לדגם</Link></Button>
+          )}
+        </div>
+        {modelFaultGuide ? (
+          <Details rows={[
+            ["תקלות נפוצות מתועדות", modelFaultGuide.commonFaults.length],
+            ["קבצים טכניים מצורפים", modelFaultGuide.attachments.filter((item) => item.kind === "file").length],
+            ["סרטוני פתיחת הגבלה", modelFaultGuide.attachments.filter((item) => item.kind === "video").length + modelFaultGuide.videoLinks.length],
+            ["עודכן לאחרונה", formatDate(modelFaultGuide.updatedAt, true)],
+          ]} />
+        ) : (
+          <p className="muted">טרם הוזן מדריך תקלות ופתיחת הגבלה עבור דגם זה.</p>
+        )}
+      </section>
     </>}
+    {isFaultGuide && (() => {
+      const uploadedVideos = record.attachments.filter((item) => item.kind === "video");
+      const uploadedFiles = record.attachments.filter((item) => item.kind === "file");
+      return <>
+        <section className="card detail-card">
+          <h2><span className="section-icon"><ShieldAlert size={18} /></span>סקירת הדגם</h2>
+          <Details rows={[
+            ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model],
+            ["סוג מכשיר", record.device],
+            ["תקלות נפוצות מתועדות", record.commonFaults.length],
+            ["קבצים מצורפים", uploadedFiles.length],
+            ["סרטוני פתיחת הגבלה", uploadedVideos.length + record.videoLinks.length],
+            ["תיקוני מעבדה לדגם", modelRepairs.length],
+            ...dates,
+          ]} />
+          {record.summary && <div className="detail-notes"><h3>תקציר טכני</h3><p>{record.summary}</p></div>}
+        </section>
+
+        <section className="card detail-card">
+          <h2><span className="section-icon"><Unlock size={18} /></span>פתיחת הגבלה — הוראות וסרטונים</h2>
+          {record.unlockInstructions ? (
+            <div className="detail-notes unlock-instructions-box"><h3>הוראות ביצוע</h3><p>{record.unlockInstructions}</p></div>
+          ) : (
+            <p className="muted">טרם הוזנו הוראות כתובות לפתיחת הגבלה.</p>
+          )}
+          {(uploadedVideos.length > 0 || record.videoLinks.length > 0) && <div className="unlock-videos-grid">
+            {uploadedVideos.map((video) => {
+              const streamUrl = "/api/files/faults/" + record.id + "/" + video.id;
+              return <article className="unlock-video-card" key={video.id}>
+                <div className="unlock-video-head">
+                  <strong>{video.name}</strong>
+                  <small>{formatBytes(video.bytes)}</small>
+                </div>
+                <video controls playsInline preload="metadata" src={streamUrl} className="unlock-video-player" />
+                <div className="unlock-video-actions no-print">
+                  <Button asChild size="sm" variant="outline"><a href={streamUrl + "?download=1"}><Download size={15} /> הורדת סרטון</a></Button>
+                </div>
+              </article>;
+            })}
+            {record.videoLinks.map((link) => {
+              const embed = embedVideoUrl(link.url);
+              return <article className="unlock-video-card" key={link.id}>
+                <div className="unlock-video-head">
+                  <strong>{link.title}</strong>
+                </div>
+                {embed ? (
+                  <div className="unlock-video-embed">
+                    <iframe src={embed} title={link.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                  </div>
+                ) : null}
+                <div className="unlock-video-actions no-print">
+                  <Button asChild size="sm" variant="outline">
+                    <a href={link.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> פתיחת סרטון בקישור חיצוני</a>
+                  </Button>
+                </div>
+              </article>;
+            })}
+          </div>}
+        </section>
+
+        <FaultCommonList key={record.updatedAt} record={record} />
+
+        <section className="card detail-card">
+          <h2><span className="section-icon"><FileText size={18} /></span>קבצים ומסמכים טכניים ({uploadedFiles.length})</h2>
+          {uploadedFiles.length === 0 ? (
+            <p className="muted">אין קבצים מצורפים לדגם זה. ניתן להעלות PDF, Word, Excel או סכמות דרך ״עריכה״.</p>
+          ) : (
+            <div className="attachment-list">
+              {uploadedFiles.map((file) => {
+                const fileUrl = "/api/files/faults/" + record.id + "/" + file.id;
+                const viewable = file.type === "application/pdf" || file.type.startsWith("image/") || file.type === "text/plain";
+                return <div className="attachment-row" key={file.id}>
+                  <div className="attachment-meta">
+                    <FileText size={18} aria-hidden />
+                    <div><strong>{file.name}</strong><small>{formatBytes(file.bytes)}</small></div>
+                  </div>
+                  <div className="attachment-actions no-print">
+                    {viewable && <Button asChild size="sm" variant="outline">
+                      <a href={fileUrl} target="_blank" rel="noopener noreferrer"><Eye size={15} /> צפייה</a>
+                    </Button>}
+                    <Button asChild size="sm" variant="outline">
+                      <a href={fileUrl + "?download=1"}><Download size={15} /> הורדה</a>
+                    </Button>
+                  </div>
+                </div>;
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="card detail-card">
+          <h2><span className="section-icon"><Images size={18} /></span>תמונות אבחון וחיווט</h2>
+          <PhotoGallery module="faults" id={record.id} photos={record.photos} />
+          {record.notes && <div className="detail-notes"><h3>הערות פנימיות לצוות</h3><p>{record.notes}</p></div>}
+        </section>
+
+        <section className="card data-card">
+          <div className="section-heading">
+            <h2>תקלות שדווחו בפועל בתיקונים של {record.model} ({modelRepairs.length})</h2>
+            <Button asChild size="sm" variant="outline">
+              <Link href={linkedModel ? "/repairs/new?model=" + linkedModel.id : "/repairs/new"}><Plus size={16} /> פתיחת תיקון לדגם</Link>
+            </Button>
+          </div>
+          <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
+            rows={modelRepairs.map((item) => repairRow(item, names, true, modelsMap))}
+            empty="אין תיקונים רשומים לדגם זה במעבדה" showEmptyHeader />
+        </section>
+      </>;
+    })()}
   </div>;
 }

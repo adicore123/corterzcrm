@@ -70,6 +70,7 @@ function initialMongoState(): State {
     repairs: [],
     customers: [],
     models: [...defaultCatalogModels],
+    faults: [],
     users: [],
     activity: [],
     sessions: [],

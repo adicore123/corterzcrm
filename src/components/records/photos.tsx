@@ -35,7 +35,7 @@ export function PhotoPicker({ module, id, photos }: { module: PhotoModule; id?: 
   return <>
     <div className="upload-zone">
       <span className="upload-mark"><Images size={22} aria-hidden /></span>
-      <div className="upload-copy"><strong>תמונות מצורפות</strong><span>עד 10 תמונות · התאמה ודחיסה אוטומטית גם ממצלמת הנייד</span></div>
+      <div className="upload-copy"><strong>תמונות מצורפות</strong><span>עד 10 תמונות · תומך גם ב־HEIC מ־Samsung ו־iPhone (עד 20 מ״ב)</span></div>
       <div className="upload-controls">
         <div className="upload-option">
           <input type="file" id={gallery} className="sr-only" accept={accept} multiple disabled={count >= 10}
@@ -69,7 +69,15 @@ export function PhotoPicker({ module, id, photos }: { module: PhotoModule; id?: 
       {photos.pending.map((photo, index) => {
         const number = photos.kept.length + index + 1;
         return <div className="photo-item" key={photo.preview}>
-          <PhotoPreview url={photo.preview} label={"תמונה " + number} name={photo.file.name} />
+          {photo.needsServerDecode ? (
+            <div className="photo-preview photo-heic-pending" aria-label={"תמונה " + number}>
+              <Images size={24} aria-hidden />
+              <strong>HEIC</strong>
+              <span>יומר בשמירה</span>
+            </div>
+          ) : (
+            <PhotoPreview url={photo.preview} label={"תמונה " + number} name={photo.file.name} />
+          )}
           <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + number} onClick={() => photos.removePreview(photo.preview)}><X size={16} /></button>
         </div>;
       })}

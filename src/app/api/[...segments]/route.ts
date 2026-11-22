@@ -6,6 +6,7 @@ import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import { deleteRecord, getRecord, saveRecord } from "@/lib/json-db/records";
 import { audit, createBackup, readBackup, serialized } from "@/lib/json-db/store";
+import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serveAttachmentResponse } from "@/lib/uploads/attachments";
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
@@ -16,7 +17,7 @@ export const maxDuration = 60;
 type Route = { params: Promise<{ segments: string[] }> };
 const privateHeaders = { "Cache-Control": "private, no-store" };
 const validModule = z.enum(modules);
-const photoModule = z.enum(["standards", "repairs", "models"]);
+const photoModule = z.enum(["standards", "repairs", "models", "faults"]);
 
 function json(value: unknown, status = 200) {
   return NextResponse.json(value, { status, headers: privateHeaders });
@@ -156,6 +157,14 @@ export async function GET(request: NextRequest, { params }: Route) {
         },
       });
     }
+    if (resource === "files" && module === "faults" && id && photo && !extra.length) {
+      await requireUser(request);
+      const record = await getRecord("faults", uuid.parse(id));
+      const attachment = record.attachments.find((item) => item.id === uuid.parse(photo));
+      if (!attachment) throw new AppError(404, "הקובץ לא נמצא.");
+      const download = request.nextUrl.searchParams.get("download") === "1";
+      return await serveAttachmentResponse(attachment, request, download);
+    }
     if (resource !== "images" || !photo || extra.length) throw new AppError(404, "הנתיב לא נמצא.");
     const kind = photoModule.parse(module);
     if (kind !== "models") {
@@ -208,11 +217,34 @@ async function mutate(request: NextRequest, { params }: Route) {
       }).parse(value);
       return json(await changeOwnPassword(user.id, input.currentPassword, input.newPassword, request.cookies.get(sessionCookie)?.value));
     }
+    if (resource === "uploads" && sub === "attachments" && !id && method === "POST" && usesBlobStorage()) {
+      const { value } = await parseBody(request);
+      const input = z.object({ id: uuid, kind: z.enum(["file", "video"]) }).parse(value);
+      return json(await authorizeAttachmentUpload(input.id, input.kind), 201);
+    }
     if (resource === "uploads" && !id && method === "POST" && usesBlobStorage()) {
       const kind = photoModule.parse(sub);
       const { value } = await parseBody(request);
       const input = z.object({ id: uuid }).parse(value);
       return json(await authorizeUpload(kind, user.id, input.id), 201);
+    }
+    if (resource === "files" && sub === "faults" && !id && method === "POST" && !usesBlobStorage()) {
+      const type = request.headers.get("content-type") ?? "";
+      if (!type.toLowerCase().startsWith("multipart/form-data;")) {
+        throw new AppError(415, "פורמט הבקשה אינו נתמך.");
+      }
+      const bytes = await limitedBody(request, maxVideoBytes + 256 * 1024);
+      let formData: FormData;
+      try {
+        formData = await new Response(bytes, { headers: { "Content-Type": type } }).formData();
+      } catch {
+        throw new AppError(400, "לא ניתן לקרוא את הקובץ שנשלח.");
+      }
+      const file = formData.get("file");
+      const fileId = uuid.parse(formData.get("id"));
+      const kind = z.enum(["file", "video"]).parse(formData.get("kind"));
+      if (!(file instanceof File)) throw new AppError(400, "לא נשלח קובץ.");
+      return json(await saveLocalAttachmentFile(fileId, file, kind), 201);
     }
     if (resource === "records" && sub) {
       const kind = validModule.parse(sub);

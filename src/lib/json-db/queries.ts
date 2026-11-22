@@ -1,6 +1,6 @@
 import { readCollection } from "./store";
 import { defaultCatalogModels } from "./cortez-catalog";
-import type { CatalogModel, Customer, Module, Repair, Standard } from "../validation/models";
+import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "../validation/models";
 
 export type RecordFilters = { q?: string; status?: string; delay?: string; sort?: string };
 const matches = (value: string, query: string) => value.toLocaleLowerCase("he").includes(query);
@@ -39,7 +39,7 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
     [customer.name, customer.store, customer.phone].some((value) => matches(value, q))
     || (phoneQuery && customer.phone.replace(/\D/g, "").includes(digits));
 
-  const filtered = (rawAll as Array<Standard | Repair | Customer | CatalogModel>).filter((item) => {
+  const filtered = (rawAll as Array<Standard | Repair | Customer | CatalogModel | FaultGuide>).filter((item) => {
     if ("number" in item) {
       if (filters.status === "active" ? item.status === "הסתיים" : filters.status && filters.status !== item.status) return false;
       if ("delay" in item && filters.delay && filters.delay !== item.delay) return false;
@@ -51,6 +51,23 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
       return false;
     }
     if ("phone" in item) return matchesCustomer(item);
+    if ("commonFaults" in item) {
+      if (filters.status === "has-video") {
+        const hasVideo = item.attachments.some((att) => att.kind === "video") || item.videoLinks.length > 0;
+        if (!hasVideo) return false;
+      } else if (filters.status === "has-files") {
+        if (!item.attachments.some((att) => att.kind === "file")) return false;
+      } else if (filters.status && filters.status !== item.device) {
+        return false;
+      }
+      if (!q) return true;
+      return [
+        item.model, item.device, item.summary, item.unlockInstructions, item.notes,
+        ...item.commonFaults.flatMap((fault) => [fault.code, fault.title, fault.symptoms, fault.solution, fault.severity]),
+        ...item.videoLinks.map((link) => link.title),
+        ...item.attachments.map((att) => att.name),
+      ].some((value) => matches(value, q));
+    }
     if (filters.status && filters.status !== item.device) return false;
     return [item.name, item.device, item.notes ?? "", item.summary ?? ""].some((value) => matches(value, q))
       || (item.specs ?? []).some((spec) => matches(spec.label, q) || matches(spec.value, q));
@@ -88,7 +105,13 @@ export async function catalogModels(): Promise<CatalogModel[]> {
 }
 
 export async function knownModels() {
-  const [models, standards, repairs] = await Promise.all([catalogModels(), readCollection("standards"), readCollection("repairs")]);
-  return Array.from(new Set([...models.map((item) => item.name), ...standards.map((item) => item.model), ...repairs.map((item) => item.model)]))
-    .sort((a, b) => a.localeCompare(b, "he"));
+  const [models, standards, repairs, faults] = await Promise.all([
+    catalogModels(), readCollection("standards"), readCollection("repairs"), readCollection("faults"),
+  ]);
+  return Array.from(new Set([
+    ...models.map((item) => item.name),
+    ...standards.map((item) => item.model),
+    ...repairs.map((item) => item.model),
+    ...faults.map((item) => item.model),
+  ])).sort((a, b) => a.localeCompare(b, "he"));
 }

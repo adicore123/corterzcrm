@@ -35,7 +35,7 @@ export function Editor({ module, title, cancel, loading, error, progress, unsave
     <form className="editor" noValidate onSubmit={onSubmit} aria-busy={loading}>
       <fieldset className="editor-fields" disabled={loading}>{children}</fieldset>
       {progress !== null && <div className="upload-progress card" role="status">
-        <label htmlFor="upload-progress">{progress < 100 ? "מעלה תמונות…" : "שומר את הרשומה…"}</label>
+        <label htmlFor="upload-progress">{progress < 100 ? "מעלה קבצים ותמונות…" : "שומר את הרשומה…"}</label>
         <progress id="upload-progress" value={progress} max={100} /><bdi>{progress}%</bdi>
       </div>}
       {error && <p className="error-message" role="alert">{error}</p>}

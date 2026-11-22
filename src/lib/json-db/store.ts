@@ -53,7 +53,7 @@ function hasCode(error: unknown, code: string): boolean {
 }
 
 async function initialize(root: string) {
-  await Promise.all(["data", "uploads/standards", "uploads/repairs", "uploads/models", "backups"]
+  await Promise.all(["data", "uploads/standards", "uploads/repairs", "uploads/models", "uploads/faults", "uploads/faults-files", "backups"]
     .map((directory) => mkdir(path.join(/* turbopackIgnore: true */ root, directory), { recursive: true, mode: 0o700 })));
   const keys = Object.keys(collections) as Collection[];
   const marker = path.join(root, "data", ".initialized");

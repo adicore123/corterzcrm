@@ -19,7 +19,10 @@ export async function authorizeUpload(kind: PhotoModule, user: string, id: strin
   const token = await generateClientTokenFromReadWriteToken({
     pathname,
     maximumSizeInBytes: maxImageBytes,
-    allowedContentTypes: [...acceptedImageTypes, "image/heic", "image/heif", "application/octet-stream"],
+    allowedContentTypes: [
+      ...acceptedImageTypes, "image/heic", "image/heif", "image/avif", "image/gif",
+      "image/bmp", "image/tiff", "image/x-png", "application/octet-stream",
+    ],
     validUntil: Date.now() + 20 * 60 * 1000,
     addRandomSuffix: false,
     allowOverwrite: false,

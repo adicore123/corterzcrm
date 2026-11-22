@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, CircleCheck, ClipboardList, Plus, TriangleAlert, UserRoundPlus, Wrench } from "lucide-react";
+import { ArrowLeft, CircleCheck, ClipboardList, Plus, ShieldAlert, TriangleAlert, UserRoundPlus, Wrench } from "lucide-react";
 import { authorizedUser } from "@/lib/auth/page";
 import { dashboard } from "@/lib/json-db/queries";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ export default async function DashboardPage() {
       <div className="quick-actions">
         <Button asChild><Link href="/standards/new"><Plus size={18} /> תיק מכון תקנים</Link></Button>
         <Button asChild><Link href="/repairs/new"><Wrench size={17} /> תיקון חדש</Link></Button>
+        <Button variant="soft" asChild><Link href="/faults"><ShieldAlert size={18} /> תקלות ופתיחות הגבלה</Link></Button>
         <Button variant="soft" asChild><Link href="/customers/new"><UserRoundPlus size={18} /> לקוח חדש</Link></Button>
       </div>
     </section>

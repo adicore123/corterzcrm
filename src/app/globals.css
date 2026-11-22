@@ -869,6 +869,77 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
   background: #ba1517; color: #fff; font-size: .68rem; font-weight: 740; vertical-align: middle;
 }
 
+/* Faults & Speed-Limit Unlocks Module + HEIC Photo Tile */
+.photo-heic-pending {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: linear-gradient(145deg, #f8f7f5, #efede9); color: var(--foreground);
+  border: 1px dashed var(--input); border-radius: 10px; font-size: .78rem; text-align: center; padding: 10px;
+}
+.photo-heic-pending strong { font-size: .82rem; color: var(--primary); letter-spacing: .04em; }
+.photo-heic-pending span { font-size: .72rem; color: var(--muted-foreground); }
+
+.fault-subblock { display: grid; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.fault-subblock-head h3 { display: inline-flex; align-items: center; gap: 7px; font-size: .92rem; }
+.fault-edit-list { display: grid; gap: 12px; }
+.fault-edit-card {
+  display: grid; gap: 10px; padding: 14px; border-radius: 10px;
+  background: #faf9f7; border: 1px solid var(--border);
+}
+.fault-edit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.attachment-list { display: grid; gap: 8px; }
+.attachment-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 10px 13px; border-radius: 10px; border: 1px solid var(--border); background: #fff;
+}
+.attachment-row.is-pending { border-style: dashed; background: #fbfaf8; }
+.attachment-meta { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 200px; }
+.attachment-meta > div { display: grid; min-width: 0; }
+.attachment-meta strong { overflow-wrap: anywhere; font-size: .9rem; }
+.attachment-meta small { color: var(--muted-foreground); font-size: .78rem; }
+.attachment-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.unlock-instructions-box {
+  padding: 13px 15px; border-radius: 10px; background: #faf9f7; border: 1px solid var(--border);
+}
+.unlock-instructions-box p { white-space: pre-wrap; margin-top: 4px; }
+.unlock-videos-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+.unlock-video-card {
+  display: grid; gap: 10px; padding: 12px; border-radius: 12px;
+  border: 1px solid var(--border); background: #fff; min-width: 0;
+}
+.unlock-video-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.unlock-video-head strong { overflow-wrap: anywhere; font-size: .92rem; }
+.unlock-video-head small { color: var(--muted-foreground); white-space: nowrap; }
+.unlock-video-player {
+  width: 100%; max-height: 360px; border-radius: 10px; background: #101116; display: block;
+}
+.unlock-video-embed {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #101116;
+}
+.unlock-video-embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.unlock-video-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.fault-inline-search { max-width: 420px; }
+.fault-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
+.fault-card {
+  display: grid; align-content: start; gap: 10px; padding: 14px; border-radius: 11px;
+  border: 1px solid var(--border); background: #faf9f7; min-width: 0;
+}
+.fault-card-top { display: grid; gap: 6px; }
+.fault-card-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fault-code-pill {
+  display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 7px;
+  background: #141418; color: #fff; font-size: .78rem; font-weight: 760; letter-spacing: .04em;
+}
+.fault-card h3 { font-size: .98rem; line-height: 1.35; overflow-wrap: anywhere; }
+.fault-card-block { display: grid; gap: 2px; font-size: .88rem; }
+.fault-card-block small { color: var(--muted-foreground); font-size: .75rem; font-weight: 680; }
+.fault-card-block p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fault-card-block.is-solution {
+  padding: 9px 11px; border-radius: 8px; background: #fff; border: 1px solid var(--border);
+}
+
 @media (max-width: 960px) {
   .showroom-hero-grid, .showroom-modal-grid { grid-template-columns: minmax(0, 1fr); }
   .showroom-stage-column { position: static; }
