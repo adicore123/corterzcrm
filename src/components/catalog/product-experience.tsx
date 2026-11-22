@@ -9,8 +9,19 @@ import {
   Copy, ImageIcon, Maximize2, Printer, Route, Scan, Waves, X, ZoomIn, ZoomOut,
 } from "lucide-react";
 import type { CatalogModel, StudioFeature } from "@/lib/validation/models";
-import { getPrimaryExhibitImage, resolveModelVariants } from "@/lib/catalog/coastal-assets";
-import { extractKeySpecs, formatPrice, getModelImages, getProductFeatures, groupModelSpecs, parseMetrics } from "./catalog-utils";
+import { getCoastalAsset, getPrimaryExhibitImage, resolveModelVariants } from "@/lib/catalog/coastal-assets";
+import {
+  extractAvailabilityStatus,
+  extractBatteryCapacityAh,
+  extractBatteryVoltage,
+  extractKeySpecs,
+  extractModelYear,
+  formatPrice,
+  getModelImages,
+  getProductFeatures,
+  groupModelSpecs,
+  parseMetrics,
+} from "./catalog-utils";
 import { buildTour, decodeStudioPose, encodeStudioPose, resolveVariant, studioShareParams, studioViews, type CameraPose } from "./studio-state";
 import { studioEnvironments, type StudioEnvironment } from "./studio-environments";
 import { ProductTour, useProductTour } from "./product-tour";
@@ -75,6 +86,11 @@ export function ProductExperience({
 
   const specs = extractKeySpecs(model);
   const metrics = parseMetrics(model);
+  const voltage = extractBatteryVoltage(model);
+  const capacityAh = extractBatteryCapacityAh(model);
+  const modelYear = extractModelYear(model);
+  const availabilityStatus = extractAvailabilityStatus(model);
+  const coastalAsset = useMemo(() => getCoastalAsset(model), [model]);
   const groups = groupModelSpecs(model.specs);
   const [index, setIndex] = useState(0);
   const [mode, setMode] = useState<"studio" | "photos" | "3d" | "video">(() =>
@@ -180,9 +196,21 @@ export function ProductExperience({
 
   return (
     <article className={"product-experience" + (standalone ? " is-standalone" : "")}>
-      <div className="product-experience-top">
-        <div className="product-media-column">
-          <div className="product-media-tabs" aria-label="סוג תצוגת מוצר">
+      <div className="viewer-layout viewer-v2 product-experience-top">
+        <div className="viewer-visual product-media-column">
+          <div className="viewer-label">
+            <span>
+              {mode === "photos"
+                ? "ORIGINAL PHOTOGRAPH"
+                : mode === "3d"
+                  ? "CORTEZ / 3D GEOMETRY"
+                  : "CORTEZ / IMMERSIVE 3D BEACH STUDIO"}
+            </span>
+            <span>
+              {String(effectiveIndex + 1).padStart(2, "0")} / {String(Math.max(1, images.length)).padStart(2, "0")}
+            </span>
+          </div>
+          <div className="presentation-mode product-media-tabs" aria-label="סוג תצוגת מוצר">
             <button aria-pressed={mode === "studio"} onClick={() => { pauseTour(); setMode("studio"); }}>
               <Waves size={16} />סטודיו חוף 3D
             </button>
@@ -326,18 +354,62 @@ export function ProductExperience({
           </p>
         </div>
 
-        <div className="product-intro">
-          <span className="product-category">{model.device}</span>
-          <Heading>{model.name}</Heading>
+        <div className="viewer-info product-intro">
+          <span className="eyebrow product-category">
+            {model.device}{modelYear ? ` / ${modelYear}` : ""}
+          </span>
+          <Heading dir="ltr">{model.name}</Heading>
+          <span className="availability">
+            {availabilityStatus === "coming-soon"
+              ? "בקרוב בישראל · בירור מועד הגעה"
+              : "מופיע במלאי באתר הרשמי · יש לאמת מול המשווק"}
+          </span>
+
+          <p className="description product-lead">
+            {model.summary || "כל התמונות ופרטי הדגם, במקום אחד."}
+          </p>
+
+          <div className="spec-trio">
+            <div>
+              <strong dir="ltr">
+                {voltage ?? "—"}
+                <small>V</small>
+              </strong>
+              <span>מתח סוללה</span>
+            </div>
+            <div>
+              <strong dir="ltr">
+                {capacityAh ?? "—"}
+                <small>Ah</small>
+              </strong>
+              <span>קיבולת סוללה</span>
+            </div>
+            <div>
+              <strong dir="ltr">
+                {metrics.rangeKm ?? "—"}
+                <small>KM</small>
+              </strong>
+              <span>טווח מפורסם · עד</span>
+            </div>
+          </div>
+
           {showPrice && displayPrice != null && (
-            <div className="product-price" dir="ltr">
-              {formatPrice(displayPrice)}
+            <div className="price product-price" dir="ltr">
+              <strong>{formatPrice(displayPrice)}</strong>
               <small dir="rtl">מחיר מומלץ לצרכן</small>
             </div>
           )}
           {showPrice && variant && displayPrice == null && (
             <p className="product-data-note">מחיר הגרסה לא צוין. יש לבדוק מול נציג.</p>
           )}
+
+          {coastalAsset?.availableColors && coastalAsset.availableColors.length > 0 && (
+            <p className="colors">
+              גוונים שפורסמו: {coastalAsset.availableColors.join(" · ")}
+              <small>הצילומים מוצגים כפי שפורסמו באתר הרשמי.</small>
+            </p>
+          )}
+
           <ProductVariants
             variants={variants}
             selected={variantId}
@@ -349,21 +421,20 @@ export function ProductExperience({
               setSelectedFeature(undefined);
             }}
           />
-          <p className="product-lead">{model.summary || "כל התמונות ופרטי הדגם, במקום אחד."}</p>
 
           <div className="product-key-facts">
             <div>
-              <Route size={19} />
+              <Route size={18} />
               <span>טווח מוצהר עד</span>
               <strong>{metrics.rangeKm ? `${metrics.rangeKm} ק״מ` : (model.metrics?.rangeKm === null ? "לא צוין" : specs.range || "לא צוין")}</strong>
             </div>
             <div>
-              <BatteryCharging size={19} />
+              <BatteryCharging size={18} />
               <span>סוללה</span>
               <strong dir="ltr">{specs.battery || "לא צוין"}</strong>
             </div>
             <div>
-              <Scan size={19} />
+              <Scan size={18} />
               <span>{model.metrics?.weightKg ? "משקל" : "מהירות לפי המפרט"}</span>
               <strong>
                 {model.metrics?.weightKg
@@ -381,25 +452,51 @@ export function ProductExperience({
 
           {model.published !== false ? (
             <>
-              <div className="product-primary-actions">
+              <div className="product-primary-actions product-actions">
                 <button type="button" onClick={copy}>
-                  {copied ? <Check size={18} /> : <Copy size={18} />}
+                  {copied ? <Check size={17} /> : <Copy size={17} />}
                   <span>{copied ? "הקישור לדגם הועתק" : "העתקת קישור לדגם"}</span>
                 </button>
                 <button type="button" onClick={() => window.print()} aria-label="הדפסת דף המוצר">
-                  <Printer size={18} /> הדפסה
+                  <Printer size={17} /> הדפסה
                 </button>
               </div>
               {copied && <span role="status" className="product-copy-status">הקישור הועתק ללוח</span>}
               {!variant && <ProductArEntry studio={model.studio} modelUrl={modelUrl} poster={image} productUrl={sharePath} />}
               {!standalone && (
-                <Link className="product-full-link" href={sharePath}>
-                  פתיחת עמוד מוצר מלא <ArrowUpLeft size={17} />
+                <Link className="product-full-link text-button" href={sharePath}>
+                  פתיחת עמוד מוצר מלא <ArrowUpLeft size={16} />
                 </Link>
               )}
             </>
           ) : (
             <p className="product-data-note">טיוטה פנימית — פרסמו את הדגם כדי לאפשר צפייה ציבורית בקטלוג.</p>
+          )}
+
+          {features.length > 0 && (
+            <div className="component-explorer">
+              <span>מבט ברכיבים</span>
+              <div>
+                {features.slice(0, 6).map((feature, idx) => (
+                  <button
+                    key={feature.title}
+                    type="button"
+                    className={activeFeature === idx ? "active" : ""}
+                    onClick={() => {
+                      pauseTour();
+                      setSelectedFeature(activeFeature === idx ? undefined : idx);
+                    }}
+                  >
+                    {feature.title}
+                  </button>
+                ))}
+              </div>
+              {activeFeature !== undefined && features[activeFeature] && (
+                <p role="status">
+                  <b>{features[activeFeature].title}:</b> {features[activeFeature].description.split("\n")[0]}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

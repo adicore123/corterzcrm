@@ -3,88 +3,132 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { StudioEnvironment } from "./studio-environments";
+import { isCoastalExhibitUrl } from "@/lib/catalog/coastal-assets";
 import { toWebglTextureUrl } from "./catalog-utils";
-import { COASTAL_SCENERY_URL, isCoastalExhibitUrl } from "@/lib/catalog/coastal-assets";
 import {
-  coastalBackdropFragment,
-  coastalBackdropVertex,
+  beachTerrainFragment,
+  beachTerrainVertex,
+  cliffFragment,
+  cliffVertex,
   coastalProductFragment,
   coastalProductVertex,
   coastalShadowFragment,
   coastalShadowVertex,
   contactShadowFragment,
   contactShadowVertex,
+  oceanGerstnerFragment,
+  oceanGerstnerVertex,
+  skyDomeFragment,
+  skyDomeVertex,
 } from "./coastal-shaders";
+import type { StudioEnvironment } from "./studio-environments";
 
-export type BeachStageMode = "exhibition" | "studio";
-export type BeachSlot = { bay: number; image: string; key: string };
+export const BAY_SPACING = 12;
 
-const BAY_SPACING = 12;
-
-const VIEW_POSES: Record<string, { pos: [number, number, number]; target: [number, number, number] }> = {
-  signature: { pos: [0.35, 2.45, 9.5], target: [0, 1.62, 0] },
-  detail: { pos: [-0.48, 2.22, 7.25], target: [0, 1.82, 0] },
-  angle: { pos: [1.15, 3.05, 12.1], target: [0, 1.52, 0] },
-  hero: { pos: [0.3, 2.42, 10.1], target: [0, 1.86, 0] },
+export type BeachSlot = {
+  bay: number;
+  image: string;
+  key: string;
 };
 
-function createRemovedWhiteTexture(img: HTMLImageElement, prepared: boolean, maxAniso: number): { texture: THREE.Texture; hasCutoutAlpha: boolean } {
-  if (prepared) {
-    const map = new THREE.Texture(img);
-    map.colorSpace = THREE.SRGBColorSpace;
-    map.anisotropy = Math.min(4, maxAniso);
-    map.generateMipmaps = true;
-    map.minFilter = THREE.LinearMipmapLinearFilter;
-    map.needsUpdate = true;
-    return { texture: map, hasCutoutAlpha: true };
+export type BeachStageMode = "exhibition" | "studio";
+
+type CameraPose = {
+  pos: [number, number, number];
+  target: [number, number, number];
+};
+
+const VIEW_POSES: Record<string, CameraPose> = {
+  hero: { pos: [0.35, 2.45, 9.95], target: [0, 1.82, 0] },
+  stage: { pos: [0.35, 2.45, 9.5], target: [0, 1.65, 0] },
+  signature: { pos: [0.35, 2.45, 9.5], target: [0, 1.65, 0] },
+  close: { pos: [-0.48, 2.22, 7.25], target: [0, 1.8, 0] },
+  detail: { pos: [-0.48, 2.22, 7.25], target: [0, 1.8, 0] },
+  wide: { pos: [1.18, 3.08, 12.4], target: [0, 1.55, -1.2] },
+  angle: { pos: [1.18, 3.08, 12.4], target: [0, 1.55, -1.2] },
+  front: { pos: [-0.88, 2.32, 8.6], target: [-0.15, 1.68, 0] },
+  side: { pos: [0.05, 2.38, 9.2], target: [0, 1.65, 0] },
+  back: { pos: [0.92, 2.35, 8.7], target: [0.15, 1.68, 0] },
+  cockpit: { pos: [-0.38, 2.52, 6.95], target: [-0.18, 2.02, 0] },
+  drivetrain: { pos: [0.42, 1.88, 7.15], target: [0.18, 1.25, 0] },
+};
+
+/**
+ * Keys out near-white studio backgrounds before mipmap generation so non-cutout
+ * CRM models and color variants sit cleanly on the 3D beach stage without white halos.
+ */
+function createRemovedWhiteTexture(
+  img: HTMLImageElement,
+  isPreparedCutout: boolean,
+  maxAnisotropy: number,
+): { texture: THREE.Texture; hasCutoutAlpha: boolean } {
+  const width = img.naturalWidth || img.width || 1;
+  const height = img.naturalHeight || img.height || 1;
+
+  if (isPreparedCutout) {
+    const tex = new THREE.Texture(img);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = Math.min(4, maxAnisotropy);
+    tex.needsUpdate = true;
+    return { texture: tex, hasCutoutAlpha: true };
   }
 
   const canvas = document.createElement("canvas");
-  const w = img.naturalWidth || img.width || 1;
-  const h = img.naturalHeight || img.height || 1;
-  const scale = Math.min(1, 1600 / Math.max(w, h));
-  canvas.width = Math.max(1, Math.round(w * scale));
-  canvas.height = Math.max(1, Math.round(h * scale));
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
-  let keyedWhite = false;
+  if (!ctx) {
+    const tex = new THREE.Texture(img);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return { texture: tex, hasCutoutAlpha: false };
+  }
 
-  if (ctx) {
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    try {
-      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = pixels.data;
-      const cw = canvas.width;
-      const ch = canvas.height;
-      const corners = [0, (cw - 1) * 4, (ch - 1) * cw * 4, (cw * ch - 1) * 4];
-      const whiteCount = corners.filter((i) => Math.min(data[i], data[i + 1], data[i + 2]) > 218).length;
-      if (whiteCount >= 3) {
-        keyedWhite = true;
-        for (let i = 0; i < data.length; i += 4) {
-          const minRgb = Math.min(data[i], data[i + 1], data[i + 2]);
-          const t = Math.max(0, Math.min(1, (minRgb - 205) / 40));
-          const alpha = 1 - t * t * (3 - 2 * t);
-          data[i + 3] = Math.round(data[i + 3] * alpha);
-          if (alpha < 0.999) {
-            for (let c = 0; c < 3; c++) {
-              data[i + c] = alpha > 0.01
-                ? Math.max(0, Math.min(255, Math.round((data[i + c] - 255 * (1 - alpha)) / alpha)))
+  ctx.drawImage(img, 0, 0);
+  let hasCutoutAlpha = false;
+  try {
+    const pixels = ctx.getImageData(0, 0, width, height);
+    const data = pixels.data;
+    const corners = [
+      0,
+      (width - 1) * 4,
+      (height - 1) * width * 4,
+      (width * height - 1) * 4,
+    ];
+    const transparentCorners = corners.filter((i) => data[i + 3] < 40).length;
+    const whiteCorners = corners.filter(
+      (i) => data[i + 3] > 200 && Math.min(data[i], data[i + 1], data[i + 2]) > 218,
+    ).length;
+
+    if (transparentCorners >= 3) {
+      hasCutoutAlpha = true;
+    } else if (whiteCorners >= 3) {
+      hasCutoutAlpha = true;
+      for (let i = 0; i < data.length; i += 4) {
+        const white = Math.min(data[i], data[i + 1], data[i + 2]);
+        const t = Math.max(0, Math.min(1, (white - 205) / 40));
+        const alpha = 1 - t * t * (3 - 2 * t);
+        data[i + 3] = Math.round(data[i + 3] * alpha);
+        if (alpha < 0.999) {
+          for (let c = 0; c < 3; c++) {
+            data[i + c] =
+              alpha > 0.01
+                ? Math.max(0, Math.min(255, (data[i + c] - 255 * (1 - alpha)) / alpha))
                 : 0;
-            }
           }
         }
-        ctx.putImageData(pixels, 0, 0);
       }
-    } catch {
-      // SecurityError on tainted canvas is prevented via proxy, but keep graceful photo draw if any occurs.
+      ctx.putImageData(pixels, 0, 0);
     }
+  } catch {
+    // Tainted canvas fallback
   }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = Math.min(4, maxAniso);
+  tex.anisotropy = Math.min(4, maxAnisotropy);
   tex.needsUpdate = true;
-  return { texture: tex, hasCutoutAlpha: keyedWhite };
+  return { texture: tex, hasCutoutAlpha };
 }
 
 function makeAirParticleTexture(): THREE.CanvasTexture {
@@ -93,16 +137,79 @@ function makeAirParticleTexture(): THREE.CanvasTexture {
   canvas.height = 32;
   const ctx = canvas.getContext("2d");
   if (ctx) {
-    const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-    grad.addColorStop(0, "rgba(255, 248, 224, 0.9)");
-    grad.addColorStop(0.5, "rgba(255, 240, 195, 0.35)");
-    grad.addColorStop(1, "rgba(255, 240, 195, 0)");
+    const grad = ctx.createRadialGradient(16, 16, 1, 16, 16, 15);
+    grad.addColorStop(0, "rgba(255, 250, 235, 1)");
+    grad.addColorStop(0.45, "rgba(255, 240, 210, 0.45)");
+    grad.addColorStop(1, "rgba(255, 240, 210, 0)");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 32, 32);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+/** Builds a sculpted 3D Mediterranean Date Palm tree that frames the upper corners and sways in the sea breeze. */
+function buildMediterraneanPalm(
+  trunkMat: THREE.Material,
+  frondMat: THREE.Material,
+  leanX: number,
+  scale: number,
+): { root: THREE.Group; crown: THREE.Group } {
+  const root = new THREE.Group();
+  root.scale.setScalar(scale);
+
+  const segments = 8;
+  const segHeight = 0.56;
+  let curX = 0;
+  let curY = 0;
+  let curZ = 0;
+
+  for (let i = 0; i < segments; i++) {
+    const t = i / segments;
+    const rBottom = 0.14 * (1 - t * 0.44);
+    const rTop = 0.125 * (1 - (t + 1 / segments) * 0.44);
+    const segGeo = new THREE.CylinderGeometry(rTop, rBottom, segHeight * 1.06, 10);
+    const segMesh = new THREE.Mesh(segGeo, trunkMat);
+    const tiltX = leanX * (0.12 + t * 0.24);
+    const tiltZ = -0.05 * (1 - t * 0.5);
+    segMesh.position.set(curX + tiltX * 0.5, curY + segHeight * 0.5, curZ + tiltZ * 0.5);
+    segMesh.rotation.z = -tiltX * 0.65;
+    segMesh.rotation.x = tiltZ * 0.65;
+    root.add(segMesh);
+    curX += tiltX;
+    curY += segHeight * 0.95;
+    curZ += tiltZ;
+  }
+
+  const crown = new THREE.Group();
+  crown.position.set(curX, curY, curZ);
+  const frondCount = 11;
+  for (let i = 0; i < frondCount; i++) {
+    const angle = (i / frondCount) * Math.PI * 2 + (i % 2) * 0.16;
+    const frondHolder = new THREE.Group();
+    frondHolder.rotation.y = angle;
+
+    const frondGeo = new THREE.PlaneGeometry(0.52, 2.25, 2, 7);
+    const pos = frondGeo.attributes.position as THREE.BufferAttribute;
+    for (let v = 0; v < pos.count; v++) {
+      const py = pos.getY(v) + 1.125; // 0 at base, 2.25 at tip
+      const normY = py / 2.25;
+      const archY = Math.sin(normY * Math.PI * 0.78) * 0.58 - normY * normY * 0.52;
+      const taper = Math.sin(normY * Math.PI);
+      pos.setX(v, pos.getX(v) * (0.22 + 0.88 * taper));
+      pos.setY(v, archY);
+      pos.setZ(v, py);
+    }
+    frondGeo.computeVertexNormals();
+    const frondMesh = new THREE.Mesh(frondGeo, frondMat);
+    frondMesh.rotation.x = 0.14 + (i % 3) * 0.12;
+    frondHolder.add(frondMesh);
+    crown.add(frondHolder);
+  }
+
+  root.add(crown);
+  return { root, crown };
 }
 
 export function BeachStage3D({
@@ -192,7 +299,7 @@ export function BeachStage3D({
     try {
       renderer = new THREE.WebGLRenderer({
         antialias: true,
-        alpha: true,
+        alpha: false,
         powerPreference: "high-performance",
       });
     } catch {
@@ -218,20 +325,22 @@ export function BeachStage3D({
     const height = Math.max(container.clientHeight, 1);
     renderer.setSize(width, height);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     container.appendChild(canvas);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 100);
+    scene.background = new THREE.Color(0x5fa4c8);
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 360);
     camera.position.set(0.35, 2.45, 9.5);
 
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.enableZoom = false; // Never trap vertical page scrolling.
+    controls.enableZoom = false;
     controls.enablePan = false;
-    controls.minAzimuthAngle = -0.26;
-    controls.maxAzimuthAngle = 0.26;
-    controls.minPolarAngle = 1.28;
+    controls.minAzimuthAngle = -0.28;
+    controls.maxAzimuthAngle = 0.28;
+    controls.minPolarAngle = 1.26;
     controls.maxPolarAngle = 1.59;
     controls.minDistance = 5.5;
     controls.maxDistance = 14.5;
@@ -242,54 +351,129 @@ export function BeachStage3D({
     };
     controls.addEventListener("start", handleControlStart);
 
-    // 1. Coastal Backdrop Quad
-    const backdropUniforms = {
-      uPlate: { value: null as THREE.Texture | null },
-      uCrop: { value: new THREE.Vector2(1, 1) },
-      uDrift: { value: new THREE.Vector2(0, 0) },
+    // 1. Real 3D Lights (In-Frame Sun Vector + Sky/Sand Hemisphere)
+    const sunDir = new THREE.Vector3(-0.16, 0.18, -0.97).normalize();
+    const sunLight = new THREE.DirectionalLight(0xfff5e4, 2.25);
+    sunLight.position.copy(sunDir).multiplyScalar(60);
+    scene.add(sunLight);
+
+    const hemiLight = new THREE.HemisphereLight(0x88c9eb, 0xd8bd96, 1.15);
+    scene.add(hemiLight);
+
+    // 2. Real 3D Sky Dome (360° Sphere with In-Frame Sun Disc, God-Rays & Sculptural 3D Clouds)
+    const skyUniforms = {
+      uSunDir: { value: sunDir.clone() },
       uSeconds: { value: 0 },
       uWarmth: { value: 0 },
       uDusk: { value: 0 },
     };
-    let backdropImgWidth = 1536;
-    let backdropImgHeight = 1024;
-    let backdropTexture: THREE.Texture | null = null;
-    const backdropGeo = new THREE.PlaneGeometry(2, 2);
-    const backdropMat = new THREE.ShaderMaterial({
-      uniforms: backdropUniforms,
-      vertexShader: coastalBackdropVertex,
-      fragmentShader: coastalBackdropFragment,
+    const skyGeo = new THREE.SphereGeometry(240, 48, 32);
+    const skyMat = new THREE.ShaderMaterial({
+      uniforms: skyUniforms,
+      vertexShader: skyDomeVertex,
+      fragmentShader: skyDomeFragment,
+      side: THREE.BackSide,
       depthWrite: false,
-      depthTest: false,
       toneMapped: false,
     });
-    const backdropMesh = new THREE.Mesh(backdropGeo, backdropMat);
-    backdropMesh.frustumCulled = false;
-    backdropMesh.renderOrder = -10;
-    scene.add(backdropMesh);
+    const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+    skyMesh.renderOrder = -20;
+    scene.add(skyMesh);
 
-    const textureLoader = new THREE.TextureLoader();
-    textureLoader.setCrossOrigin("anonymous");
-    textureLoader.load(COASTAL_SCENERY_URL, (tex) => {
-      if (disposed) {
-        tex.dispose();
-        return;
-      }
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.minFilter = THREE.LinearFilter;
-      tex.magFilter = THREE.LinearFilter;
-      tex.needsUpdate = true;
-      backdropTexture = tex;
-      backdropUniforms.uPlate.value = tex;
-      const img = tex.image as HTMLImageElement | undefined;
-      if (img?.width && img?.height) {
-        backdropImgWidth = img.width;
-        backdropImgHeight = img.height;
-      }
+    // 3. Real 3D Gerstner Wave Ocean Surface (Vertex-Displaced 3D Ocean Mesh reaching z = -0.65m right behind bike!)
+    const oceanUniforms = {
+      uSunDir: { value: sunDir.clone() },
+      uSeconds: { value: 0 },
+      uWarmth: { value: 0 },
+      uDusk: { value: 0 },
+    };
+    const oceanSegX = isMobile ? 110 : 180;
+    const oceanSegZ = isMobile ? 68 : 112;
+    const oceanGeo = new THREE.PlaneGeometry(300, 145, oceanSegX, oceanSegZ);
+    oceanGeo.rotateX(-Math.PI / 2);
+    const oceanMat = new THREE.ShaderMaterial({
+      uniforms: oceanUniforms,
+      vertexShader: oceanGerstnerVertex,
+      fragmentShader: oceanGerstnerFragment,
+      transparent: true,
+      depthWrite: true,
+      toneMapped: false,
     });
+    const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+    oceanMesh.position.set(0, 0.0, -73.1);
+    oceanMesh.renderOrder = -2;
+    scene.add(oceanMesh);
 
-    // 2. Subtle Mediterranean breeze dust/sparkle particles in 3D space
-    const particleCount = reducedMotion ? 0 : isMobile ? 28 : 56;
+    // 4. Real 3D Sculpted Beach Terrain (Seabed + Wet Sand Mirror + Dry Rippled Sand with Dappled Palm Shadows)
+    const terrainUniforms = {
+      uSunDir: { value: sunDir.clone() },
+      uSeconds: { value: 0 },
+      uWarmth: { value: 0 },
+      uDusk: { value: 0 },
+    };
+    const terrainSegX = isMobile ? 96 : 150;
+    const terrainSegZ = isMobile ? 48 : 72;
+    const terrainGeo = new THREE.PlaneGeometry(300, 82, terrainSegX, terrainSegZ);
+    terrainGeo.rotateX(-Math.PI / 2);
+    const terrainMat = new THREE.ShaderMaterial({
+      uniforms: terrainUniforms,
+      vertexShader: beachTerrainVertex,
+      fragmentShader: beachTerrainFragment,
+      toneMapped: false,
+    });
+    const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+    terrainMesh.position.set(0, 0, 29);
+    terrainMesh.renderOrder = -3;
+    scene.add(terrainMesh);
+
+    // 5. Real 3D In-Frame Mediterranean Kurkar Sandstone Headland Cliffs & Sea Stacks
+    const cliffsGroup = new THREE.Group();
+    const cliffUniforms = {
+      uSunDir: { value: sunDir.clone() },
+      uWarmth: { value: 0 },
+      uDusk: { value: 0 },
+    };
+    const cliffMat = new THREE.ShaderMaterial({
+      uniforms: cliffUniforms,
+      vertexShader: cliffVertex,
+      fragmentShader: cliffFragment,
+      toneMapped: false,
+    });
+    const cliffSpecs: [number, number, number, number, number, number][] = [
+      [11.5, -0.6, -28, 7.2, 3.8, 6.5],
+      [17.5, -0.5, -33, 11.5, 5.8, 9.2],
+      [7.2, -0.8, -23, 2.8, 1.45, 2.5],
+      [5.1, -0.85, -20, 1.35, 0.72, 1.2],
+      [-11.8, -0.7, -32, 6.4, 2.9, 5.4],
+      [-16.5, -0.6, -38, 10.2, 4.6, 8.2],
+    ];
+    const cliffGeos: THREE.BufferGeometry[] = [];
+    for (const [cx, cy, cz, sx, sy, sz] of cliffSpecs) {
+      const geo = new THREE.DodecahedronGeometry(1, 2);
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vy = pos.getY(i);
+        const vz = pos.getZ(i);
+        const terrace = Math.round(vy * 4.0) / 4.0;
+        pos.setXYZ(
+          i,
+          vx * (1 + 0.22 * Math.sin(vz * 3.8)),
+          Math.max(-0.35, terrace * 0.85 + 0.16 * Math.cos(vx * 3.5)),
+          vz * (1 + 0.18 * Math.cos(vx * 3.1)),
+        );
+      }
+      geo.computeVertexNormals();
+      cliffGeos.push(geo);
+      const mesh = new THREE.Mesh(geo, cliffMat);
+      mesh.position.set(cx, cy + sy * 0.35, cz);
+      mesh.scale.set(sx, sy, sz);
+      cliffsGroup.add(mesh);
+    }
+    scene.add(cliffsGroup);
+
+    // 6. 3D Sea-Breeze Sunlight Dust & Mist Particles
+    const particleCount = reducedMotion ? 0 : isMobile ? 32 : 64;
     const particlePositions = new Float32Array(particleCount * 3);
     const particlePhases = new Float32Array(particleCount);
     for (let i = 0; i < particleCount; i++) {
@@ -313,15 +497,32 @@ export function BeachStage3D({
     particles.visible = particleCount > 0;
     scene.add(particles);
 
-    // 3. Stations Map (exhibition supports multiple sliding bays along shoreline)
+    // 7. 3D Swaying Mediterranean Palm Tree Materials
+    const palmTrunkMat = new THREE.MeshStandardMaterial({
+      color: 0x8f6e4f,
+      roughness: 0.88,
+      metalness: 0.02,
+      flatShading: true,
+    });
+    const palmFrondMat = new THREE.MeshStandardMaterial({
+      color: 0x3b6e38,
+      roughness: 0.62,
+      metalness: 0.04,
+      side: THREE.DoubleSide,
+    });
+
+    // 8. Stations Map (each bay has in-frame 3D swaying palms, sun-vector cast shadow, wet-sand reflection & vehicle)
     type StationGpu = {
       key: string;
       image: string;
       group: THREE.Group;
+      palmCrowns: THREE.Group[];
       contactMesh: THREE.Mesh;
       contactMat: THREE.ShaderMaterial;
       shadowMesh: THREE.Mesh;
       shadowMat: THREE.ShaderMaterial;
+      reflectionMesh: THREE.Mesh;
+      reflectionMat: THREE.MeshBasicMaterial;
       photoMesh: THREE.Mesh;
       photoMat: THREE.ShaderMaterial;
       texture: THREE.Texture | null;
@@ -354,6 +555,13 @@ export function BeachStage3D({
       st.shadowMat.uniforms.uSilhouette.value = cached.texture;
       st.shadowMat.uniforms.uPhotoSize.value.set(photoW, photoH);
       st.shadowMesh.visible = cached.hasCutoutAlpha;
+
+      // Soft vertical mirror reflection of the bike on the wet shoreline sand
+      st.reflectionMesh.scale.set(photoW, -photoH * 0.45, 1);
+      st.reflectionMesh.position.set(0, 0.18 - photoH * 0.22, -0.05);
+      st.reflectionMat.map = cached.texture;
+      st.reflectionMat.needsUpdate = true;
+      st.reflectionMesh.visible = cached.hasCutoutAlpha;
 
       st.texture = cached.texture;
       st.loaded = true;
@@ -407,6 +615,16 @@ export function BeachStage3D({
 
     function createStationGpu(key: string, image: string): StationGpu {
       const group = new THREE.Group();
+
+      // 3D Swaying Mediterranean Date Palms positioned inside the camera frame corners
+      const palmRight = buildMediterraneanPalm(palmTrunkMat, palmFrondMat, -0.34, 0.88);
+      palmRight.root.position.set(3.85, 0.02, -2.15);
+      group.add(palmRight.root);
+
+      const palmLeft = buildMediterraneanPalm(palmTrunkMat, palmFrondMat, 0.32, 0.82);
+      palmLeft.root.position.set(-4.05, 0.02, -2.65);
+      group.add(palmLeft.root);
+
       const contactMat = new THREE.ShaderMaterial({
         uniforms: { uWarmth: { value: 0 }, uDusk: { value: 0 } },
         vertexShader: contactShadowVertex,
@@ -415,7 +633,7 @@ export function BeachStage3D({
         depthWrite: false,
       });
       const contactMesh = new THREE.Mesh(sharedContactGeo, contactMat);
-      contactMesh.position.set(0, 0.19, 0.04);
+      contactMesh.position.set(0, 0.192, 0.04);
       contactMesh.rotation.x = -Math.PI / 2;
       contactMesh.renderOrder = 1;
       group.add(contactMesh);
@@ -437,6 +655,17 @@ export function BeachStage3D({
       shadowMesh.renderOrder = 2;
       shadowMesh.visible = false;
       group.add(shadowMesh);
+
+      const reflectionMat = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0.11,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const reflectionMesh = new THREE.Mesh(sharedPlaneGeo, reflectionMat);
+      reflectionMesh.renderOrder = 1;
+      reflectionMesh.visible = false;
+      group.add(reflectionMesh);
 
       const photoMat = new THREE.ShaderMaterial({
         uniforms: {
@@ -461,10 +690,13 @@ export function BeachStage3D({
         key,
         image,
         group,
+        palmCrowns: [palmRight.crown, palmLeft.crown],
         contactMesh,
         contactMat,
         shadowMesh,
         shadowMat,
+        reflectionMesh,
+        reflectionMat,
         photoMesh,
         photoMat,
         texture: null,
@@ -476,6 +708,7 @@ export function BeachStage3D({
       stationsGroup.remove(st.group);
       st.contactMat.dispose();
       st.shadowMat.dispose();
+      st.reflectionMat.dispose();
       st.photoMat.dispose();
     }
 
@@ -516,7 +749,7 @@ export function BeachStage3D({
     }
     syncStationsRef.current = syncStations;
 
-    // 4. Camera Pose & Parallax state
+    // 9. Camera Pose & Parallax State
     const pointerTarget = new THREE.Vector2(0, 0);
     const pointerCurrent = new THREE.Vector2(0, 0);
 
@@ -570,8 +803,8 @@ export function BeachStage3D({
       if (!propsRef.current.interactive || propsRef.current.mode !== "studio") return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
-        const delta = e.key === "ArrowLeft" ? -0.16 : 0.16;
-        camera.position.x = Math.max(-2.5, Math.min(2.5, camera.position.x + delta));
+        const delta = e.key === "ArrowLeft" ? -0.18 : 0.18;
+        camera.position.x = Math.max(-3.0, Math.min(3.0, camera.position.x + delta));
       } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
         const delta = e.key === "ArrowUp" ? -0.35 : 0.35;
@@ -584,7 +817,7 @@ export function BeachStage3D({
 
     syncStations();
 
-    // 5. Intersection & Visibility lifecycle + ResizeObserver + Context Lost
+    // 10. Lifecycle, Intersection, Visibility & Resize Observers
     let isVisible = true;
     let isHidden = document.hidden;
     const observer = new IntersectionObserver(([entry]) => {
@@ -617,7 +850,7 @@ export function BeachStage3D({
     };
     canvas.addEventListener("webglcontextlost", onContextLost);
 
-    // 6. Main Render Loop (with smooth environment transition & coastal animation)
+    // 11. Real-Time 3D Render Loop
     let warmthCurrent = propsRef.current.environment === "night" ? 1 : 0;
     let duskCurrent = propsRef.current.environment === "gallery" ? 1 : 0;
     let waveTime = 0;
@@ -633,8 +866,7 @@ export function BeachStage3D({
       const cur = propsRef.current;
       if (!isVisible || isHidden || cur.paused) return;
 
-      const animateWater = !reducedMotion;
-      if (animateWater) waveTime += rawDt;
+      if (!reducedMotion) waveTime += rawDt;
 
       // Smooth interpolation between Day, Golden Hour (night), and Twilight (gallery)
       const targetWarmth = cur.environment === "night" ? 1 : 0;
@@ -643,18 +875,52 @@ export function BeachStage3D({
       warmthCurrent += (targetWarmth - warmthCurrent) * gradeLerp;
       duskCurrent += (targetDusk - duskCurrent) * gradeLerp;
 
-      backdropUniforms.uSeconds.value = waveTime;
-      backdropUniforms.uWarmth.value = warmthCurrent;
-      backdropUniforms.uDusk.value = duskCurrent;
+      // In-frame 3D Sun Direction Vector (visible in upper-left sky & casting golden path on waves)
+      const sunElev = THREE.MathUtils.lerp(0.175, 0.082, warmthCurrent) * (1 - duskCurrent * 0.82);
+      const sunAzimX = THREE.MathUtils.lerp(-0.155, -0.175, warmthCurrent);
+      sunDir.set(sunAzimX, sunElev, -0.97).normalize();
 
-      const aspect = Math.max(0.25, camera.aspect);
-      const sourceAspect = backdropImgWidth / Math.max(1, backdropImgHeight);
-      backdropUniforms.uCrop.value.set(
-        Math.min(1, aspect / sourceAspect) * 0.965,
-        Math.min(1, sourceAspect / aspect) * 0.965,
+      skyUniforms.uSunDir.value.copy(sunDir);
+      skyUniforms.uSeconds.value = waveTime;
+      skyUniforms.uWarmth.value = warmthCurrent;
+      skyUniforms.uDusk.value = duskCurrent;
+
+      oceanUniforms.uSunDir.value.copy(sunDir);
+      oceanUniforms.uSeconds.value = waveTime;
+      oceanUniforms.uWarmth.value = warmthCurrent;
+      oceanUniforms.uDusk.value = duskCurrent;
+
+      terrainUniforms.uSunDir.value.copy(sunDir);
+      terrainUniforms.uSeconds.value = waveTime;
+      terrainUniforms.uWarmth.value = warmthCurrent;
+      terrainUniforms.uDusk.value = duskCurrent;
+
+      cliffUniforms.uSunDir.value.copy(sunDir);
+      cliffUniforms.uWarmth.value = warmthCurrent;
+      cliffUniforms.uDusk.value = duskCurrent;
+
+      sunLight.position.copy(sunDir).multiplyScalar(60);
+      sunLight.color.setRGB(
+        1.0,
+        THREE.MathUtils.lerp(0.96, 0.72, warmthCurrent) * (1 - duskCurrent * 0.35),
+        THREE.MathUtils.lerp(0.88, 0.46, warmthCurrent) * (1 - duskCurrent * 0.15),
       );
+      sunLight.intensity = THREE.MathUtils.lerp(2.2, 1.85, warmthCurrent) * (1 - duskCurrent * 0.62);
+      hemiLight.intensity = THREE.MathUtils.lerp(1.15, 0.95, warmthCurrent) * (1 - duskCurrent * 0.45);
 
-      // Update particles gently
+      // Sway 3D Mediterranean palm crowns gently in the sea breeze
+      if (!reducedMotion) {
+        const breezeA = Math.sin(waveTime * 1.35) * 0.055;
+        const breezeB = Math.cos(waveTime * 0.95) * 0.038;
+        for (const st of activeStations.values()) {
+          st.palmCrowns.forEach((crown, idx) => {
+            crown.rotation.z = breezeA * (idx === 0 ? 1 : -0.85);
+            crown.rotation.x = breezeB;
+          });
+        }
+      }
+
+      // Update sea-breeze particles
       if (particleCount > 0) {
         const attr = particleGeo.getAttribute("position") as THREE.BufferAttribute;
         const bayCenterX = cur.bay * BAY_SPACING;
@@ -672,7 +938,7 @@ export function BeachStage3D({
         particleMat.opacity = targetDusk ? 0.3 : 0.48;
       }
 
-      // Camera rig update
+      // Update 3D Camera Rig
       const ptrLerp = reducedMotion ? 1 : Math.min(1, rawDt * 5);
       pointerCurrent.lerp(pointerTarget, ptrLerp);
 
@@ -682,13 +948,13 @@ export function BeachStage3D({
         const camLerp = reducedMotion ? 1 : Math.min(1, rawDt * 5.2);
         if (cur.tour && !reducedMotion) {
           tourPhase += rawDt;
-          const swayX = Math.sin(tourPhase * 0.42) * 0.95;
-          const swayY = Math.sin(tourPhase * 0.56) * 0.16;
-          const swayZ = -0.35 * (1 - Math.cos(tourPhase * 0.48));
+          const swayX = Math.sin(tourPhase * 0.42) * 1.15;
+          const swayY = Math.sin(tourPhase * 0.56) * 0.2;
+          const swayZ = -0.42 * (1 - Math.cos(tourPhase * 0.48));
           camCurrentPos.lerp(new THREE.Vector3(camGoalPos.x + swayX, camGoalPos.y + swayY, camGoalPos.z + swayZ), camLerp);
         } else {
-          const pOffX = cur.mode === "exhibition" ? pointerCurrent.x * 0.9 : pointerCurrent.x * 0.45;
-          const pOffY = cur.mode === "exhibition" ? -pointerCurrent.y * 0.22 : -pointerCurrent.y * 0.12;
+          const pOffX = cur.mode === "exhibition" ? pointerCurrent.x * 0.96 : pointerCurrent.x * 0.48;
+          const pOffY = cur.mode === "exhibition" ? -pointerCurrent.y * 0.24 : -pointerCurrent.y * 0.14;
           camCurrentPos.lerp(new THREE.Vector3(camGoalPos.x + pOffX, camGoalPos.y + pOffY, camGoalPos.z), camLerp);
         }
         camCurrentTarget.lerp(camGoalTarget, camLerp);
@@ -696,10 +962,12 @@ export function BeachStage3D({
         camera.lookAt(camCurrentTarget);
       }
 
-      backdropUniforms.uDrift.value.set(
-        Math.sin(camera.position.x / 28) * 0.016 + (camera.position.x - camGoalTarget.x) * 0.008,
-        (camera.position.y - 2.45) * 0.009,
-      );
+      // Keep infinite 3D sky, ocean, terrain & cliffs anchored around the active coastal region
+      skyMesh.position.x = camera.position.x;
+      const anchorX = Math.round(camera.position.x / 24) * 24;
+      oceanMesh.position.x = anchorX;
+      terrainMesh.position.x = anchorX;
+      cliffsGroup.position.x = camera.position.x * 0.82;
 
       for (const st of activeStations.values()) {
         st.photoMat.uniforms.uWarmth.value = warmthCurrent;
@@ -731,9 +999,17 @@ export function BeachStage3D({
       activeStations.clear();
       for (const item of textureCache.values()) item.texture.dispose();
       textureCache.clear();
-      backdropTexture?.dispose();
-      backdropGeo.dispose();
-      backdropMat.dispose();
+
+      skyGeo.dispose();
+      skyMat.dispose();
+      oceanGeo.dispose();
+      oceanMat.dispose();
+      terrainGeo.dispose();
+      terrainMat.dispose();
+      for (const g of cliffGeos) g.dispose();
+      cliffMat.dispose();
+      palmTrunkMat.dispose();
+      palmFrondMat.dispose();
       particleGeo.dispose();
       particleMat.dispose();
       particleTex.dispose();

@@ -331,6 +331,16 @@ try {
     await admin.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "catalog-desktop.png") });
   }
 
+  // Exercise GPT Showroom 3D view + horizontal model-rail
+  await admin.locator(".cortez-nav").getByRole("button", { name: "אולם התצוגה 3D", exact: true }).click();
+  await visible(admin.locator(".model-rail"));
+  await visible(admin.locator(".viewer-v2 .spec-trio"));
+  if (process.env.CORTEZ_QA_SCREENSHOTS) {
+    await delay(500);
+    await admin.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "showroom-3d-view.png") });
+  }
+  await admin.locator(".cortez-nav").getByRole("button", { name: "הדגמים שלנו", exact: true }).click();
+
   // Exercise 4-step Ride Finder wizard
   await admin.locator(".is-finder-trigger").click();
   const finderDialog = admin.getByRole("dialog");

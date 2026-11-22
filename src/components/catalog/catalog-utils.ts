@@ -1,4 +1,11 @@
 import type { CatalogModel, ModelSpec } from "@/lib/validation/models";
+import { getCoastalAsset } from "@/lib/catalog/coastal-assets";
+
+export const DEALER_URL = "https://cortez.co.il/%D7%97%D7%A0%D7%95%D7%99%D7%95%D7%AA/";
+
+export function shortModelName(name: string): string {
+  return name.replace(/^CORTEZ\s+/i, "").replace(/\s+20\d\d$/, "");
+}
 
 export function toWebglTextureUrl(url: string): string {
   if (url.startsWith("https://cortez.co.il/wp-content/uploads/")) {
@@ -127,34 +134,118 @@ export type CatalogFilterState = {
   category?: string;
   fits?: FitFilter[];
   maxPrice?: number;
+  minRange?: number;
   voltage?: string;
+  capacity?: string;
+  brakes?: string;
   suspension?: string;
+  tires?: string;
+  year?: string;
+  availability?: string;
+  folding?: string;
 };
 
 export function extractBatteryVoltage(model: CatalogModel): number | null {
+  const asset = getCoastalAsset(model);
+  if (asset?.batteryVoltage) return asset.batteryVoltage;
   const battery = (model.specs ?? []).find((spec) => spec.label.includes("סוללה"))?.value ?? model.summary ?? "";
   const match = battery.match(/(\d+(?:\.\d+)?)\s*[vV]/);
   return match ? Math.round(Number(match[1])) : null;
+}
+
+export function extractBatteryCapacityAh(model: CatalogModel): number | null {
+  const asset = getCoastalAsset(model);
+  if (asset?.batteryCapacityAh) return asset.batteryCapacityAh;
+  const battery = (model.specs ?? []).find((spec) => spec.label.includes("סוללה"))?.value ?? model.summary ?? "";
+  const match = battery.match(/(\d+(?:\.\d+)?)\s*[aA][hH]/);
+  return match ? Number(match[1]) : null;
+}
+
+export function extractBrakeType(model: CatalogModel): string | null {
+  const asset = getCoastalAsset(model);
+  if (asset?.brakeType) return asset.brakeType;
+  return (model.specs ?? []).find((spec) => spec.label.includes("בלמ"))?.value ?? null;
+}
+
+export function extractSuspensionType(model: CatalogModel): string | null {
+  const asset = getCoastalAsset(model);
+  if (asset?.suspension) return asset.suspension;
+  const metrics = parseMetrics(model);
+  if (metrics.hasFullSuspension) return "מלא";
+  const front = (model.specs ?? []).find((spec) => spec.label.includes("שיכוך"))?.value ?? "";
+  if (front.includes("יש") || front.includes("קדמי")) return "קדמי";
+  return null;
+}
+
+export function extractTireSpec(model: CatalogModel): string | null {
+  const val = (model.specs ?? []).find((spec) => spec.label.includes("צמיג") || spec.label.includes("גלגל"))?.value;
+  return val ? val.trim() : null;
+}
+
+export function extractModelYear(model: CatalogModel): number | null {
+  const asset = getCoastalAsset(model);
+  if (asset?.modelYear) return asset.modelYear;
+  const match = model.name.match(/\b(202[6-9])\b/);
+  return match ? Number(match[1]) : null;
+}
+
+export function extractAvailabilityStatus(model: CatalogModel): "in-stock" | "coming-soon" | "unknown" {
+  const asset = getCoastalAsset(model);
+  return asset?.availabilityStatus ?? "in-stock";
+}
+
+export function extractFolding(model: CatalogModel): boolean | null {
+  const spec = (model.specs ?? []).find((s) => s.label.includes("קיפול") || s.label.includes("מתקפל"))?.value ?? "";
+  if (spec.includes("יש") || spec.includes("כן") || (model.summary ?? "").includes("מתקפל")) return true;
+  return null;
 }
 
 export function filterCatalog(models: CatalogModel[], state: CatalogFilterState): CatalogModel[] {
   const query = state.search?.trim().toLocaleLowerCase("he") ?? "";
   return models.filter((model) => {
     if (state.category === "2027" && !is2027Model(model)) return false;
-    if (state.category && !["all", "2027"].includes(state.category) && model.device !== state.category) return false;
-    if (state.maxPrice && (model.msrp == null || model.msrp > state.maxPrice)) return false;
+    if (state.category === "bikes" && model.device !== "אופניים חשמליים") return false;
+    if (state.category === "scooters" && model.device !== "קורקינט חשמלי") return false;
+    if (state.category && !["all", "2027", "bikes", "scooters"].includes(state.category) && model.device !== state.category) return false;
+    if (state.maxPrice && state.maxPrice > 0 && (model.msrp == null || model.msrp > state.maxPrice)) return false;
+    const metrics = parseMetrics(model);
+    if (state.minRange && state.minRange > 0 && (metrics.rangeKm == null || metrics.rangeKm < state.minRange)) return false;
     if (state.voltage) {
       const voltage = extractBatteryVoltage(model);
       if (!voltage || String(voltage) !== state.voltage) return false;
     }
-    const metrics = parseMetrics(model);
-    if (state.suspension === "full" && !metrics.hasFullSuspension) return false;
-    if (state.suspension === "front") {
-      const frontSpec = (model.specs ?? []).find((spec) => spec.label.includes("שיכוך"))?.value ?? "";
-      if (metrics.hasFullSuspension || !frontSpec.includes("יש") && !frontSpec.includes("קדמי")) return false;
+    if (state.capacity) {
+      const cap = extractBatteryCapacityAh(model);
+      if (!cap || String(cap) !== state.capacity) return false;
     }
+    if (state.brakes) {
+      const brk = extractBrakeType(model);
+      if (!brk || brk !== state.brakes) return false;
+    }
+    if (state.suspension) {
+      const susp = extractSuspensionType(model);
+      if (state.suspension === "full" || state.suspension === "מלא") {
+        if (!metrics.hasFullSuspension && susp !== "מלא") return false;
+      } else if (state.suspension === "front" || state.suspension === "קדמי") {
+        if (susp !== "קדמי") return false;
+      } else if (susp !== state.suspension) {
+        return false;
+      }
+    }
+    if (state.tires) {
+      const tire = extractTireSpec(model);
+      if (!tire || tire !== state.tires) return false;
+    }
+    if (state.year) {
+      const yr = extractModelYear(model);
+      if (!yr || String(yr) !== state.year) return false;
+    }
+    if (state.availability) {
+      if (extractAvailabilityStatus(model) !== state.availability) return false;
+    }
+    if (state.folding === "yes" && extractFolding(model) !== true) return false;
     if (state.fits?.some((fit) => fit === "long-range" ? (metrics.rangeKm ?? 0) < 45 : fit === "full-susp" ? !metrics.hasFullSuspension : !metrics.hasHydraulicBrakes)) return false;
-    return !query || [model.name, model.device, model.summary ?? "", ...(model.specs ?? []).flatMap((spec) => [spec.label, spec.value])].some((text) => text.toLocaleLowerCase("he").includes(query));
+    return !query || [model.name, "קורטז", model.device, model.summary ?? "", ...(model.specs ?? []).flatMap((spec) => [spec.label, spec.value])].some((text) => text.toLocaleLowerCase("he").includes(query));
   });
 }
 

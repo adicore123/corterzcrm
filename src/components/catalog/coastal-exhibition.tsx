@@ -1,10 +1,19 @@
 "use client";
 
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { ChevronLeft, ChevronRight, Compass, Moon, SlidersHorizontal, Sparkles, Sun, Sunset } from "lucide-react";
+import { Box, ChevronLeft, ChevronRight, Compass, Moon, MoveHorizontal, SlidersHorizontal, Sun, Sunset } from "lucide-react";
 import type { CatalogModel } from "@/lib/validation/models";
 import { getPrimaryExhibitImage } from "@/lib/catalog/coastal-assets";
-import { extractKeySpecs, formatPrice, is2027Model, isPremiumModel, parseMetrics } from "./catalog-utils";
+import {
+  extractBatteryCapacityAh,
+  extractBatteryVoltage,
+  extractKeySpecs,
+  extractModelYear,
+  formatPrice,
+  is2027Model,
+  isPremiumModel,
+  parseMetrics,
+} from "./catalog-utils";
 import type { StudioEnvironment } from "./studio-environments";
 import { BeachStage3D, type BeachSlot } from "./beach-stage-3d";
 
@@ -14,16 +23,20 @@ export function CoastalExhibition({
   items,
   counts,
   showPrice,
+  home = false,
   paused = false,
   onOpenModel,
+  onOpenShowroom,
   onOpenFinder,
   onJumpToCatalog,
 }: {
   items: CatalogModel[];
   counts: { total: number; scooters: number; bikes: number; series2027: number };
   showPrice: boolean;
+  home?: boolean;
   paused?: boolean;
   onOpenModel: (model: CatalogModel) => void;
+  onOpenShowroom?: (model: CatalogModel) => void;
   onOpenFinder: () => void;
   onJumpToCatalog: () => void;
 }) {
@@ -55,7 +68,10 @@ export function CoastalExhibition({
   const currentImage = getPrimaryExhibitImage(current);
   const kpi = extractKeySpecs(current);
   const metrics = parseMetrics(current);
-  const priceText = showPrice ? formatPrice(current.msrp) : "";
+  const voltage = extractBatteryVoltage(current);
+  const capacityAh = extractBatteryCapacityAh(current);
+  const modelYear = extractModelYear(current);
+  const priceText = showPrice ? (formatPrice(current.msrp) || "מחיר בבירור") : "";
 
   function move(delta: number) {
     if (items.length < 2) return;
@@ -106,15 +122,16 @@ export function CoastalExhibition({
   return (
     <section
       className={
-        "coastal-exhibition no-print"
+        "exhibition coastal-exhibition no-print "
+        + (home ? "home-exhibition" : "catalog-exhibition")
         + (lighting === "night" ? " is-golden" : lighting === "gallery" ? " is-twilight" : "")
       }
-      aria-label="תערוכת חוף הים של דגמי קורטז"
+      aria-label={home ? "תערוכת דגמים נבחרים על חוף הים בתלת־ממד" : "תצוגת חוף תלת־ממדית של דגמי קורטז"}
     >
       <div
-        className="coastal-exhibition-stage"
+        className="exhibition-visual coastal-exhibition-stage"
         role="group"
-        aria-label="במת התצוגה התלת־ממדית. גררו או השתמשו בחצים למעבר בין הדגמים"
+        aria-label="דגמי התערוכה בחוף התלת־ממדי. השתמשו בחצים או גררו למעבר בין הבמות"
         tabIndex={items.length > 1 ? 0 : -1}
         onPointerDown={startGesture}
         onPointerUp={finishGesture}
@@ -133,7 +150,7 @@ export function CoastalExhibition({
         />
 
         {!unavailable && (
-          <div className="coastal-light-dock" role="group" aria-label="תאורת חוף הים">
+          <div className="coastal-light-dock" role="group" aria-label="תאורת חוף הים התלת־ממדי">
             {([
               ["day", "אור יום בחוף", Sun],
               ["night", "שעת הזהב", Sunset],
@@ -148,34 +165,39 @@ export function CoastalExhibition({
                 title={label}
                 onClick={() => setLighting(key)}
               >
-                <Icon size={16} aria-hidden />
+                <Icon size={15} aria-hidden />
                 <span>{label}</span>
               </button>
             ))}
             <button
               type="button"
-              className="coastal-light-cycle"
+              className="coastal-light-cycle exhibition-light"
               aria-label="החלפת תאורת חוף"
               onClick={cycleLighting}
             >
-              {lighting === "day" ? <Sun size={16} /> : lighting === "night" ? <Sunset size={16} /> : <Moon size={16} />}
+              {lighting === "day" ? <Sun size={17} /> : lighting === "night" ? <Sunset size={17} /> : <Moon size={17} />}
             </button>
           </div>
         )}
 
-        <div className="coastal-filmstrip">
-          <div className="coastal-caption" aria-live="polite">
+        <div className="exhibition-filmstrip coastal-filmstrip">
+          <div className="exhibit-caption coastal-caption" aria-live="polite">
             <div className="coastal-caption-badges">
-              <small>{current.device}</small>
+              <small>{current.device}{modelYear ? ` · ${modelYear}` : ""}</small>
               {is2027Model(current) && <span className="coastal-chip-2027">2027</span>}
               {isPremiumModel(current) && <span className="coastal-chip-premium">PREMIUM</span>}
             </div>
             <button type="button" className="coastal-caption-title" dir="ltr" onClick={() => onOpenModel(current)}>
               {current.name}
             </button>
+            {items.length > 1 && (
+              <span className="gallery-drag-hint">
+                <MoveHorizontal size={14} aria-hidden /> גררו בין במות החוף התלת־ממדיות
+              </span>
+            )}
           </div>
 
-          <div className="coastal-paging">
+          <div className="exhibit-paging coastal-paging">
             <button type="button" onClick={() => move(-1)} disabled={items.length < 2} aria-label="לדגם הקודם">
               <ChevronRight size={18} />
             </button>
@@ -189,16 +211,35 @@ export function CoastalExhibition({
         </div>
       </div>
 
-      <div className="coastal-exhibition-panel">
-        <div className="coastal-kicker">
+      <div className="exhibition-copy coastal-exhibition-panel">
+        <div className="exhibition-kicker coastal-kicker">
           <span aria-hidden />
-          <strong>CORTEZ COASTAL SHOWROOM</strong>
+          <strong>{home ? "דגמים נבחרים · CORTEZ 3D BEACH" : "קטלוג הדגמים · CORTEZ 3D SHOWROOM"}</strong>
         </div>
 
         <h1>הכלי הבא שלכם.{"\n"}מכל זווית.</h1>
         <p className="coastal-lead">
-          קולקציית האופניים והקורקינטים החשמליים של קורטז על במת חוף ים־תיכונית חיה — צילומים מקוריים, צבעים מאומתים ומפרט מלא.
+          {home
+            ? "דור חדש של חופש עירוני על במת חוף הים התלת־ממדית של CORTEZ. שמיים חיים, גלי ים בתלת־ממד וצילומים רשמיים מאומתים."
+            : `${current.device}${modelYear ? ` · קולקציית ${modelYear}` : ""} — ${current.summary || "צילום רשמי מאומת ומפרט טכני מלא על במת החוף התלת־ממדית."}`}
         </p>
+
+        <dl className="exhibit-specs coastal-spotlight-specs">
+          {priceText && (
+            <div>
+              <dt>מחיר לצרכן</dt>
+              <dd dir="ltr">{priceText}</dd>
+            </div>
+          )}
+          <div>
+            <dt>טווח מפורסם</dt>
+            <dd>{metrics.rangeKm ? `עד ${metrics.rangeKm} ק״מ` : (kpi.range ?? "—")}</dd>
+          </div>
+          <div>
+            <dt>סוללה</dt>
+            <dd dir="ltr">{voltage && capacityAh ? `${voltage}V / ${capacityAh}Ah` : (kpi.battery || "—")}</dd>
+          </div>
+        </dl>
 
         <div className="coastal-stats" aria-label="סיכום הקולקציה">
           <div><strong>{counts.total}</strong><span>דגמים בקטלוג</span></div>
@@ -207,26 +248,9 @@ export function CoastalExhibition({
           <div><strong>{counts.series2027}</strong><span>סדרת 2027</span></div>
         </div>
 
-        <dl className="coastal-spotlight-specs">
-          {priceText && (
-            <div>
-              <dt>מחיר מומלץ</dt>
-              <dd dir="ltr">{priceText}</dd>
-            </div>
-          )}
-          <div>
-            <dt>טווח מרבי</dt>
-            <dd>{metrics.rangeKm ? `עד ${metrics.rangeKm} ק״מ` : (kpi.range ?? "—")}</dd>
-          </div>
-          <div>
-            <dt>סוללה</dt>
-            <dd dir="ltr">{kpi.battery || "—"}</dd>
-          </div>
-        </dl>
-
         {items.length > 1 && (
-          <label className="coastal-model-picker">
-            <span>דילוג מהיר לדגם בבמה</span>
+          <label className="gallery-picker coastal-model-picker">
+            <span>בחירת דגם בבמת החוף</span>
             <select
               value={current.id}
               onChange={(event) => selectModel(event.target.value)}
@@ -239,14 +263,19 @@ export function CoastalExhibition({
           </label>
         )}
 
-        <div className="coastal-actions">
-          <button type="button" className="coastal-btn primary" onClick={() => onOpenModel(current)}>
-            <Sparkles size={16} aria-hidden /> לסטודיו ולפרטי הדגם
+        <div className="exhibition-actions coastal-actions">
+          <button type="button" className="button primary coastal-btn" onClick={() => onOpenModel(current)}>
+            לפרטי הדגם והסטודיו
           </button>
-          <button type="button" className="coastal-btn accent" onClick={onOpenFinder}>
-            <Compass size={16} aria-hidden /> מצאו את הקורטז שלכם
+          {onOpenShowroom && (
+            <button type="button" className="button outline coastal-btn ghost" onClick={() => onOpenShowroom(current)}>
+              <Box size={16} aria-hidden /> לאולם התצוגה 3D
+            </button>
+          )}
+          <button type="button" className="button outline coastal-btn accent" onClick={onOpenFinder}>
+            <Compass size={16} aria-hidden /> מצאו את ה־CORTEZ שלכם
           </button>
-          <button type="button" className="coastal-btn ghost" onClick={onJumpToCatalog}>
+          <button type="button" className="text-button coastal-jump-link" onClick={onJumpToCatalog}>
             <SlidersHorizontal size={15} aria-hidden /> לכל הדגמים והסינון
           </button>
         </div>
