@@ -62,7 +62,7 @@ export async function searchRecords(module: Module, filters: RecordFilters) {
 }
 
 export function mergeWithDefaultCatalog(stored: CatalogModel[]): CatalogModel[] {
-  if (stored.length === 0) return [...defaultCatalogModels];
+  // Storage initialization owns seeding. Reads must never resurrect deleted records.
   const seedById = new Map(defaultCatalogModels.map((seed) => [seed.id, seed]));
   const seedByName = new Map(defaultCatalogModels.map((seed) => [seed.name.toLocaleLowerCase("he"), seed]));
   const enrichedStored = stored.map((storedItem) => {
@@ -70,20 +70,15 @@ export function mergeWithDefaultCatalog(stored: CatalogModel[]): CatalogModel[] 
     if (!seed) return storedItem;
     return {
       ...storedItem,
-      imageUrl: storedItem.imageUrl || seed.imageUrl,
-      summary: storedItem.summary || seed.summary,
+      imageUrl: storedItem.imageUrl ?? seed.imageUrl,
+      summary: storedItem.summary ?? seed.summary,
       msrp: storedItem.msrp !== undefined ? storedItem.msrp : seed.msrp,
-      productUrl: storedItem.productUrl || seed.productUrl,
-      galleryUrls: storedItem.galleryUrls?.length ? storedItem.galleryUrls : seed.galleryUrls,
-      specs: storedItem.specs?.length ? storedItem.specs : seed.specs,
+      productUrl: storedItem.productUrl ?? seed.productUrl,
+      galleryUrls: storedItem.galleryUrls ?? seed.galleryUrls,
+      specs: storedItem.specs ?? seed.specs,
     };
   });
-  const byId = new Set(stored.map((item) => item.id));
-  const byName = new Set(stored.map((item) => item.name.toLocaleLowerCase("he")));
-  const missingDefaults = defaultCatalogModels.filter(
-    (seed) => !byId.has(seed.id) && !byName.has(seed.name.toLocaleLowerCase("he")),
-  );
-  return [...enrichedStored, ...missingDefaults];
+  return enrichedStored;
 }
 
 export async function catalogModels(): Promise<CatalogModel[]> {

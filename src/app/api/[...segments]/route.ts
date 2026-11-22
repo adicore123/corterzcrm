@@ -162,11 +162,12 @@ export async function GET(request: NextRequest, { params }: Route) {
       await requireUser(request);
     }
     const record = await getRecord(kind, uuid.parse(id));
+    if (kind === "models" && "published" in record && record.published === false) await requireUser(request);
     const image = record.photos.find((item) => item.id === uuid.parse(photo));
     if (!image) throw new AppError(404, "התמונה לא נמצאה.");
     const body = usesMongoStorage() ? await readMongoPhoto(kind, image.id)
       : usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
-    const cacheHeader = kind === "models" ? "public, max-age=31536000, immutable" : "private, max-age=31536000, immutable";
+    const cacheHeader = kind === "models" ? "no-store" : "private, max-age=31536000, immutable";
     return new NextResponse(body, { headers: { "Cache-Control": cacheHeader, "Content-Type": image.type } });
   } catch (error) {
     return errorResponse(error);

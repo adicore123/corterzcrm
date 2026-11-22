@@ -4,14 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
-export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
+export function ShowroomHero3D({ activeCategory, paused: externalPaused = false }: { activeCategory: string; paused?: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const categoryRef = useRef(activeCategory);
+  const externalPausedRef = useRef(externalPaused);
   const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
     categoryRef.current = activeCategory;
   }, [activeCategory]);
+
+  useEffect(() => {
+    externalPausedRef.current = externalPaused;
+  }, [externalPaused]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -40,11 +45,20 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
     renderer.toneMappingExposure = 1.08;
     container.appendChild(renderer.domElement);
 
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const roomEnv = new RoomEnvironment();
-    const envRT = pmrem.fromScene(roomEnv, 0.04);
-    scene.environment = envRT.texture;
-    roomEnv.dispose();
+    let pmrem: THREE.PMREMGenerator | null = null;
+    let envRT: THREE.WebGLRenderTarget | null = null;
+    try {
+      pmrem = new THREE.PMREMGenerator(renderer);
+      const roomEnv = new RoomEnvironment();
+      envRT = pmrem.fromScene(roomEnv, 0.04);
+      scene.environment = envRT.texture;
+      roomEnv.dispose();
+    } catch {
+      envRT?.dispose();
+      pmrem?.dispose();
+      envRT = null;
+      pmrem = null;
+    }
 
     const ambient = new THREE.AmbientLight(0xffffff, 1.35);
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.35);
@@ -156,15 +170,32 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
     observer.observe(container);
 
     let rafId = 0;
+    let contextLost = false;
+    let intersecting = true;
     let paused = document.hidden;
     let lastTime = performance.now();
     let waveTime = 0;
 
+    const visibilityObserver = new IntersectionObserver((entries) => {
+      intersecting = entries[0]?.isIntersecting ?? true;
+      paused = document.hidden || !intersecting;
+      lastTime = performance.now();
+    });
+    visibilityObserver.observe(container);
+
     function onVisibility() {
-      paused = document.hidden;
+      paused = document.hidden || !intersecting;
       lastTime = performance.now();
     }
     document.addEventListener("visibilitychange", onVisibility);
+
+    function onContextLost(event: Event) {
+      event.preventDefault();
+      contextLost = true;
+      cancelAnimationFrame(rafId);
+      setFallback(true);
+    }
+    renderer.domElement.addEventListener("webglcontextlost", onContextLost);
 
     function updateWave(t: number) {
       const pos = waveGeo.attributes.position as THREE.BufferAttribute;
@@ -180,7 +211,8 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
     }
 
     function renderFrame(now: number) {
-      if (!paused) {
+      if (contextLost) return;
+      if (!paused && !externalPausedRef.current) {
         const dt = Math.min((now - lastTime) / 1000, 0.05);
         lastTime = now;
         const cat = categoryRef.current;
@@ -201,7 +233,14 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
         camera.position.y += (targetY - camera.position.y) * 0.045;
         camera.lookAt(-0.5, 0.1, -1.5);
 
-        renderer.render(scene, camera);
+        try {
+          renderer.render(scene, camera);
+        } catch {
+          contextLost = true;
+          cancelAnimationFrame(rafId);
+          setFallback(true);
+          return;
+        }
       } else {
         lastTime = now;
       }
@@ -212,16 +251,23 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
 
     if (reducedMotion) {
       updateWave(0.6);
-      renderer.render(scene, camera);
+      try {
+        renderer.render(scene, camera);
+      } catch {
+        queueMicrotask(() => setFallback(true));
+      }
     } else {
       rafId = requestAnimationFrame(renderFrame);
     }
 
     return () => {
+      contextLost = true;
       cancelAnimationFrame(rafId);
       observer.disconnect();
+      visibilityObserver.disconnect();
       window.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("visibilitychange", onVisibility);
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
       scene.traverse((object) => {
         if ("geometry" in object && object.geometry instanceof THREE.BufferGeometry) {
           object.geometry.dispose();
@@ -232,9 +278,10 @@ export function ShowroomHero3D({ activeCategory }: { activeCategory: string }) {
           else if (mat instanceof THREE.Material) mat.dispose();
         }
       });
-      envRT.dispose();
-      pmrem.dispose();
+      envRT?.dispose();
+      pmrem?.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     };
   }, []);

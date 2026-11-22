@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./catalog-experience.css";
+@import "./studio-v2.css";
 
 :root {
   --background: #f5f4f2;
@@ -882,4 +884,9 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
   .stage-hotspots { display: none; }
   .configurator-hero-metrics { grid-template-columns: minmax(0, 1fr); text-align: start; }
   .configurator-hero-metrics > div + div { border-inline-start: 0; border-top: 1px solid rgba(15, 16, 20, 0.08); padding-top: 8px; }
+}
+
+@media print {
+  .showroom-modal { position: static !important; transform: none !important; width: 100% !important; max-height: none !important; overflow: visible !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; }
+  body[data-scroll-locked] { overflow: visible !important; }
 }

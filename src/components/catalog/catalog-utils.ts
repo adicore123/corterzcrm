@@ -47,10 +47,29 @@ export function extractKeySpecs(model: CatalogModel): KeySpecs {
 
   return {
     battery,
-    range,
-    speed,
+    range: model.metrics?.rangeKm === null ? undefined : range,
+    speed: model.metrics?.speedKmh === null ? undefined : speed,
     highlight: highlight ? { label: highlight.label, value: highlight.value } : undefined,
   };
+}
+
+/** Educational context explains units/components without inventing performance claims. */
+export function getProductFeatures(model: CatalogModel): { title: string; description: string }[] {
+  if (model.features?.length) return model.features;
+  const explanations: [RegExp, string][] = [
+    [/סוללה/, "המתח (V) וקיבולת המטען (Ah) מתארים היבטים שונים של הסוללה. להשוואת אנרגיה בין מערכות במתחים שונים משתמשים ב־Wh; נתון זה לבדו אינו קובע את טווח הנסיעה."],
+    [/בלמ/, "זהו סוג מערכת הבלימה שמופיע במפרט. לתפעול ולתחזוקה יש לפעול לפי הוראות הדגם; שם המותג לבדו אינו מעיד אם המערכת מכנית או הידראולית."],
+    [/שיכוך/, "השיכוך נועד למתן את העברת הזעזועים מהדרך. בדקו במפרט אם הוא קדמי, אחורי או בשני הקצוות; מומלץ להתרשם מהתחושה בנסיעת ניסיון."],
+    [/צמיג/, "מידות הצמיג מתארות את הקוטר והרוחב. הן חשובות גם לבחירת צמיג ופנימית חלופיים; יש להתאים לחץ אוויר לפי הוראות היצרן."],
+    [/צג/, "הצג מציג מידע בזמן הרכיבה. סוג המידע והאפשרויות תלויים בצג המותקן בדגם ובהוראות ההפעלה שלו."],
+    [/קיפול/, "לפני נשיאה או אחסון כדאי לבדוק את מידות הכלי במצב מקופל ואת הוראות נעילת המנגנון של הדגם."],
+    [/פנס|תאורה/, "זהו אבזור התאורה המופיע במפרט. בדקו את אופן ההפעלה והקפידו על תקינות התאורה לפני רכיבה."],
+    [/מנוע/, "זהו תיאור המנוע כפי שנמסר במפרט. תחושת הרכיבה תלויה גם בבקר, בסוללה ובעומס; תיאור כללי אינו תחליף לנתון הספק מאומת."],
+  ];
+  return (model.specs ?? []).flatMap((spec) => {
+    const explanation = explanations.find(([pattern]) => pattern.test(spec.label));
+    return explanation ? [{ title: spec.label, description: `${spec.value}\n\n${explanation[1]}` }] : [];
+  });
 }
 
 export type ModelMetrics = {
@@ -90,18 +109,33 @@ export function parseMetrics(model: CatalogModel): ModelMetrics {
 
   const brakeSpec = findVal("בלמ") ?? "";
   const brakeCheck = `${brakeSpec} ${summary}`.toLowerCase();
-  const hasHydraulicBrakes =
-    brakeCheck.includes("הידראול") || brakeCheck.includes("nutt") || brakeCheck.includes("tektro")
-    || brakeSpec.toLowerCase().includes("shimano") || brakeSpec.includes("שמן");
+  const hasHydraulicBrakes = brakeCheck.includes("הידראול") || brakeCheck.includes("hydraulic") || brakeSpec.includes("שמן");
 
   return {
-    rangeKm,
-    batteryWh,
+    rangeKm: model.metrics?.rangeKm !== undefined ? model.metrics.rangeKm : rangeKm,
+    batteryWh: model.metrics?.batteryWh !== undefined ? model.metrics.batteryWh : batteryWh,
     batteryLabel,
-    speedKmh,
+    speedKmh: model.metrics?.speedKmh !== undefined ? model.metrics.speedKmh : speedKmh,
     hasFullSuspension,
     hasHydraulicBrakes,
   };
+}
+
+export type FitFilter = "long-range" | "full-susp" | "hydraulic";
+export type CatalogFilterState = {
+  search?: string; category?: string; fits?: FitFilter[]; maxPrice?: number;
+};
+
+export function filterCatalog(models: CatalogModel[], state: CatalogFilterState): CatalogModel[] {
+  const query = state.search?.trim().toLocaleLowerCase("he") ?? "";
+  return models.filter((model) => {
+    if (state.category === "2027" && !is2027Model(model)) return false;
+    if (state.category && !["all", "2027"].includes(state.category) && model.device !== state.category) return false;
+    if (state.maxPrice && (model.msrp == null || model.msrp > state.maxPrice)) return false;
+    const metrics = parseMetrics(model);
+    if (state.fits?.some((fit) => fit === "long-range" ? (metrics.rangeKm ?? 0) < 45 : fit === "full-susp" ? !metrics.hasFullSuspension : !metrics.hasHydraulicBrakes)) return false;
+    return !query || [model.name, model.device, model.summary ?? "", ...(model.specs ?? []).flatMap((spec) => [spec.label, spec.value])].some((text) => text.toLocaleLowerCase("he").includes(query));
+  });
 }
 
 export type SpecGroup = {

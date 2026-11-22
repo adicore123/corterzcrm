@@ -51,7 +51,42 @@ export const customerInput = z.object({
       "יש להזין מספר טלפון תקין."),
 });
 
+const mediaUrl = z.string().trim().max(1000).refine((value) => !value || /^https?:\/\//i.test(value), "יש להזין קישור http/https תקין.");
+const point3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
+const studioId = z.string().regex(/^[a-zA-Z0-9_-]{1,96}$/, "מזהה יכול להכיל אותיות לטיניות, ספרות ומקף.");
+export const studioSchema = z.object({
+  assetVerified: z.boolean().optional(),
+  scaleVerified: z.boolean().optional(),
+  source: optional(500).optional(),
+  usdzUrl: mediaUrl.optional(),
+  arEnabled: z.boolean().optional(),
+  dimensions: z.object({ length: z.number().positive().max(100), width: z.number().positive().max(100), height: z.number().positive().max(100) }).optional(),
+  cameras: z.array(z.object({ id: studioId, title: required("שם מבט", 80), position: point3, target: point3 })).max(16).optional(),
+  features: z.array(z.object({ title: required("שם רכיב", 120), description: required("הסבר", 1000), nodePath: z.string().regex(/^(\d+(\/\d+)*)?$/).optional(), point: point3.optional(), imageUrl: mediaUrl.optional(), view: studioId.optional() })).max(12).optional(),
+  tour: z.array(z.object({ title: required("כותרת תחנה", 120), description: required("תיאור תחנה", 1000), view: studioId.optional(), featureIndex: z.number().int().min(0).max(11).optional(), imageIndex: z.number().int().min(0).max(21).optional(), durationMs: z.number().int().min(3000).max(15000).optional() })).max(10).optional(),
+  actions: z.array(z.object({ id: studioId, title: required("שם פעולה", 80), clip: required("שם אנימציה", 160) })).max(8).optional(),
+  variants: z.array(z.object({ id: studioId, title: required("שם גרסה", 80), sku: optional(120).optional(), color: z.string().regex(/^#[a-fA-F0-9]{6}$/).optional(), imageUrl: mediaUrl.optional(), model3dUrl: mediaUrl.optional(), materialVariant: optional(120).optional(), price: z.number().nonnegative().max(1000000).optional(), availability: z.enum(["available", "unavailable", "unknown"]).optional(), materials: z.array(z.object({ name: required("שם חומר", 160), color: z.string().regex(/^#[a-fA-F0-9]{6}$/) })).max(20).optional() })).max(16).optional(),
+});
+export type StudioConfig = z.infer<typeof studioSchema>;
+export type StudioFeature = NonNullable<StudioConfig["features"]>[number];
+export type StudioVariant = NonNullable<StudioConfig["variants"]>[number];
+export type StudioCamera = NonNullable<StudioConfig["cameras"]>[number];
+
 export const modelInput = z.object({
+  studio: studioSchema.optional(),
+  published: z.boolean().optional(),
+  model3dUrl: z.string().trim().max(500).refine((value) => !value || /^https?:\/\/.+/i.test(value), "יש להזין קישור http/https לקובץ GLB.").optional(),
+  videoUrl: z.string().trim().max(500).refine((value) => !value || /^https?:\/\/.+/i.test(value), "יש להזין קישור http/https לווידאו.").optional(),
+  publicDescription: optional(4000).optional(),
+  dimensions: optional(500).optional(),
+  foldedDimensions: optional(500).optional(),
+  metrics: z.object({
+    rangeKm: z.number().positive().max(1000).nullable().optional(),
+    speedKmh: z.number().positive().max(200).nullable().optional(),
+    batteryWh: z.number().positive().max(20000).nullable().optional(),
+    weightKg: z.number().positive().max(500).nullable().optional(),
+  }).optional(),
+  features: z.array(z.object({ title: required("כותרת", 120), description: required("הסבר", 1000) })).max(12).optional(),
   device: z.enum(devices),
   name: required("שם דגם"),
   imageUrl: z.string().trim().max(500, { error: "כתובת התמונה ארוכה מדי." })
@@ -65,8 +100,8 @@ export const modelInput = z.object({
     .optional(),
   galleryUrls: z.array(
     z.string().trim().max(500, { error: "כתובת התמונה ארוכה מדי." })
-      .refine((value) => /^https?:\/\/.+/i.test(value), "כתובת תמונה אינה תקינה."),
-  ).max(12).optional(),
+      .refine((value) => !value || /^https?:\/\/.+/i.test(value), "כתובת תמונה אינה תקינה."),
+  ).max(12).transform((urls) => urls.filter(Boolean)).optional(),
   specs: z.array(specSchema).max(40).optional(),
 });
 

@@ -13,6 +13,7 @@ import { audit, readCollection, reserveNumber, serialized, writeCollection } fro
 import { mergeWithDefaultCatalog } from "./queries";
 import { usesBlobStorage } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
+import { stripUndefined } from "./mongo-store";
 
 const saveOptions = z.object({
   version: z.iso.datetime().optional(),
@@ -109,17 +110,26 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       }
       const added = cloud ? prepared : await savePhotos("models", files);
       try {
-        const record: CatalogModel = {
+        const record: CatalogModel = stripUndefined({
           ...modelData,
-          imageUrl: modelData.imageUrl || old?.imageUrl,
+          imageUrl: modelData.imageUrl ?? old?.imageUrl,
           summary: modelData.summary ?? old?.summary,
           msrp: modelData.msrp !== undefined ? modelData.msrp : old?.msrp,
-          productUrl: modelData.productUrl || old?.productUrl,
+          productUrl: modelData.productUrl ?? old?.productUrl,
+          published: modelData.published ?? old?.published ?? (old ? undefined : false),
+          model3dUrl: modelData.model3dUrl ?? old?.model3dUrl,
+          videoUrl: modelData.videoUrl ?? old?.videoUrl,
+          publicDescription: modelData.publicDescription ?? old?.publicDescription,
+          metrics: modelData.metrics ?? old?.metrics,
+          features: modelData.features ?? old?.features,
+          dimensions: modelData.dimensions ?? old?.dimensions,
+          foldedDimensions: modelData.foldedDimensions ?? old?.foldedDimensions,
+          studio: modelData.studio ?? old?.studio,
           galleryUrls: modelData.galleryUrls ?? old?.galleryUrls,
           specs: modelData.specs ?? old?.specs,
           ...base,
           photos: [...retained, ...added],
-        };
+        });
         await writeCollection("models", upsert(all, record, Boolean(old)));
         if (old && (old.name !== record.name || old.device !== record.device)) {
           const oldNameLower = old.name.toLocaleLowerCase("he");
@@ -168,7 +178,7 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       if (!existingModels.some((item) => item.name.toLocaleLowerCase("he") === modelName.toLocaleLowerCase("he"))) {
         const now = new Date().toISOString();
         await writeCollection("models", [...existingModels, {
-          id: randomUUID(), device, name: modelName, notes: "", photos: [], createdAt: now, updatedAt: now,
+          id: randomUUID(), device, name: modelName, published: false, notes: "", photos: [], createdAt: now, updatedAt: now,
         }]);
       }
       await audit(actor.id, old ? "update" : "create", module, base.id);

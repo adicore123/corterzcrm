@@ -1,9 +1,13 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
-export default function ErrorPage({ reset }: { reset: () => void }) {
+export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  useEffect(() => {
+    console.error("[cortez] Page error boundary", error);
+  }, [error]);
   return <section className="system-state" role="alert">
     <h1>טעינת הדף נכשלה</h1>
     <p className="muted">יש לנסות שוב. אם התקלה נמשכת, יש לפנות למנהל המערכת.</p>

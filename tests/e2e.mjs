@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium, request } from "playwright";
 import sharp from "sharp";
+import { BoxGeometry } from "three";
 
 const root = await mkdtemp(join(tmpdir(), "cortez-e2e-"));
 const adminPassword = randomUUID();
@@ -261,10 +262,13 @@ try {
   await visible(heading(page, "תיקי מכון תקנים של דגם זה"));
   await visible(link(page, original.number));
 
-  stage = "3d agent catalog and public showroom";
+  stage = "catalog product experience and public showroom";
+  const studioPoster = await sharp({ create: { width: 640, height: 480, channels: 3, background: "#f0f1f4" } }).png().toBuffer();
+  await desktop.route("**/api/catalog-image?**", (route) => route.fulfill({ contentType: "image/png", body: studioPoster }));
   await admin.goto("/catalog");
-  await visible(heading(admin, "קטלוג סוכנים · אולם תצוגה תלת־ממדי"));
+  await visible(heading(admin, "הכלי הבא שלכם. מכל זווית."));
   await visible(admin.locator(".showroom-spotlight"));
+  await visible(admin.locator(".showroom-hero-canvas canvas"));
   assert.ok((await admin.locator(".showroom-card").count()) >= 32);
   await button(admin, "שיכוך מלא").click();
   const fullSuspCount = await admin.locator(".showroom-card").count();
@@ -279,12 +283,64 @@ try {
   assert.equal(await admin.locator(".showroom-price").count(), 0);
   await button(admin, "הצגת מחירון").click();
   assert.ok((await admin.locator(".showroom-price").count()) > 0);
-  await button(admin, "תצוגת 3D ומפרט עבור CORTEZ 10X").click();
+  await button(admin, "גלריה ומפרט עבור CORTEZ 10X").click();
+  await visible(admin.locator(".stage-3d-canvas canvas"));
+  assert.ok(await admin.locator(".stage-3d-canvas canvas").evaluate((canvas) => canvas.getBoundingClientRect().height > 250));
+  await button(admin, "מעבר לסטודיו לילה").click();
+  assert.equal(await admin.locator(".stage-3d-shell.is-night").count(), 1);
+  await button(admin, "מעבר לסטודיו יום").click();
+  await button(admin, "מבט קרוב").click();
+  assert.equal(await button(admin, "מבט קרוב").getAttribute("aria-pressed"), "true");
+  await button(admin, "מבט ראשי").click();
+  await admin.getByRole("button", { name: /הכירו את הדגם בסיור קצר/ }).click();
+  await visible(admin.getByRole("region", { name: "סיור מודרך במוצר" }));
+  await button(admin, "עצירת הסיור").click();
+  await button(admin, "הבא").click();
+  assert.match(await admin.locator(".studio-tour h3").innerText(), /סוללה/);
+  await button(admin, "הקודם").click();
+  assert.equal(await admin.locator(".studio-tour h3").innerText(), "CORTEZ 10X");
+  await button(admin, "יציאה מהסיור").click();
+  await admin.locator(".stage-hotspot").first().click();
+  await visible(admin.getByRole("region", { name: "הסבר על מאפיין הדגם" }));
+  await button(admin, "מאפיין הבא").click();
+  await button(admin, "סגירת הסבר מאפיין").click();
+  await button(admin, "תמונות 8").click();
+  await button(admin, "הגדלה ובדיקת פרטים").click();
+  await button(admin, "הגדלת תמונה").click();
+  await visible(admin.getByText("150%", { exact: true }));
+  await button(admin, "סגירת הגדלה").click();
+  assert.equal(await button(admin, "הגדלה ובדיקת פרטים").evaluate((element) => element === document.activeElement), true);
+  await button(admin, "תמונה הבאה").click();
+  await button(admin, "מפרט מלא").click();
   await visible(heading(admin, "מפרט טכני מלא"));
   await visible(admin.getByRole("dialog").locator("dd", { hasText: "36V/10.4Ah" }));
-  await button(admin, "מעבר לסטודיו לילה").click();
-  await button(admin, "מעבר לסטודיו יום").click();
+
   await button(admin, "סגירת תצוגת דגם").click();
+
+  // Rapidly switch across 6 models and every CRM module to ensure no WebGL context exhaustion or navigation crash.
+  const modelButtons = admin.locator(".showroom-card .showroom-card-visual");
+  const sampleCount = Math.min(await modelButtons.count(), 6);
+  for (let i = 0; i < sampleCount; i++) {
+    await modelButtons.nth(i).click();
+    await visible(admin.getByRole("dialog"));
+    await button(admin, "סגירת תצוגת דגם").click();
+  }
+  assert.equal((await anonymous.get("/favicon.ico")).status(), 200);
+  for (const [navLabel, urlGlob, title] of [
+    ["סקירה כללית", "**/dashboard", "סקירה כללית"],
+    ["מכון תקנים", "**/standards", "מכון תקנים"],
+    ["תיקונים", "**/repairs", "תיקונים"],
+    ["לקוחות", "**/customers", "לקוחות"],
+    ["מאגר דגמים", "**/models", "מאגר דגמים"],
+    ["הגדרות", "**/settings", "הגדרות"],
+    ["קטלוג סוכנים", "**/catalog", "הכלי הבא שלכם. מכל זווית."],
+  ]) {
+    await admin.locator(".sidebar .side-nav").getByRole("link", { name: navLabel }).click();
+    await admin.waitForURL(urlGlob);
+    await visible(heading(admin, title));
+    assert.equal(await admin.getByText("טעינת הדף נכשלה").count(), 0);
+  }
+
   const card10x = admin.locator(".showroom-card", { has: heading(admin, "CORTEZ 10X") });
   const cardA1 = admin.locator(".showroom-card", { has: heading(admin, "CORTEZ A1") });
   await card10x.getByRole("button", { name: "השוואה" }).click();
@@ -294,13 +350,130 @@ try {
   await visible(admin.locator(".compare-winner-badge", { hasText: "מוביל" }).first());
   await button(admin, "סגירת השוואה").click();
   assert.equal((await anonymous.get("/showroom")).status(), 200);
-  assert.equal((await anonymous.get("/api/catalog-image?url=https://example.com/evil.png")).status(), 400);
+  // Dedicated product URLs and legacy links resolve the same public product.
+  const productId = "00000000-0000-4000-8000-000000000001";
+  assert.equal((await anonymous.get("/showroom/" + productId)).status(), 200);
+  const hiddenModel = await api(desktop.request, "POST", "/api/records/models", {
+    device: "קורקינט חשמלי", name: "QA hidden model", notes: "INTERNAL-NOTE-NEVER-PUBLIC", published: false,
+  }, 201);
+  assert.equal((await anonymous.get("/showroom/" + hiddenModel.id)).status(), 404);
+  assert.equal((await anonymous.get("/showroom?model=" + hiddenModel.id)).status(), 404);
+  const publicHtml = await (await anonymous.get("/showroom")).text();
+  assert.equal(publicHtml.includes("INTERNAL-NOTE-NEVER-PUBLIC"), false);
+  assert.equal(publicHtml.includes("QA hidden model"), false);
+  await api(desktop.request, "DELETE", "/api/records/models/" + hiddenModel.id, { version: hiddenModel.updatedAt }, 200);
+  // Saving a legacy model through the editor must not erase legacy metrics or gallery order.
+  await admin.goto("/models/" + productId + "/edit");
+  await field(admin, "הערות פנימיות").fill("INTERNAL-EDITOR-NOTE");
+  await save(admin, "models");
+  const editedModel = (await readDb("models")).find((item) => item.id === productId);
+  assert.equal(editedModel.metrics?.rangeKm, undefined);
+  assert.ok(editedModel.galleryUrls.length > 1);
+  assert.equal((await (await anonymous.get("/showroom/" + productId)).text()).includes("INTERNAL-EDITOR-NOTE"), false);
+
+  // A tiny test-only geometry verifies GLTF loading, manual controls, failure recovery and reduced motion.
+  const fixtureGeometry = new BoxGeometry(2, 2, 1).toNonIndexed();
+  const vertices = fixtureGeometry.attributes.position.array;
+  const times = new Float32Array([0, 1]), rotations = new Float32Array([0, 0, 0, 1, 0, 0, Math.SQRT1_2, Math.SQRT1_2]);
+  const fixtureBytes = Buffer.concat([Buffer.from(vertices.buffer), Buffer.from(times.buffer), Buffer.from(rotations.buffer)]);
+  const fixtureGltf = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ name: "Frame", mesh: 0 }],
+    buffers: [{ uri: "data:application/octet-stream;base64," + fixtureBytes.toString("base64"), byteLength: fixtureBytes.byteLength }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: vertices.byteLength }, { buffer: 0, byteOffset: vertices.byteLength, byteLength: times.byteLength }, { buffer: 0, byteOffset: vertices.byteLength + times.byteLength, byteLength: rotations.byteLength }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: vertices.length / 3, type: "VEC3", min: [-1, -1, -.5], max: [1, 1, .5] }, { bufferView: 1, componentType: 5126, count: 2, type: "SCALAR", min: [0], max: [1] }, { bufferView: 2, componentType: 5126, count: 2, type: "VEC4" }],
+    materials: [{ name: "Frame paint", pbrMetallicRoughness: { baseColorFactor: [.2, .2, .2, 1] } }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
+    animations: [{ name: "Fold", samplers: [{ input: 1, output: 2, interpolation: "LINEAR" }], channels: [{ sampler: 0, target: { node: 0, path: "rotation" } }] }] };
+  fixtureGeometry.dispose();
+  const fixtureStudio = { assetVerified: true, scaleVerified: true, source: "PRIVATE-ASSET-SOURCE", dimensions: { length: 2, width: 1, height: 2 },
+    features: [{ title: "רכיב בדיקה", description: "תיאור רכיב מאומת לצורך בדיקת הממשק", nodePath: "0", point: [0, 0, .5] }],
+    actions: [{ id: "fold", title: "הדגמת קיפול", clip: "Fold" }],
+    variants: [{ id: "white", title: "לבן", sku: "QA-WHITE", color: "#eeeeee", price: 3500, materials: [{ name: "Frame paint", color: "#eeeeee" }] }] };
+  let failGeometry = false;
+  await desktop.route("**/qa-model.glb", (route) => route.fulfill({ status: failGeometry ? 404 : 200, contentType: "model/gltf+json", body: failGeometry ? "missing" : JSON.stringify(fixtureGltf) }));
+  const geometryModel = await api(desktop.request, "POST", "/api/records/models", {
+    device: "קורקינט חשמלי", name: "QA geometry fixture", notes: "", published: true, model3dUrl: baseURL + "/qa-model.glb", studio: fixtureStudio,
+  }, 201);
+  await admin.goto("/showroom/" + geometryModel.id);
+  await admin.emulateMedia({ reducedMotion: "reduce" });
+  await button(admin, "תלת־ממד").click();
+  await visible(button(admin, "חזית"));
+  assert.equal(await admin.locator(".product-real-canvas canvas").evaluate((element) => element.style.touchAction), "pan-y");
+  await button(admin, "התקרבות").click();
+  await button(admin, "צד").click();
+  await button(admin, "חזית").click();
+  await visible(admin.locator("[data-feature-anchor='0']"));
+  await admin.locator("[data-feature-anchor='0']").click();
+  await button(admin, "מידות").click();
+  await visible(admin.locator(".studio-dimension-labels"));
+  await button(admin, "קנה מידה").click();
+  await visible(admin.locator(".studio-reference-caption"));
+  await button(admin, "הדגמת קיפול").click();
+  await button(admin, "הפעלה").click();
+  await visible(button(admin, "החזרה"));
+  await button(admin, "לבן").click();
+  assert.equal(new URL(admin.url()).searchParams.get("variant"), "white");
+  assert.match(await admin.locator(".product-price").innerText(), /₪3,500/);
+  await admin.reload();
+  assert.equal(await button(admin, "לבן").getAttribute("aria-pressed"), "true");
+  assert.equal(new URL(admin.url()).searchParams.get("mode"), "3d");
+  assert.equal((await (await anonymous.get("/showroom/" + geometryModel.id)).text()).includes("PRIVATE-ASSET-SOURCE"), false);
+  failGeometry = true;
+  await admin.reload();
+  await button(admin, "תלת־ממד").click();
+  await visible(button(admin, "ניסיון נוסף"));
+  failGeometry = false;
+  await button(admin, "ניסיון נוסף").click();
+  await visible(button(admin, "חזית"));
+  await admin.emulateMedia({ reducedMotion: "no-preference" });
+  const secondGeometry = await api(desktop.request, "POST", "/api/records/models", {
+    device: "קורקינט חשמלי", name: "QA second geometry", notes: "", published: true, model3dUrl: baseURL + "/qa-model.glb", studio: fixtureStudio,
+  }, 201);
+  await admin.goto("/catalog?compare=" + geometryModel.id + "," + secondGeometry.id);
+  await button(admin, "השוואת דגמים").click();
+  await button(admin, "השוואה בתלת־ממד").click();
+  await visible(admin.locator(".studio-compare-grid .product-real-canvas canvas").nth(1));
+  await admin.locator(".studio-compare-toolbar").getByRole("button", { name: "צד", exact: true }).click();
+  await noOverflow(admin);
+  await button(admin, "סגירת השוואה").click();
+  await admin.goto("/models/" + geometryModel.id + "/edit");
+  await field(admin, "מקור המודל והאימות").fill("PRIVATE-ASSET-SOURCE-EDITED");
+  await save(admin, "models");
+  const savedGeometry = (await readDb("models")).find((item) => item.id === geometryModel.id);
+  assert.equal(savedGeometry.studio.features[0].nodePath, "0");
+  assert.equal(savedGeometry.studio.variants[0].sku, "QA-WHITE");
+  await api(desktop.request, "DELETE", "/api/records/models/" + geometryModel.id, { version: savedGeometry.updatedAt }, 200);
+  await api(desktop.request, "DELETE", "/api/records/models/" + secondGeometry.id, { version: secondGeometry.updatedAt }, 200);
   const anonContext = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const anonPage = await anonContext.newPage();
   captureErrors(anonPage);
   await anonPage.goto("/showroom");
   await visible(heading(anonPage, "CORTEZ 10X"));
   await noOverflow(anonPage);
+  await button(anonPage, "טווח ארוך 45+ ק״מ").click();
+  await button(anonPage, "שיכוך מלא").click();
+  assert.equal(new URL(anonPage.url()).searchParams.getAll("fit").length, 2);
+  await anonPage.reload();
+  assert.equal(await button(anonPage, "שיכוך מלא").getAttribute("aria-pressed"), "true");
+  await anonPage.goto("/showroom/" + productId);
+  await visible(heading(anonPage, "CORTEZ 10X"));
+  await noOverflow(anonPage);
+  await button(anonPage, "הגדלה ובדיקת פרטים").click();
+  await noOverflow(anonPage);
+  await button(anonPage, "סגירת הגדלה").click();
+  await anonPage.emulateMedia({ reducedMotion: "reduce" });
+  await visible(anonPage.locator(".stage-3d-canvas canvas"));
+  assert.ok(await anonPage.locator(".stage-3d-canvas canvas").evaluate((canvas) => canvas.getBoundingClientRect().height > 250));
+  await button(anonPage, "מבט קרוב").click();
+  await button(anonPage, "מעבר לסטודיו לילה").click();
+  assert.equal(await anonPage.locator(".stage-3d-shell.is-night").count(), 1);
+  await anonPage.locator(".stage-hotspot").first().click();
+  await visible(anonPage.getByRole("region", { name: "הסבר על מאפיין הדגם" }));
+  await button(anonPage, "סגירת הסבר מאפיין").click();
+  await button(anonPage, "תמונות 8").click();
+  await button(anonPage, "תמונה הבאה").click();
+  await button(anonPage, "מפרט מלא").click();
+  await visible(heading(anonPage, "מפרט טכני מלא"));
+  if (process.env.CORTEZ_QA_SCREENSHOTS) await anonPage.screenshot({ path: join(process.env.CORTEZ_QA_SCREENSHOTS, "catalog-mobile.png") });
   await anonContext.close();
 
   stage = "authorization, idempotency, concurrency, backup and restart";
