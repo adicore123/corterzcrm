@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Box, ChevronLeft, ChevronRight, Compass, Moon, MoveHorizontal, SlidersHorizontal, Sun, Sunset } from "lucide-react";
+import { ChevronLeft, ChevronRight, Compass, Moon, MoveHorizontal, SlidersHorizontal, Sun, Sunset } from "lucide-react";
 import type { CatalogModel } from "@/lib/validation/models";
 import { getPrimaryExhibitImage } from "@/lib/catalog/coastal-assets";
 import {
@@ -21,22 +21,17 @@ const wrapIndex = (index: number, len: number) => (index + len) % len;
 
 export function CoastalExhibition({
   items,
-  counts,
   showPrice,
-  home = false,
   paused = false,
   onOpenModel,
-  onOpenShowroom,
   onOpenFinder,
   onJumpToCatalog,
 }: {
   items: CatalogModel[];
-  counts: { total: number; scooters: number; bikes: number; series2027: number };
+  counts?: { total: number; scooters: number; bikes: number; series2027: number };
   showPrice: boolean;
-  home?: boolean;
   paused?: boolean;
   onOpenModel: (model: CatalogModel) => void;
-  onOpenShowroom?: (model: CatalogModel) => void;
   onOpenFinder: () => void;
   onJumpToCatalog: () => void;
 }) {
@@ -122,11 +117,10 @@ export function CoastalExhibition({
   return (
     <section
       className={
-        "exhibition coastal-exhibition no-print "
-        + (home ? "home-exhibition" : "catalog-exhibition")
+        "exhibition coastal-exhibition catalog-exhibition no-print"
         + (lighting === "night" ? " is-golden" : lighting === "gallery" ? " is-twilight" : "")
       }
-      aria-label={home ? "תערוכת דגמים נבחרים על חוף הים בתלת־ממד" : "תצוגת חוף תלת־ממדית של דגמי קורטז"}
+      aria-label="תצוגת חוף תלת־ממדית של דגמי קורטז"
     >
       <div
         className="exhibition-visual coastal-exhibition-stage"
@@ -165,7 +159,7 @@ export function CoastalExhibition({
                 title={label}
                 onClick={() => setLighting(key)}
               >
-                <Icon size={15} aria-hidden />
+                <Icon size={14} aria-hidden />
                 <span>{label}</span>
               </button>
             ))}
@@ -175,7 +169,7 @@ export function CoastalExhibition({
               aria-label="החלפת תאורת חוף"
               onClick={cycleLighting}
             >
-              {lighting === "day" ? <Sun size={17} /> : lighting === "night" ? <Sunset size={17} /> : <Moon size={17} />}
+              {lighting === "day" ? <Sun size={16} /> : lighting === "night" ? <Sunset size={16} /> : <Moon size={16} />}
             </button>
           </div>
         )}
@@ -192,20 +186,20 @@ export function CoastalExhibition({
             </button>
             {items.length > 1 && (
               <span className="gallery-drag-hint">
-                <MoveHorizontal size={14} aria-hidden /> גררו בין במות החוף התלת־ממדיות
+                <MoveHorizontal size={13} aria-hidden /> גררו בין הדגמים על החוף
               </span>
             )}
           </div>
 
           <div className="exhibit-paging coastal-paging">
             <button type="button" onClick={() => move(-1)} disabled={items.length < 2} aria-label="לדגם הקודם">
-              <ChevronRight size={18} />
+              <ChevronRight size={17} />
             </button>
             <span dir="ltr">
               {String(index + 1).padStart(2, "0")} <i>/</i> {String(items.length).padStart(2, "0")}
             </span>
             <button type="button" onClick={() => move(1)} disabled={items.length < 2} aria-label="לדגם הבא">
-              <ChevronLeft size={18} />
+              <ChevronLeft size={17} />
             </button>
           </div>
         </div>
@@ -214,14 +208,12 @@ export function CoastalExhibition({
       <div className="exhibition-copy coastal-exhibition-panel">
         <div className="exhibition-kicker coastal-kicker">
           <span aria-hidden />
-          <strong>{home ? "דגמים נבחרים · CORTEZ 3D BEACH" : "קטלוג הדגמים · CORTEZ 3D SHOWROOM"}</strong>
+          <strong>קטלוג הדגמים · CORTEZ 3D SHOWROOM</strong>
         </div>
 
         <h1>הכלי הבא שלכם.{"\n"}מכל זווית.</h1>
         <p className="coastal-lead">
-          {home
-            ? "דור חדש של חופש עירוני על במת חוף הים התלת־ממדית של CORTEZ. שמיים חיים, גלי ים בתלת־ממד וצילומים רשמיים מאומתים."
-            : `${current.device}${modelYear ? ` · קולקציית ${modelYear}` : ""} — ${current.summary || "צילום רשמי מאומת ומפרט טכני מלא על במת החוף התלת־ממדית."}`}
+          {current.device}{modelYear ? ` · קולקציית ${modelYear}` : ""} — {current.summary || "צילום רשמי מאומת ומפרט טכני מלא על במת החוף התלת־ממדית."}
         </p>
 
         <dl className="exhibit-specs coastal-spotlight-specs">
@@ -240,13 +232,6 @@ export function CoastalExhibition({
             <dd dir="ltr">{voltage && capacityAh ? `${voltage}V / ${capacityAh}Ah` : (kpi.battery || "—")}</dd>
           </div>
         </dl>
-
-        <div className="coastal-stats" aria-label="סיכום הקולקציה">
-          <div><strong>{counts.total}</strong><span>דגמים בקטלוג</span></div>
-          <div><strong>{counts.bikes}</strong><span>אופניים חשמליים</span></div>
-          <div><strong>{counts.scooters}</strong><span>קורקינטים</span></div>
-          <div><strong>{counts.series2027}</strong><span>סדרת 2027</span></div>
-        </div>
 
         {items.length > 1 && (
           <label className="gallery-picker coastal-model-picker">
@@ -267,16 +252,11 @@ export function CoastalExhibition({
           <button type="button" className="button primary coastal-btn" onClick={() => onOpenModel(current)}>
             לפרטי הדגם והסטודיו
           </button>
-          {onOpenShowroom && (
-            <button type="button" className="button outline coastal-btn ghost" onClick={() => onOpenShowroom(current)}>
-              <Box size={16} aria-hidden /> לאולם התצוגה 3D
-            </button>
-          )}
           <button type="button" className="button outline coastal-btn accent" onClick={onOpenFinder}>
-            <Compass size={16} aria-hidden /> מצאו את ה־CORTEZ שלכם
+            <Compass size={15} aria-hidden /> מצאו את ה־CORTEZ שלכם
           </button>
           <button type="button" className="text-button coastal-jump-link" onClick={onJumpToCatalog}>
-            <SlidersHorizontal size={15} aria-hidden /> לכל הדגמים והסינון
+            <SlidersHorizontal size={14} aria-hidden /> לכל הדגמים והסינון
           </button>
         </div>
       </div>

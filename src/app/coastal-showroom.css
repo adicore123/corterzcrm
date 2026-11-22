@@ -20,9 +20,9 @@
 
 .showroom-root {
   display: grid;
-  gap: 22px;
-  padding: 20px 26px 96px;
-  border-radius: 22px;
+  gap: 16px;
+  padding: 14px 20px 84px;
+  border-radius: 18px;
   background: var(--c-bg);
   color: var(--c-white);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
@@ -31,72 +31,72 @@
 .showroom-root.is-public {
   min-height: 100dvh;
   border-radius: 0;
-  padding: 0 0 110px;
+  padding: 0 0 96px;
 }
 
 .showroom-root.is-public > :not(.cortez-header):not(.coastal-exhibition):not(.cortez-home-view):not(.cortez-footer) {
   margin-inline: 4.2%;
 }
 
-.showroom-root.is-presentation {
-  position: fixed;
-  inset: 0;
-  z-index: 55;
-  overflow-y: auto;
-  border-radius: 0;
-  padding: 0 0 100px;
-  background: var(--c-bg);
-}
-
-.showroom-root.is-presentation > :not(.cortez-header):not(.coastal-exhibition):not(.cortez-home-view):not(.cortez-footer) {
-  margin-inline: 4.2%;
-}
-
-/* GPT Top Header (.cortez-header) */
+/* Compact Non-Sticky Top Header (.cortez-header) — never covers catalog on scroll */
 .cortez-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  min-height: 78px;
-  padding: 12px 22px;
+  gap: 12px;
+  min-height: 50px;
+  padding: 6px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(8, 9, 12, 0.94);
-  backdrop-filter: blur(16px);
-  position: sticky;
-  top: 0;
-  z-index: 25;
+  background: rgba(8, 9, 12, 0.96);
+  position: relative;
+  z-index: 5;
 }
 
 .showroom-root.is-public .cortez-header {
   padding-inline: 4.2%;
 }
 
+.showroom-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .cortez-logo-btn {
   font-family: Arial, sans-serif;
-  font-size: 28px;
+  font-size: 21px;
   font-weight: 900;
   font-style: italic;
-  letter-spacing: -1.8px;
-  line-height: 0.88;
+  letter-spacing: -1.4px;
+  line-height: 0.9;
   color: var(--c-white);
   text-align: left;
   direction: ltr;
   background: transparent;
   border: 0;
   padding: 0;
-  cursor: pointer;
 }
 
 .cortez-logo-btn span {
   display: block;
-  font-size: 8px;
+  font-size: 7px;
   font-style: normal;
-  letter-spacing: 3.6px;
-  margin-top: 8px;
+  letter-spacing: 3px;
+  margin-top: 4px;
   font-weight: 600;
   color: var(--c-sand-muted);
+}
+
+.cortez-header-meta {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 222, 198, 0.22);
+  background: rgba(239, 222, 198, 0.07);
+  color: var(--c-sand);
+  font-size: 0.72rem;
+  font-weight: 640;
+  white-space: nowrap;
 }
 
 .cortez-nav {
@@ -257,7 +257,7 @@
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  min-height: clamp(510px, 68dvh, 740px);
+  min-height: clamp(360px, 46dvh, 475px);
   touch-action: pan-y;
   user-select: none;
   cursor: grab;
@@ -446,8 +446,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 16px;
-  padding: clamp(26px, 3.4vw, 56px);
+  gap: 11px;
+  padding: clamp(18px, 2.2vw, 32px);
   background: linear-gradient(135deg, #24211f 0%, #181819 48%, #111214 100%);
   border-inline-start: 1px solid rgba(214, 188, 155, 0.16);
 }
@@ -455,24 +455,24 @@
 .coastal-kicker {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--c-sand-muted);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
 }
 
 .coastal-kicker span {
-  width: 34px;
+  width: 28px;
   height: 1px;
   background: #c2a37f;
 }
 
 .coastal-exhibition-panel h1 {
   margin: 0;
-  font-size: clamp(2.15rem, 3.5vw, 3.6rem);
+  font-size: clamp(1.65rem, 2.5vw, 2.45rem);
   font-weight: 850;
-  line-height: 1.07;
-  letter-spacing: -0.05em;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
   color: #fff8ed;
   white-space: pre-line;
 }
@@ -480,15 +480,15 @@
 .coastal-lead {
   margin: 0;
   color: #bdb7ae;
-  font-size: 0.94rem;
-  line-height: 1.72;
+  font-size: 0.86rem;
+  line-height: 1.58;
 }
 
 .coastal-spotlight-specs {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  padding: 14px 0;
+  gap: 18px;
+  padding: 10px 0;
   margin: 0;
   border-block: 1px solid rgba(232, 213, 188, 0.16);
 }
@@ -3148,12 +3148,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .coastal-exhibition-stage {
-    min-height: clamp(340px, 48dvh, 470px);
+    min-height: clamp(260px, 36dvh, 340px);
   }
   .coastal-exhibition-panel {
     border-inline-start: 0;
     border-top: 1px solid rgba(214, 188, 155, 0.16);
-    padding: 22px 18px 26px;
+    padding: 16px 14px 18px;
   }
   .coastal-light-btn {
     display: none;

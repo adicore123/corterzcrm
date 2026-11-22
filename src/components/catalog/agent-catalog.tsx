@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { Dialog } from "radix-ui";
 import {
   Bike, Check, Compass, Eye, EyeOff, GitCompareArrows,
-  LayoutGrid, Maximize2, Minimize2, Plus, Search, Share2, SlidersHorizontal, X,
+  Plus, Search, Share2, SlidersHorizontal, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CatalogModel } from "@/lib/validation/models";
@@ -39,7 +39,6 @@ const ProductCompare3D = dynamic(() => import("./product-compare-3d").then((modu
 
 type CategoryFilter = "all" | "קורקינט חשמלי" | "אופניים חשמליים" | "2027";
 type SortOrder = "featured" | "name" | "range-desc" | "price-asc" | "price-desc";
-type CatalogViewTab = "catalog" | "showroom" | "home";
 
 function CoastalModelCard({
   model,
@@ -188,13 +187,6 @@ export function AgentCatalog({
   initialState?: CatalogState;
   initialStudioState?: InitialStudioState;
 }) {
-  const [viewTab, setViewTab] = useState<CatalogViewTab>("catalog");
-  const [showroomCategory, setShowroomCategory] = useState<"אופניים חשמליים" | "קורקינט חשמלי">("אופניים חשמליים");
-  const [showroomSelectedId, setShowroomSelectedId] = useState<string>(() => {
-    const max6 = models.find((m) => m.name.toLowerCase().includes("max 6"));
-    return max6?.id ?? models[0]?.id ?? "";
-  });
-
   const [category, setCategory] = useState<CategoryFilter>((initialState.category as CategoryFilter) ?? "all");
   const [fitFilters, setFitFilters] = useState<FitFilter[]>(initialState.fits ?? []);
   const [maxPrice, setMaxPrice] = useState(initialState.maxPrice ?? 0);
@@ -214,7 +206,6 @@ export function AgentCatalog({
   const [search, setSearch] = useState(initialState.search ?? "");
   const [sort, setSort] = useState<SortOrder>((initialState.sort as SortOrder) ?? "featured");
   const [showPrice, setShowPrice] = useState(true);
-  const [presentation, setPresentation] = useState(false);
   const [finderOpen, setFinderOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(() =>
     initialModelId && models.some((m) => m.id === initialModelId) ? initialModelId : null,
@@ -306,11 +297,6 @@ export function AgentCatalog({
     [models, activeId],
   );
 
-  const showroomModel = useMemo(
-    () => models.find((m) => m.id === showroomSelectedId) ?? models.find((m) => m.device === showroomCategory) ?? models[0],
-    [models, showroomSelectedId, showroomCategory],
-  );
-
   const comparedModels = useMemo(
     () => compareIds.map((id) => models.find((m) => m.id === id)).filter((m): m is CatalogModel => Boolean(m)),
     [models, compareIds],
@@ -375,20 +361,6 @@ export function AgentCatalog({
     setSearch("");
   }
 
-  async function togglePresentation() {
-    const next = !presentation;
-    setPresentation(next);
-    try {
-      if (next && document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen().catch(() => undefined);
-      } else if (!next && document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen().catch(() => undefined);
-      }
-    } catch {
-      // Viewport takeover remains active
-    }
-  }
-
   async function copyShareLink(modelId?: string) {
     const url = new URL(modelId ? "/showroom/" + modelId : "/showroom", window.location.origin);
     try {
@@ -405,42 +377,19 @@ export function AgentCatalog({
   );
 
   return (
-    <div className={"showroom-root coastal-root" + (presentation ? " is-presentation" : "") + (publicMode ? " is-public" : "")}>
+    <div className={"showroom-root coastal-root" + (publicMode ? " is-public" : "")}>
       <header className="header cortez-header showroom-topbar no-print">
         <div className="showroom-brand-wrap">
-          <button
-            type="button"
-            className="logo cortez-logo-btn"
-            onClick={() => setViewTab("catalog")}
-            aria-label="CORTEZ דף הקטלוג הראשי"
-          >
+          <div className="logo cortez-logo-btn">
             CORTEZ
             <span>URBAN MOTION · 3D BEACH</span>
-          </button>
+          </div>
+          <span className="cortez-header-meta">
+            {counts.total} דגמים · {counts.series2027} דגמי 2027
+          </span>
         </div>
 
-        <nav className="cortez-nav" aria-label="ניווט בקטלוג">
-          <button
-            type="button"
-            className={"cortez-nav-link" + (viewTab === "catalog" ? " is-active" : "")}
-            onClick={() => setViewTab("catalog")}
-          >
-            הדגמים שלנו
-          </button>
-          <button
-            type="button"
-            className={"cortez-nav-link" + (viewTab === "showroom" ? " is-active" : "")}
-            onClick={() => setViewTab("showroom")}
-          >
-            אולם התצוגה 3D
-          </button>
-          <button
-            type="button"
-            className={"cortez-nav-link" + (viewTab === "home" ? " is-active" : "")}
-            onClick={() => setViewTab("home")}
-          >
-            תצוגת דגל
-          </button>
+        <div className="showroom-hero-controls">
           <button
             type="button"
             className="cortez-nav-link is-finder-trigger"
@@ -449,12 +398,6 @@ export function AgentCatalog({
             <Compass size={14} aria-hidden />
             <span>מצאו את הקורטז שלכם</span>
           </button>
-          <a className="cortez-nav-link" href={DEALER_URL} target="_blank" rel="noreferrer">
-            משווקים ↗
-          </a>
-        </nav>
-
-        <div className="showroom-hero-controls">
           <button type="button" className="showroom-glass-btn" onClick={() => setShowPrice((v) => !v)}>
             {showPrice ? <EyeOff size={15} /> : <Eye size={15} />}
             <span>{showPrice ? "הסתרת מחירון" : "הצגת מחירון"}</span>
@@ -463,174 +406,25 @@ export function AgentCatalog({
             <Share2 size={15} />
             <span>קישור שיתוף ללקוח</span>
           </button>
-          <button type="button" className="showroom-glass-btn is-primary-glass" onClick={togglePresentation}>
-            {presentation ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-            <span>{presentation ? "יציאה ממצגת" : "מצב מצגת"}</span>
-          </button>
+          <a className="cortez-nav-link" href={DEALER_URL} target="_blank" rel="noreferrer">
+            משווקים ↗
+          </a>
         </div>
       </header>
 
       {toast && <div className="showroom-toast no-print" role="status"><Check size={16} /><span>{toast}</span></div>}
 
-      {viewTab === "showroom" && showroomModel && (
-        <section className="showroom-page no-print" aria-label="אולם התצוגה התלת־ממדי">
-          <div className="showroom-heading">
-            <div>
-              <span className="eyebrow">CORTEZ 3D BEACH SHOWROOM</span>
-              <h1>הכלי הבא שלכם. מכל זווית.</h1>
-              <p className="showroom-sub">קרוב יותר. מכל זווית שצולמה — על במת חוף הים התלת־ממדית.</p>
-            </div>
-            <div className="segmented" role="group" aria-label="קטגוריית אולם התצוגה">
-              {(["אופניים חשמליים", "קורקינט חשמלי"] as const).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  className={showroomCategory === cat ? "active" : ""}
-                  onClick={() => {
-                    setShowroomCategory(cat);
-                    const first = models.find((m) => m.device === cat);
-                    if (first) setShowroomSelectedId(first.id);
-                  }}
-                >
-                  {cat}
-                </button>
-              ))}
-              <button type="button" onClick={() => setViewTab("catalog")}>
-                <LayoutGrid size={14} /> לכל הקטלוג
-              </button>
-            </div>
-          </div>
+      <CoastalExhibition
+        items={exhibitionItems}
+        counts={counts}
+        showPrice={showPrice}
+        paused={Boolean(activeModel) || compareOpen || finderOpen}
+        onOpenModel={(model) => openModel(model)}
+        onOpenFinder={() => setFinderOpen(true)}
+        onJumpToCatalog={() => gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      />
 
-          <div className="model-rail" role="region" aria-label="בחירת דגם באולם התצוגה">
-            {models.filter((m) => m.device === showroomCategory).map((item) => {
-              const thumb = getPrimaryExhibitImage(item);
-              const v = extractBatteryVoltage(item);
-              const ah = extractBatteryCapacityAh(item);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={item.id === showroomModel.id ? "active" : ""}
-                  onClick={() => setShowroomSelectedId(item.id)}
-                >
-                  {thumb && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={thumb} alt="" />
-                  )}
-                  <span dir="ltr">{item.name}</span>
-                  <small dir="ltr">
-                    {showPrice && item.msrp ? formatPrice(item.msrp) : "CORTEZ"}
-                    {v && ah ? ` · ${v}V/${ah}Ah` : ""}
-                  </small>
-                </button>
-              );
-            })}
-          </div>
-
-          <ProductExperience
-            key={showroomModel.id}
-            model={showroomModel}
-            showPrice={showPrice}
-          />
-        </section>
-      )}
-
-      {viewTab === "home" && (
-        <div className="cortez-home-view no-print">
-          <CoastalExhibition
-            items={flagships.slice(0, 3)}
-            counts={counts}
-            showPrice={showPrice}
-            home
-            paused={Boolean(activeModel) || compareOpen || finderOpen}
-            onOpenModel={(model) => openModel(model)}
-            onOpenShowroom={(model) => {
-              setShowroomCategory(model.device);
-              setShowroomSelectedId(model.id);
-              setViewTab("showroom");
-            }}
-            onOpenFinder={() => setFinderOpen(true)}
-            onJumpToCatalog={() => setViewTab("catalog")}
-          />
-
-          <section className="intro-strip">
-            <p>
-              העיר משתנה.
-              <br />
-              <strong>הדרך שלכם מתחילה כאן.</strong>
-            </p>
-            <div>
-              <b>{counts.total}</b>
-              <span>דגמים. דרך אחת משלכם.</span>
-            </div>
-            <div>
-              <b>02</b>
-              <span>אופניים וקורקינטים חשמליים</span>
-            </div>
-            <button type="button" className="intro-strip-cta" onClick={() => setFinderOpen(true)}>
-              בואו נמצא את הכלי שלכם <span>↗</span>
-            </button>
-          </section>
-
-          <section className="cortez-editorial-section">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow">THE 2027 COLLECTION</span>
-                <h2>נוכחות שאי אפשר לפספס.</h2>
-              </div>
-              <button type="button" className="text-button" onClick={() => setViewTab("catalog")}>
-                לכל הדגמים <span>↗</span>
-              </button>
-            </div>
-            <div className="showroom-grid">
-              {flagships.slice(0, 3).map((model) => (
-                <CoastalModelCard
-                  key={model.id}
-                  model={model}
-                  showPrice={showPrice}
-                  compared={compareIds.includes(model.id)}
-                  onOpen={(variantId) => openModel(model, variantId)}
-                  onToggleCompare={() => toggleCompare(model.id)}
-                />
-              ))}
-            </div>
-          </section>
-
-          <section className="discovery-banner">
-            <div className="discovery-banner-content">
-              <span className="eyebrow">FIND YOUR CORTEZ</span>
-              <h2>
-                לכל דרך.
-                <br />
-                לכל קצב. לכם.
-              </h2>
-              <p>כמה שאלות קצרות. דגמים שמתאימים בדיוק למה שחשוב לכם.</p>
-              <button type="button" className="button primary" onClick={() => setFinderOpen(true)}>
-                מוצאים את הדרך שלי <span>↗</span>
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {viewTab === "catalog" && (
-        <>
-          <CoastalExhibition
-            items={exhibitionItems}
-            counts={counts}
-            showPrice={showPrice}
-            paused={Boolean(activeModel) || compareOpen || finderOpen}
-            onOpenModel={(model) => openModel(model)}
-            onOpenShowroom={(model) => {
-              setShowroomCategory(model.device);
-              setShowroomSelectedId(model.id);
-              setViewTab("showroom");
-            }}
-            onOpenFinder={() => setFinderOpen(true)}
-            onJumpToCatalog={() => gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          />
-
-          <section className="showroom-toolbar coastal-toolbar no-print" id="catalog-controls" aria-label="סינון קטלוג" ref={gridRef}>
+      <section className="showroom-toolbar coastal-toolbar no-print" id="catalog-controls" aria-label="סינון קטלוג" ref={gridRef}>
             <div className="toolbar-row">
               <div className="catalog-tabs showroom-categories" role="tablist" aria-label="קטגוריות כלים">
                 {([
@@ -846,8 +640,6 @@ export function AgentCatalog({
               </div>
             )}
           </section>
-        </>
-      )}
 
       <footer className="cortez-footer no-print">
         <div className="footer-brand" dir="ltr">CORTEZ</div>
@@ -857,9 +649,9 @@ export function AgentCatalog({
           <small>נתוני המוצרים והמפרטים מהאתר הרשמי · CORTEZ URBAN MOTION</small>
         </div>
         <div className="cortez-footer-links">
-          <button type="button" onClick={() => setViewTab("catalog")}>הדגמים שלנו</button>
-          <button type="button" onClick={() => setViewTab("showroom")}>אולם התצוגה 3D</button>
+          <button type="button" onClick={() => gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>הדגמים שלנו</button>
           <button type="button" onClick={() => setFinderOpen(true)}>מצאו את ה־CORTEZ שלכם</button>
+          <a href={DEALER_URL} target="_blank" rel="noreferrer">משווקים ↗</a>
           <a href="https://cortez.co.il/" target="_blank" rel="noreferrer">האתר הרשמי ↗</a>
         </div>
       </footer>
