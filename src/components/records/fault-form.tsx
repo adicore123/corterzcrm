@@ -21,13 +21,14 @@ const fileAccept = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,application/pdf,image/j
 const videoAccept = "video/mp4,video/quicktime,video/webm,video/x-m4v,video/*";
 
 export function FaultForm({
-  record, models, catalog = [], initialModel, cloud,
+  record, models, catalog = [], initialModel, cloud, canDelete = true,
 }: {
   record?: FaultGuide;
   models: string[];
   catalog?: CatalogModel[];
   initialModel?: CatalogModel;
   cloud: boolean;
+  canDelete?: boolean;
 }) {
   const [catalogList, setCatalogList] = useState(catalog);
   const [modelNames, setModelNames] = useState(models);
@@ -93,12 +94,12 @@ export function FaultForm({
           selectedDevice={selectedDevice} selectedModel={selectedModel}
           deviceError={errors.device?.message} modelError={errors.model?.message}
           onModelSelected={handleModelSelected}
-          onModelCreated={(created) => {
+          onModelCreated={canDelete ? ((created) => {
             setCatalogList((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name, "he")));
             setModelNames((list) => Array.from(new Set([...list, created.name])).sort((a, b) => a.localeCompare(b, "he")));
             setValue("device", created.device, { shouldDirty: true, shouldValidate: true });
             setValue("model", created.name, { shouldDirty: true, shouldValidate: true });
-          }}
+          }) : undefined}
         />
         <Field label="תקציר טכני לדגם (אופציונלי)" error={errors.summary?.message} className="field-wide">{(props) =>
           <textarea {...props} {...register("summary")} rows={2} maxLength={1000}
@@ -141,8 +142,8 @@ export function FaultForm({
             <Film size={18} aria-hidden />
             <div><strong>{item.name}</strong><small>{formatBytes(item.bytes)} · סרטון שמור</small></div>
           </div>
-          <Button size="icon" variant="ghost" aria-label={"הסרת סרטון " + item.name}
-            onClick={() => requestDelete(`להסיר את הסרטון ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>
+          {canDelete && <Button size="icon" variant="ghost" aria-label={"הסרת סרטון " + item.name}
+            onClick={() => requestDelete(`להסיר את הסרטון ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>}
         </div>)}
         {pendingVideos.map((item) => <div className="attachment-row is-pending" key={item.id}>
           <div className="attachment-meta">
@@ -161,27 +162,30 @@ export function FaultForm({
           <h3><Link2 size={16} aria-hidden /> קישורים לסרטוני פתיחת הגבלה (YouTube / Google Drive / Vimeo)</h3>
         </div>
         <div className="spec-inputs">
-          {videoLinks.fields.map((item, index) => <div className="spec-edit-row" key={item.fieldKey}>
-            <input type="hidden" {...register(`videoLinks.${index}.id`)} />
-            <div>
-              <input {...register(`videoLinks.${index}.title`)} aria-label={"כותרת סרטון " + (index + 1)}
-                aria-invalid={Boolean(errors.videoLinks?.[index]?.title)} placeholder="כותרת (למשל פתיחת הגבלה בצג S866)" maxLength={120} />
-              {errors.videoLinks?.[index]?.title && <span className="field-error" role="alert">{errors.videoLinks[index]?.title?.message}</span>}
-            </div>
-            <div>
-              <input {...register(`videoLinks.${index}.url`)} dir="ltr" aria-label={"קישור סרטון " + (index + 1)}
-                aria-invalid={Boolean(errors.videoLinks?.[index]?.url)} placeholder="https://youtube.com/watch?v=..." maxLength={1000} />
-              {errors.videoLinks?.[index]?.url && <span className="field-error" role="alert">{errors.videoLinks[index]?.url?.message}</span>}
-            </div>
-            <Button size="icon" variant="ghost" aria-label={"מחיקת קישור סרטון " + (index + 1)} onClick={() => {
-              const id = watchedVideoLinks?.[index]?.id;
-              if (id && savedVideoIds.has(id)) {
-                requestDelete(`למחוק את קישור סרטון ${index + 1}? יש להזין סיסמת מחיקה.`, () => videoLinks.remove(index));
-              } else {
-                videoLinks.remove(index);
-              }
-            }}><Trash2 size={16} /></Button>
-          </div>)}
+          {videoLinks.fields.map((item, index) => {
+            const vidId = watchedVideoLinks?.[index]?.id;
+            const isSavedVideoLink = Boolean(vidId && savedVideoIds.has(vidId));
+            return <div className="spec-edit-row" key={item.fieldKey}>
+              <input type="hidden" {...register(`videoLinks.${index}.id`)} />
+              <div>
+                <input {...register(`videoLinks.${index}.title`)} aria-label={"כותרת סרטון " + (index + 1)}
+                  aria-invalid={Boolean(errors.videoLinks?.[index]?.title)} placeholder="כותרת (למשל פתיחת הגבלה בצג S866)" maxLength={120} />
+                {errors.videoLinks?.[index]?.title && <span className="field-error" role="alert">{errors.videoLinks[index]?.title?.message}</span>}
+              </div>
+              <div>
+                <input {...register(`videoLinks.${index}.url`)} dir="ltr" aria-label={"קישור סרטון " + (index + 1)}
+                  aria-invalid={Boolean(errors.videoLinks?.[index]?.url)} placeholder="https://youtube.com/watch?v=..." maxLength={1000} />
+                {errors.videoLinks?.[index]?.url && <span className="field-error" role="alert">{errors.videoLinks[index]?.url?.message}</span>}
+              </div>
+              {(!isSavedVideoLink || canDelete) && <Button size="icon" variant="ghost" aria-label={"מחיקת קישור סרטון " + (index + 1)} onClick={() => {
+                if (isSavedVideoLink) {
+                  requestDelete(`למחוק את קישור סרטון ${index + 1}? יש להזין סיסמת מחיקה.`, () => videoLinks.remove(index));
+                } else {
+                  videoLinks.remove(index);
+                }
+              }}><Trash2 size={16} /></Button>}
+            </div>;
+          })}
         </div>
         <Button variant="outline" disabled={videoLinks.fields.length >= 10}
           onClick={() => videoLinks.append({ id: newRequestId(), title: "", url: "" }, { focusName: `videoLinks.${videoLinks.fields.length}.title` })}>
@@ -193,19 +197,21 @@ export function FaultForm({
     <Section title="תקלות נפוצות וקודי שגיאה של הדגם" icon={AlertTriangle}>
       <p className="muted">תעדו קודי תקלה (כגון E01, E07, E10), תקלות חוזרות ופתרונות מוכחים עבור הצוות.</p>
       <div className="fault-edit-list">
-        {commonFaults.fields.map((item, index) => <div className="fault-edit-card" key={item.fieldKey}>
-          <input type="hidden" {...register(`commonFaults.${index}.id`)} />
-          <div className="fault-edit-head">
-            <strong>תקלה #{index + 1}</strong>
-            <Button size="icon" variant="ghost" aria-label={"מחיקת תקלה " + (index + 1)} onClick={() => {
-              const id = watchedCommonFaults?.[index]?.id;
-              if (id && savedFaultIds.has(id)) {
-                requestDelete(`למחוק את תקלה #${index + 1}? יש להזין סיסמת מחיקה.`, () => commonFaults.remove(index));
-              } else {
-                commonFaults.remove(index);
-              }
-            }}><Trash2 size={16} /></Button>
-          </div>
+        {commonFaults.fields.map((item, index) => {
+          const faultId = watchedCommonFaults?.[index]?.id;
+          const isSavedFault = Boolean(faultId && savedFaultIds.has(faultId));
+          return <div className="fault-edit-card" key={item.fieldKey}>
+            <input type="hidden" {...register(`commonFaults.${index}.id`)} />
+            <div className="fault-edit-head">
+              <strong>תקלה #{index + 1}</strong>
+              {(!isSavedFault || canDelete) && <Button size="icon" variant="ghost" aria-label={"מחיקת תקלה " + (index + 1)} onClick={() => {
+                if (isSavedFault) {
+                  requestDelete(`למחוק את תקלה #${index + 1}? יש להזין סיסמת מחיקה.`, () => commonFaults.remove(index));
+                } else {
+                  commonFaults.remove(index);
+                }
+              }}><Trash2 size={16} /></Button>}
+            </div>
           <div className="fields-grid">
             <Field label="קוד תקלה (אופציונלי)" error={errors.commonFaults?.[index]?.code?.message}>{(props) =>
               <input {...props} {...register(`commonFaults.${index}.code`)} dir="ltr" maxLength={32} placeholder="למשל E07 / E10" />
@@ -225,7 +231,8 @@ export function FaultForm({
               <textarea {...props} {...register(`commonFaults.${index}.solution`)} rows={2} maxLength={2000} placeholder="שלבי בדיקה, חיווט או חלקים להחלפה" />
             }</Field>
           </div>
-        </div>)}
+        </div>;
+        })}
       </div>
       <Button variant="outline" disabled={commonFaults.fields.length >= 50}
         onClick={() => commonFaults.append(
@@ -263,8 +270,8 @@ export function FaultForm({
             <FileText size={18} aria-hidden />
             <div><strong>{item.name}</strong><small>{formatBytes(item.bytes)} · קובץ שמור</small></div>
           </div>
-          <Button size="icon" variant="ghost" aria-label={"הסרת קובץ " + item.name}
-            onClick={() => requestDelete(`להסיר את הקובץ ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>
+          {canDelete && <Button size="icon" variant="ghost" aria-label={"הסרת קובץ " + item.name}
+            onClick={() => requestDelete(`להסיר את הקובץ ${item.name}? יש להזין סיסמת מחיקה.`, () => attachments.removeSaved(item.id))}><X size={16} /></Button>}
         </div>)}
         {pendingFiles.map((item) => <div className="attachment-row is-pending" key={item.id}>
           <div className="attachment-meta">
@@ -277,7 +284,7 @@ export function FaultForm({
     </Section>
 
     <Section title="תמונות אבחון וחיווט והערות נוספות" icon={Images}>
-      <PhotoPicker module="faults" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} />
+      <PhotoPicker module="faults" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} canDelete={canDelete} />
       <Field label="הערות פנימיות לצוות" error={errors.notes?.message} className="field-wide">{(props) =>
         <textarea {...props} {...register("notes")} rows={2} maxLength={4000} placeholder="דגשים נוספים לטכנאים ולסוכנים" />
       }</Field>

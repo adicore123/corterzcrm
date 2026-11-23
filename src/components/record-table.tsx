@@ -23,6 +23,8 @@ export type RecordCardMeta = {
   meta: CardMetaItem[];
   photos?: CardPhoto[];
   whatsappMessage: string;
+  whatsappPhone?: string;
+  whatsappTargetLabel?: string;
   phoneHref?: string;
   extraLink?: { href: string; label: string };
 };
@@ -76,7 +78,14 @@ export function RecordTable({ columns, rows, empty, icon: Icon = ClipboardList, 
                 <CardPhotoGallery photos={row.card.photos} title={row.card.title} recordHref={row.href} mode="table" />
               )}
               {row.card && (
-                <CardWhatsappButton message={row.card.whatsappMessage} recordHref={row.href} label={row.label} variant="table" />
+                <CardWhatsappButton
+                  message={row.card.whatsappMessage}
+                  recordHref={row.href}
+                  label={row.label}
+                  variant="table"
+                  targetPhone={row.card.whatsappPhone}
+                  targetDisplay={row.card.whatsappTargetLabel}
+                />
               )}
               {row.editHref && (
                 <Link href={row.editHref} prefetch={false} className="row-action-btn" aria-label={"עריכת " + row.label} title="עריכה">
@@ -150,7 +159,14 @@ export function RecordTable({ columns, rows, empty, icon: Icon = ClipboardList, 
         )}
 
         <div className="mobile-card-actions">
-          <CardWhatsappButton message={card.whatsappMessage} recordHref={row.href} label={row.label} variant="mobile" />
+          <CardWhatsappButton
+            message={card.whatsappMessage}
+            recordHref={row.href}
+            label={row.label}
+            variant="mobile"
+            targetPhone={card.whatsappPhone}
+            targetDisplay={card.whatsappTargetLabel}
+          />
           {photos.length > 0 && (
             <CardPhotoGallery photos={photos} title={card.title} recordHref={row.href} mode="mobile-button" />
           )}

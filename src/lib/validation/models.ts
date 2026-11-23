@@ -5,12 +5,21 @@ export const standardStatuses = ["חדש", "בטיפול", "הסתיים"] as co
 export const repairStatuses = ["התקבל", "בטיפול", "הסתיים"] as const;
 export const delayStatuses = ["ללא עיכוב", "מתעכב"] as const;
 export const faultSeverities = ["נפוצה", "קריטית", "תחזוקה"] as const;
-export const roles = ["admin", "employee"] as const;
+export const roles = ["admin", "employee", "agent"] as const;
 export const modules = ["standards", "repairs", "customers", "models", "faults"] as const;
 export type Module = (typeof modules)[number];
 export type PhotoModule = Exclude<Module, "customers">;
 export type Device = (typeof devices)[number];
 export type FaultSeverity = (typeof faultSeverities)[number];
+export type Role = (typeof roles)[number];
+
+export function canEditModule(role: Role, module: Module): boolean {
+  return role === "admin" || role === "employee" || (role === "agent" && module === "faults");
+}
+
+export function canDeleteItems(role: Role): boolean {
+  return role === "admin" || role === "employee";
+}
 
 export const uuid = z.uuid({ error: "המזהה אינו תקין." });
 const date = z.iso.datetime();
@@ -179,13 +188,16 @@ export const faultGuideSchema = faultGuideInput.extend({
   attachments: z.array(attachmentSchema).max(15).default([]),
 });
 export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9._@+-]{2,79}$/, "יש להזין שם משתמש באותיות לטיניות או בספרות (3–80 תווים).");
-export const passwordSchema = z.string().min(12, "הסיסמה חייבת לכלול לפחות 12 תווים.").max(128, "הסיסמה ארוכה מדי.");
+export const passwordSchema = z.string().min(5, "הסיסמה חייבת לכלול לפחות 5 תווים.").max(128, "הסיסמה ארוכה מדי.");
 export const deletePasswordSchema = z.string().trim().min(4, "סיסמת המחיקה חייבת לכלול לפחות 4 תווים.").max(64, "סיסמת המחיקה ארוכה מדי.");
 export const DEFAULT_PICKUP_ADDRESS = "לישנסקי 27, ראשון לציון";
+export const DEFAULT_AGENT_INVITE_CODE = "cortez-agent";
 export const pickupAddressSchema = z.string().trim().min(3, "יש להזין כתובת איסוף.").max(240, "כתובת האיסוף ארוכה מדי.");
+export const agentInviteTokenSchema = z.string().trim().regex(/^[a-zA-Z0-9_-]{6,64}$/, "קוד קישור ההרשמה אינו תקין.");
 export const systemSettingsSchema = z.object({
   deletePasswordHash: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/).optional(),
   pickupAddress: pickupAddressSchema.optional(),
+  agentInviteToken: agentInviteTokenSchema.optional(),
   updatedAt: date.optional(),
 });
 export type SystemSettings = z.infer<typeof systemSettingsSchema>;

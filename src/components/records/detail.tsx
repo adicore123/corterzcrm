@@ -7,11 +7,10 @@ import {
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { embedVideoUrl, formatBytes, formatDate, labels, whatsappHref } from "@/lib/presentation";
-import { DEFAULT_PICKUP_ADDRESS, type CatalogModel, type Customer, type FaultGuide, type Module, type Repair, type Standard } from "@/lib/validation/models";
+import { canEditModule, DEFAULT_PICKUP_ADDRESS, type CatalogModel, type Customer, type FaultGuide, type Module, type Repair, type Role, type Standard } from "@/lib/validation/models";
 import {
-  formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
+  completedRepairCustomerMessage, formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
   formatRepairWhatsapp, formatStandardWhatsapp,
-  repairReadyMessage,
 } from "@/lib/whatsapp-card";
 import { CardWhatsappButton } from "@/components/card-actions";
 import { ModelBadge, modelThumbUrl, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
@@ -30,9 +29,12 @@ function Details({ rows }: { rows: Value[] }) {
   return <dl className="details-grid">{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}</dl>;
 }
 
-export async function RecordDetail({ module, record, admin, saved }: {
-  module: Module; record: Standard | Repair | Customer | CatalogModel | FaultGuide; admin: boolean; saved: boolean;
+export async function RecordDetail({ module, record, admin, userRole, saved }: {
+  module: Module; record: Standard | Repair | Customer | CatalogModel | FaultGuide; admin: boolean; userRole?: Role; saved: boolean;
 }) {
+  const effectiveRole: Role = userRole ?? (admin ? "admin" : "employee");
+  const canEdit = canEditModule(effectiveRole, module);
+  const isAgent = effectiveRole === "agent";
   const number = "number" in record ? record.number : undefined;
   const title = "model" in record ? record.model : record.name;
   const isModelRecord = module === "models" && !("phone" in record) && !("model" in record);
@@ -77,9 +79,14 @@ export async function RecordDetail({ module, record, admin, saved }: {
           ? formatFaultGuideWhatsapp(record, modelRepairs.length)
           : formatModelWhatsapp(record as CatalogModel, modelStandards.length, modelRepairs.length);
   const linkedModelThumb = modelThumbUrl(linkedModel);
+  const pickupAddress = systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS;
   const readyMessage = "serial" in record && customer
-    ? repairReadyMessage(customer, record.model, systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS)
+    ? completedRepairCustomerMessage(customer, record.model, pickupAddress)
     : undefined;
+  const hasRepairCustomerPhone = "serial" in record && Boolean(customer?.phone);
+  const headerWhatsappMessage = hasRepairCustomerPhone && readyMessage
+    ? readyMessage
+    : detailWhatsappMessage;
 
   return <div className="page-stack">
     <Link className="back-link" href={"/" + module}><ArrowRight size={16} aria-hidden />{labels[module]}</Link>
@@ -94,11 +101,18 @@ export async function RecordDetail({ module, record, admin, saved }: {
         </div>
       </div>
       <div className="detail-actions no-print">
-        <CardWhatsappButton message={detailWhatsappMessage} recordHref={"/" + module + "/" + record.id} label={number ?? title} variant="detail" />
+        <CardWhatsappButton
+          message={headerWhatsappMessage}
+          recordHref={"/" + module + "/" + record.id}
+          label={number ?? title}
+          variant="detail"
+          targetPhone={hasRepairCustomerPhone ? customer?.phone : undefined}
+          targetDisplay={hasRepairCustomerPhone ? customer?.name : undefined}
+        />
         {isModelRecord && <Button asChild variant="soft"><Link href={"/catalog?model=" + record.id}><Sparkles size={16} /> תצוגת 3D בקטלוג</Link></Button>}
         {isFaultGuide && linkedModel && <Button asChild variant="soft"><Link href={"/models/" + linkedModel.id}><Bike size={16} /> כרטיס הדגם</Link></Button>}
         {("tasks" in record || "serial" in record || isFaultGuide) && <PrintButton />}
-        <Button asChild variant="outline"><Link href={"/" + module + "/" + record.id + "/edit"}><Pencil size={17} /> עריכה</Link></Button>
+        {canEdit && <Button asChild variant="outline"><Link href={"/" + module + "/" + record.id + "/edit"}><Pencil size={17} /> עריכה</Link></Button>}
         {admin && <DeleteButton module={module} id={record.id} version={record.updatedAt} subject={number ?? title} />}
       </div>
     </div>
@@ -107,7 +121,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
       <section className="card detail-card">
         <div className="section-heading">
           <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי תיק תקינה</h2>
-          <QuickStatus key={record.updatedAt} module="standards" record={record} />
+          {canEdit && <QuickStatus key={record.updatedAt} module="standards" record={record} />}
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -118,7 +132,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
           ["סטטוס עיכוב", <Status key="delay" value={record.delay} />], ...(record.delay === "מתעכב" ? [["סיבת עיכוב", record.delayReason] as Value] : []), ...dates]} />
         {record.notes && <div className="detail-notes"><h3>הערות</h3><p>{record.notes}</p></div>}
       </section>
-      <TaskChecklist key={record.updatedAt} record={record} />
+      <TaskChecklist key={record.updatedAt} record={record} readOnly={!canEdit} />
       <section className="card detail-card"><h2><span className="section-icon"><Images size={18} /></span>תמונות</h2>
         <PhotoGallery module="standards" id={record.id} photos={record.photos} /></section>
     </>}
@@ -126,7 +140,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
       <section className="card detail-card">
         <div className="section-heading">
           <h2><span className="section-icon"><Wrench size={18} /></span>פרטי תיקון</h2>
-          <QuickStatus key={record.updatedAt} module="repairs" record={record} />
+          {canEdit && <QuickStatus key={record.updatedAt} module="repairs" record={record} />}
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -137,13 +151,14 @@ export async function RecordDetail({ module, record, admin, saved }: {
           ["לקוח", customer && <Link key="customer" className="text-link" href={"/customers/" + customer.id}>{customer.name}</Link>],
           ...(customer ? [["סוג לקוח", customer.customerType === "private" ? "לקוח פרטי" : customer.customerType === "store" ? "חנות" : "סוג לקוח לבירור"] as Value] : []),
           ...(customer ? [["טלפון לקוח", <PhoneLink key="cphone" phone={customer.phone}
-            whatsappMessage={`שלום ${customer.name}, עדכון מקורטז לגבי תיקון ${record.number} (${record.model}) — סטטוס הטיפול: ${record.status}.`} />] as Value] : []),
+            whatsappMessage={record.status === "הסתיים" && readyMessage
+              ? readyMessage
+              : `שלום ${customer.name}, עדכון מקורטז לגבי תיקון ${record.number} (${record.model}) — סטטוס הטיפול: ${record.status}.`} />] as Value] : []),
           ["סטטוס תיקון", <Status key="status" value={record.status} />], ...dates]} />
         <div className="detail-notes"><h3>מה התקלה?</h3><p>{record.fault}</p></div>
         <div className="detail-notes"><h3>מה תוקן?</h3><p>{record.work || "טרם תועד תיקון."}</p></div>
-        {record.status === "הסתיים" && customer && <div className="detail-notes no-print">
-          {readyMessage ? <Button asChild><a href={whatsappHref(customer.phone, readyMessage)} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
-            : <p>יש להגדיר את סוג הלקוח כדי להכין הודעה. <Link className="text-link" href={"/customers/" + customer.id + "/edit"}>עדכון סוג לקוח</Link></p>}
+        {record.status === "הסתיים" && customer && readyMessage && <div className="detail-notes no-print">
+          <Button asChild><a href={whatsappHref(customer.phone, readyMessage)} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
         </div>}
       </section>
       <section className="card detail-card"><h2><span className="section-icon"><Images size={18} /></span>תמונות</h2>
@@ -156,10 +171,10 @@ export async function RecordDetail({ module, record, admin, saved }: {
       </section>
       <section className="card data-card">
         <div className="section-heading"><h2>היסטוריית תיקונים</h2>
-          <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?customer=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>
+          {!isAgent && <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?customer=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>}
         </div>
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-          rows={history.map((item) => repairRow(item, customersMap, true, modelsMap))} empty="אין תיקונים משויכים" showEmptyHeader />
+          rows={history.map((item) => repairRow(item, customersMap, true, modelsMap, { readOnly: isAgent, pickupAddress }))} empty="אין תיקונים משויכים" showEmptyHeader />
       </section>
     </>}
     {isModelRecord && <>
@@ -191,17 +206,17 @@ export async function RecordDetail({ module, record, admin, saved }: {
         <PhotoGallery module="models" id={record.id} photos={record.photos} /></section>
       <section className="card data-card">
         <div className="section-heading"><h2>תיקי מכון תקנים של דגם זה</h2>
-          <Button asChild size="sm" variant="outline"><Link href={"/standards/new?model=" + record.id}><Plus size={16} /> תיק מכון תקנים</Link></Button>
+          {!isAgent && <Button asChild size="sm" variant="outline"><Link href={"/standards/new?model=" + record.id}><Plus size={16} /> תיק מכון תקנים</Link></Button>}
         </div>
         <RecordTable icon={ClipboardList} columns={["מספר תיק", "דגם", "סטטוס", "עודכן לאחרונה"]}
-          rows={modelStandards.map((item) => standardRow(item, "recent", modelsMap))} empty="אין תיקי תקינה משויכים לדגם זה" showEmptyHeader />
+          rows={modelStandards.map((item) => standardRow(item, "recent", modelsMap, isAgent))} empty="אין תיקי תקינה משויכים לדגם זה" showEmptyHeader />
       </section>
       <section className="card data-card">
         <div className="section-heading"><h2>תיקונים של דגם זה</h2>
-          <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?model=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>
+          {!isAgent && <Button asChild size="sm" variant="outline"><Link href={"/repairs/new?model=" + record.id}><Plus size={16} /> תיקון חדש</Link></Button>}
         </div>
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-          rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap))} empty="אין תיקונים משויכים לדגם זה" showEmptyHeader />
+          rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap, { readOnly: isAgent, pickupAddress }))} empty="אין תיקונים משויכים לדגם זה" showEmptyHeader />
       </section>
       <section className="card detail-card">
         <div className="section-heading">

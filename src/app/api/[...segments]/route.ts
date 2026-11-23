@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, requireAdmin, requireDeletePassword, resetUserPassword, sessionCookie, setUserDisabled, updateBusinessSettings } from "@/lib/auth/session";
+import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, registerAgent, requireAdmin, requireDeletePassword, resetUserPassword, rotateAgentInviteToken, sessionCookie, setUserDisabled, updateBusinessSettings } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
@@ -10,7 +10,7 @@ import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serv
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
-import { deletePasswordSchema, modules, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
+import { canDeleteItems, canEditModule, deletePasswordSchema, modules, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -200,6 +200,15 @@ async function mutate(request: NextRequest, { params }: Route) {
         });
         return response;
       }
+      if (sub === "register-agent") {
+        const { value } = await parseBody(request);
+        const session = await registerAgent(value);
+        const response = json({ ok: true }, 201);
+        response.cookies.set(sessionCookie, session.token, {
+          path: "/", httpOnly: true, secure: origin.startsWith("https:"), sameSite: "lax", expires: new Date(session.expires),
+        });
+        return response;
+      }
       if (sub === "logout") {
         await logout(request.cookies.get(sessionCookie)?.value);
         const response = json({ ok: true });
@@ -210,6 +219,9 @@ async function mutate(request: NextRequest, { params }: Route) {
 
     const user = await requireUser(request);
     if (method === "POST" && resource === "auth" && sub === "verify-delete-password" && !id) {
+      if (!canDeleteItems(user.role)) {
+        throw new AppError(403, "לחשבון סוכן אין הרשאת מחיקה במערכת.");
+      }
       const { value } = await parseBody(request);
       const input = z.object({
         password: z.string().trim().min(1, "יש להזין סיסמת מחיקה.").max(64, "סיסמת המחיקה ארוכה מדי."),
@@ -232,6 +244,9 @@ async function mutate(request: NextRequest, { params }: Route) {
     }
     if (resource === "uploads" && !id && method === "POST" && usesBlobStorage()) {
       const kind = photoModule.parse(sub);
+      if (!canEditModule(user.role, kind)) {
+        throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
+      }
       const { value } = await parseBody(request);
       const input = z.object({ id: uuid }).parse(value);
       return json(await authorizeUpload(kind, user.id, input.id), 201);
@@ -258,6 +273,9 @@ async function mutate(request: NextRequest, { params }: Route) {
       const kind = validModule.parse(sub);
       const key = id ? uuid.parse(id) : undefined;
       if ((method === "POST" && !key) || (method === "PUT" && key)) {
+        if (!canEditModule(user.role, kind)) {
+          throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
+        }
         const { value, files } = await parseBody(request, kind !== "customers");
         return json(await saveRecord(kind, key, value, files, user), key ? 200 : 201);
       }
@@ -287,6 +305,9 @@ async function mutate(request: NextRequest, { params }: Route) {
         const { value } = await parseBody(request);
         const input = z.object({ pickupAddress: pickupAddressSchema }).parse(value);
         return json(await updateBusinessSettings(input.pickupAddress, user));
+      }
+      if (sub === "agent-invite" && method === "PATCH") {
+        return json(await rotateAgentInviteToken(user));
       }
       if (sub === "users" && method === "POST") return json(await createUser((await parseBody(request)).value, user), 201);
       if (sub === "users" && method === "PATCH") {

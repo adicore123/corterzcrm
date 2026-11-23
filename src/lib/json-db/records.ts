@@ -7,7 +7,7 @@ import { prepareMongoPhotos } from "../uploads/mongo-images";
 import { maxAttachments, removeAttachments, stagedAttachmentList, verifyStagedAttachments } from "../uploads/attachments";
 import { maxPhotos, removePhotos, savePhotos } from "../uploads/images";
 import {
-  customerInput, faultGuideInput, modelInput, repairInput, standardsInput, uuid,
+  canDeleteItems, canEditModule, customerInput, faultGuideInput, modelInput, repairInput, standardsInput, uuid,
   type Attachment, type CatalogModel, type Customer, type FaultGuide, type Module, type Photo, type PublicUser, type Repair, type Standard,
 } from "../validation/models";
 import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
@@ -72,6 +72,9 @@ function upsert<T extends { id: string }>(all: T[], record: T, editing: boolean)
 }
 
 export async function saveRecord(module: Module, id: string | undefined, payload: unknown, files: File[], actor: PublicUser) {
+  if (!canEditModule(actor.role, module)) {
+    throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
+  }
   const { version, requestId, deletePassword, keptPhotos, stagedPhotos = [], keptAttachments, stagedAttachments = [] } = saveOptions.parse(payload);
   const cloud = usesBlobStorage();
   if (cloud && files.length || !cloud && stagedPhotos.length || module === "customers" && stagedPhotos.length
@@ -109,6 +112,9 @@ export async function saveRecord(module: Module, id: string | undefined, payload
   return serialized(async () => {
     const activeUser = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled);
     if (!activeUser) throw new AppError(401, "יש להיכנס למערכת.");
+    if (!canEditModule(activeUser.role, module)) {
+      throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
+    }
     if (module === "customers") {
       const all = await readCollection(module);
       const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
@@ -201,6 +207,9 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       const removedCommonFaults = Boolean(old && old.commonFaults.some((fault) => !faultData.commonFaults.some((next) => next.id === fault.id)));
       const removedVideos = Boolean(old && old.videoLinks.some((link) => !faultData.videoLinks.some((next) => next.id === link.id)));
       if (old && (removed.length > 0 || removedFiles.length > 0 || removedCommonFaults || removedVideos)) {
+        if (!canDeleteItems(activeUser.role)) {
+          throw new AppError(403, "לחשבון סוכן אין הרשאת מחיקה במערכת.");
+        }
         await requireDeletePassword(deletePassword);
       }
       const added = cloud ? prepared : await savePhotos("faults", files);

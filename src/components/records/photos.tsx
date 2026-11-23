@@ -29,8 +29,8 @@ export function PhotoGallery({ module, photos, id }: { module: PhotoModule; phot
     url={urlFor(module, id, photo.id)} label={"תמונה " + (index + 1)} />)}</div>;
 }
 
-export function PhotoPicker({ module, id, photos, onAuthorizeDelete }: {
-  module: PhotoModule; id?: string; photos: PhotoDraft; onAuthorizeDelete?: (password: string) => void;
+export function PhotoPicker({ module, id, photos, onAuthorizeDelete, canDelete = true }: {
+  module: PhotoModule; id?: string; photos: PhotoDraft; onAuthorizeDelete?: (password: string) => void; canDelete?: boolean;
 }) {
   const gallery = useId();
   const camera = useId();
@@ -69,14 +69,14 @@ export function PhotoPicker({ module, id, photos, onAuthorizeDelete }: {
     {count > 0 && <div className="photo-grid">
       {id && photos.kept.map((photo, index) => <div className="photo-item" key={photo.id}>
         <PhotoPreview url={urlFor(module, id, photo.id)} label={"תמונה " + (index + 1)} name={photo.name} />
-        <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + (index + 1)}
+        {canDelete && <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + (index + 1)}
           onClick={() => {
             if (onAuthorizeDelete) {
               requestDelete(`להסיר את תמונה ${index + 1}? יש להזין סיסמת מחיקה.`, () => photos.removeSaved(photo.id));
             } else {
               photos.removeSaved(photo.id);
             }
-          }}><X size={16} /></button>
+          }}><X size={16} /></button>}
       </div>)}
       {photos.pending.map((photo, index) => {
         const number = photos.kept.length + index + 1;

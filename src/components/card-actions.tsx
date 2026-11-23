@@ -4,7 +4,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { Dialog } from "radix-ui";
 import { ArrowUpLeft, ChevronLeft, ChevronRight, Images, MessageCircle, X } from "lucide-react";
-import { buildCortezWhatsappUrl, CORTEZ_WHATSAPP_DISPLAY } from "@/lib/whatsapp-card";
+import { buildTargetWhatsappUrl, CORTEZ_WHATSAPP_DISPLAY } from "@/lib/whatsapp-card";
 import { Button } from "./ui/button";
 
 export type CardPhoto = {
@@ -14,22 +14,25 @@ export type CardPhoto = {
 };
 
 export function CardWhatsappButton({
-  message, recordHref, label, variant = "mobile",
+  message, recordHref, label, variant = "mobile", targetPhone, targetDisplay,
 }: {
   message: string;
   recordHref: string;
   label: string;
   variant?: "table" | "mobile" | "detail";
+  targetPhone?: string;
+  targetDisplay?: string;
 }) {
-  const initialHref = buildCortezWhatsappUrl(message);
+  const initialHref = buildTargetWhatsappUrl(message, targetPhone);
+  const recipientDisplay = targetPhone ? (targetDisplay ? `${targetDisplay} (${targetPhone})` : targetPhone) : CORTEZ_WHATSAPP_DISPLAY;
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     event.stopPropagation();
     const absoluteUrl = new URL(recordHref, window.location.origin).toString();
-    event.currentTarget.href = buildCortezWhatsappUrl(message, absoluteUrl);
+    event.currentTarget.href = buildTargetWhatsappUrl(message, targetPhone, absoluteUrl);
   }
 
-  const ariaLabel = `שליחת פרטי ${label} בוואטסאפ אל ${CORTEZ_WHATSAPP_DISPLAY}`;
+  const ariaLabel = `שליחת פרטי ${label} בוואטסאפ אל ${recipientDisplay}`;
 
   if (variant === "table") {
     return <a
@@ -39,7 +42,7 @@ export function CardWhatsappButton({
       onClick={handleClick}
       className="action-pill-wa"
       aria-label={ariaLabel}
-      title={`שליחה לוואטסאפ (${CORTEZ_WHATSAPP_DISPLAY})`}
+      title={`שליחה לוואטסאפ (${recipientDisplay})`}
     >
       <MessageCircle size={15} aria-hidden />
     </a>;
@@ -53,10 +56,10 @@ export function CardWhatsappButton({
       onClick={handleClick}
       className="button detail-wa-btn"
       aria-label={ariaLabel}
-      title={`שליחת כל פרטי הכרטיס אל ${CORTEZ_WHATSAPP_DISPLAY}`}
+      title={`שליחת הודעה בוואטסאפ אל ${recipientDisplay}`}
     >
       <MessageCircle size={17} aria-hidden />
-      <span>שליחה לוואטסאפ</span>
+      <span>{targetPhone ? "וואטסאפ ללקוח" : "שליחה לוואטסאפ"}</span>
     </a>;
   }
 
@@ -69,7 +72,7 @@ export function CardWhatsappButton({
     aria-label={ariaLabel}
   >
     <MessageCircle size={16} aria-hidden />
-    <span>וואטסאפ</span>
+    <span>{targetPhone ? "וואטסאפ ללקוח" : "וואטסאפ"}</span>
   </a>;
 }
 

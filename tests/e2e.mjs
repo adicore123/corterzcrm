@@ -308,6 +308,10 @@ try {
   await visible(admin.locator(".data-table .inline-status-saved"));
   [inlineRepair] = await readDb("repairs");
   assert.deepEqual([inlineRepair.status, inlineRepair.work], ["הסתיים", "הכלי נבדק ומוכן"]);
+  // Verify completed repair WhatsApp link targets the customer's phone number (050-1234567 -> 972501234567), not the owner's number
+  const completedRepairWaHref = await admin.locator(".data-table .action-pill-wa").first().getAttribute("href");
+  assert.ok(completedRepairWaHref?.startsWith("https://wa.me/972501234567?text="), "Completed repair WhatsApp must target customer phone");
+  assert.match(decodeURIComponent(completedRepairWaHref), /מוכן לאיסוף/);
 
   // Returning to received is immediate and must preserve the documented work.
   await repairInlineSelect.selectOption("התקבל");
@@ -666,6 +670,47 @@ try {
   await visible(admin.getByText("המשתמש הושבת."));
   await worker.reload();
   await worker.waitForURL("**/login");
+
+  // Exercise Agent Self-Registration via shareable link from /settings + Agent permissions (view-only except faults, no delete)
+  const invitePath = await admin.getByLabel("קישור הרשמה לסוכן").inputValue();
+  assert.match(invitePath, /^\/register-agent\?code=/);
+  await worker.goto(invitePath);
+  await visible(heading(worker, "הרשמת סוכן למערכת"));
+  await field(worker, "שם מלא").fill("סוכן בדיקה");
+  await field(worker, "שם משתמש (באנגלית או ספרות)").fill("qa-agent");
+  await field(worker, "סיסמה").fill("12345"); // 5-char simple password
+  await button(worker, "הרשמה וכניסה למערכת").click();
+  await worker.waitForURL("**/dashboard");
+  await visible(worker.getByText("ממשק סוכן · צפייה ותקלות"));
+  // Agent cannot create or edit repairs/standards/customers via API or UI
+  await api(employee.request, "POST", "/api/records/customers", { name: "חסום", store: "", phone: "0501112233", customerType: "private" }, 403);
+  await api(employee.request, "PUT", "/api/records/standards/" + standardId, { ...input, version: updated.updatedAt }, 403);
+  await worker.goto("/repairs");
+  assert.equal(await link(worker, "תיקון חדש").count(), 0);
+  // Agent CAN create/edit in faults module, but has no delete capability
+  const agentFault = await api(employee.request, "POST", "/api/records/faults", {
+    device: "קורקינט חשמלי",
+    model: "דגם סוכן",
+    summary: "נפתח ע״י סוכן",
+    unlockInstructions: "הוראות סוכן",
+    commonFaults: [{ id: randomUUID(), code: "E01", title: "תקלת סוכן", symptoms: "", solution: "בדיקה", severity: "נפוצה" }],
+    videoLinks: [],
+    notes: "",
+  }, 201);
+  // Agent cannot remove saved commonFaults or delete the fault guide record
+  await api(employee.request, "PUT", "/api/records/faults/" + agentFault.id, {
+    device: "קורקינט חשמלי",
+    model: "דגם סוכן",
+    summary: "ניסיון מחיקת תקלה",
+    unlockInstructions: "הוראות סוכן",
+    commonFaults: [],
+    videoLinks: [],
+    notes: "",
+    version: agentFault.updatedAt,
+    deletePassword: "5522",
+  }, 403);
+  await api(employee.request, "DELETE", "/api/records/faults/" + agentFault.id, { version: agentFault.updatedAt, deletePassword: "5522" }, 403);
+  await employee.close();
 
   await stop();
   await start();

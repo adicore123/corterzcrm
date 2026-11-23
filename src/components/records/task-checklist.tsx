@@ -7,7 +7,7 @@ import { TaskProgress } from "@/components/record-cells";
 import { requestJson } from "@/lib/client-api";
 import type { Standard } from "@/lib/validation/models";
 
-export function TaskChecklist({ record }: { record: Standard }) {
+export function TaskChecklist({ record, readOnly = false }: { record: Standard; readOnly?: boolean }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(record.tasks);
   const [version, setVersion] = useState(record.updatedAt);
@@ -15,7 +15,7 @@ export function TaskChecklist({ record }: { record: Standard }) {
   const [error, setError] = useState("");
 
   async function toggle(taskId: string) {
-    if (busyId) return;
+    if (readOnly || busyId) return;
     const nextTasks = tasks.map((task) => task.id === taskId ? { ...task, done: !task.done } : task);
     setBusyId(taskId);
     setError("");
@@ -50,7 +50,7 @@ export function TaskChecklist({ record }: { record: Standard }) {
     {error && <p className="error-message" role="alert">{error}</p>}
     {tasks.length ? <ul className="task-list">{tasks.map((task) =>
       <li key={task.id} className={task.done ? "task-done" : ""}>
-        <button type="button" className="task-toggle" disabled={Boolean(busyId)} onClick={() => toggle(task.id)}
+        <button type="button" className="task-toggle" disabled={readOnly || Boolean(busyId)} onClick={() => toggle(task.id)}
           aria-pressed={task.done} aria-label={(task.done ? "ביטול סימון משימה: " : "סימון משימה כהושלמה: ") + task.title}>
           <span className="task-state" aria-hidden>{task.done && <Check size={15} />}</span>
           <span>{task.title}</span>

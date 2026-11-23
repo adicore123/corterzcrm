@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { authorizedUser } from "@/lib/auth/page";
 import { AppError } from "@/lib/errors";
@@ -7,7 +7,7 @@ import { readCollection } from "@/lib/json-db/store";
 import { getRecord } from "@/lib/json-db/records";
 import { catalogModels, knownModels } from "@/lib/json-db/queries";
 import { labels } from "@/lib/presentation";
-import { modules, uuid } from "@/lib/validation/models";
+import { canDeleteItems, canEditModule, modules, uuid } from "@/lib/validation/models";
 import { CustomerForm } from "@/components/records/customer-form";
 import { RecordDetail } from "@/components/records/detail";
 import { FaultForm } from "@/components/records/fault-form";
@@ -39,7 +39,7 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   if (segments.length > 2 || (action && action !== "edit")) notFound();
   if (!id) {
     return <RecordList key={JSON.stringify(query)} module={kind} filters={{ q: value("q"), status: value("status"), delay: value("delay"), sort: value("sort") }}
-      deleted={value("deleted") === "1"} />;
+      deleted={value("deleted") === "1"} userRole={user.role} />;
   }
   const creating = id === "new";
   if ((creating && action) || (!creating && !uuid.safeParse(id).success)) notFound();
@@ -48,14 +48,17 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
     if (error instanceof AppError && error.status === 404) notFound();
     throw error;
   });
-  if (record && !action) return <RecordDetail module={kind} record={record} admin={user.role === "admin"} saved={value("saved") === "1"} />;
+  if (record && !action) return <RecordDetail module={kind} record={record} admin={user.role === "admin"} userRole={user.role} saved={value("saved") === "1"} />;
+  if (!canEditModule(user.role, kind)) {
+    redirect(record ? `/${kind}/${record.id}` : `/${kind}`);
+  }
   if (kind === "customers") return <CustomerForm record={record && "phone" in record ? record : undefined} />;
   const cloud = usesBlobStorage();
   if (kind === "models") return <ModelForm record={record && !("phone" in record) && !("model" in record) ? record : undefined} cloud={cloud} />;
   const [models, catalog] = await Promise.all([knownModels(), catalogModels()]);
   const initialModel = catalog.find((item) => item.id === value("model"));
   if (kind === "faults") {
-    return <FaultForm record={record && "commonFaults" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
+    return <FaultForm record={record && "commonFaults" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} canDelete={canDeleteItems(user.role)} />;
   }
   if (kind === "standards") {
     return <StandardsForm record={record && "tasks" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;

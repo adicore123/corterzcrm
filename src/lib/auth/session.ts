@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import { AppError } from "../errors";
-import { passwordSchema, deletePasswordSchema, pickupAddressSchema, userInput, type PublicUser, type User } from "../validation/models";
+import { passwordSchema, deletePasswordSchema, pickupAddressSchema, DEFAULT_AGENT_INVITE_CODE, userInput, usernameSchema, type PublicUser, type User } from "../validation/models";
+import { z } from "zod";
 
 const derive = promisify(scrypt);
 const ttl = 12 * 60 * 60 * 1000;
@@ -77,6 +78,44 @@ export async function updateBusinessSettings(pickupAddress: string, actor: Publi
     await audit(actor.id, "business-settings-change", "settings", "business");
     return { ok: true };
   });
+}
+
+export async function rotateAgentInviteToken(actor: PublicUser) {
+  requireAdmin(actor);
+  const nextToken = randomBytes(9).toString("base64url");
+  return serialized(async () => {
+    const active = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled && item.role === "admin");
+    if (!active) throw new AppError(403, "פעולה זו זמינה למנהלי מערכת בלבד.");
+    const settings = await readCollection("settings");
+    await writeCollection("settings", { ...settings, agentInviteToken: nextToken, updatedAt: new Date().toISOString() });
+    await audit(actor.id, "agent-invite-rotate", "settings", "agent-invite");
+    return { token: nextToken };
+  });
+}
+
+const agentRegistrationSchema = z.object({
+  name: userInput.shape.name,
+  username: usernameSchema,
+  password: passwordSchema,
+  code: z.string().trim().min(1, "קוד ההרשמה חסר.").max(64),
+});
+
+export async function registerAgent(value: unknown) {
+  const input = agentRegistrationSchema.parse(value);
+  checkLoginLimit(input.username);
+  const settings = await readCollection("settings");
+  const expectedCode = settings.agentInviteToken ?? DEFAULT_AGENT_INVITE_CODE;
+  if (input.code !== expectedCode) {
+    recordFailedLogin(input.username);
+    throw new AppError(403, "קישור ההרשמה לסוכן אינו תקף או שהוחלף. בקשו קישור עדכני ממנהל המערכת.");
+  }
+  await createUser({
+    name: input.name,
+    username: input.username,
+    password: input.password,
+    role: "agent",
+  });
+  return login(input.username, input.password);
 }
 
 export function publicUser(user: User): PublicUser {

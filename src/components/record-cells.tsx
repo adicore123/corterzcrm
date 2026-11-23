@@ -3,7 +3,7 @@ import { Bike, MessageCircle, Phone, Video } from "lucide-react";
 import { formatDate, phoneHref, whatsappHref } from "@/lib/presentation";
 import type { CatalogModel, Customer, FaultGuide, Photo, PhotoModule, Repair, Standard } from "@/lib/validation/models";
 import {
-  formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
+  completedRepairCustomerMessage, formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
   formatRepairWhatsapp, formatStandardWhatsapp,
 } from "@/lib/whatsapp-card";
 import type { CardPhoto } from "./card-actions";
@@ -66,9 +66,9 @@ export function TaskProgress({ tasks }: { tasks: Standard["tasks"] }) {
   </span>;
 }
 
-export function standardRow(item: Standard, mode: "list" | "recent" | "delayed", modelsMap?: Map<string, CatalogModel>): TableRow {
+export function standardRow(item: Standard, mode: "list" | "recent" | "delayed", modelsMap?: Map<string, CatalogModel>, readOnly = false): TableRow {
   const progress = <TaskProgress tasks={item.tasks} />;
-  const status = <InlineStandardStatus key={"status-" + mode} record={item} variant="table" />;
+  const status = readOnly ? <Status key={"status-" + mode} value={item.status} /> : <InlineStandardStatus key={"status-" + mode} record={item} variant="table" />;
   const delay = <Status value={item.delay} />;
   const date = formatDate(item.updatedAt);
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
@@ -81,7 +81,7 @@ export function standardRow(item: Standard, mode: "list" | "recent" | "delayed",
     id: item.id,
     label: item.number,
     href: "/standards/" + item.id,
-    editHref: "/standards/" + item.id + "/edit",
+    editHref: readOnly ? undefined : "/standards/" + item.id + "/edit",
     cells: [<RecordNumber key="number" number={item.number} />, ...cells],
     card: {
       number: item.number,
@@ -89,8 +89,11 @@ export function standardRow(item: Standard, mode: "list" | "recent" | "delayed",
       subtitle: item.device,
       modelImageUrl: modelThumbUrl(catalogModel),
       fallbackIcon: "bike",
-      badges: item.delay === "מתעכב" ? [<Status key="delay" value={item.delay} />] : [],
-      statusControl: <InlineStandardStatus record={item} variant="mobile" />,
+      badges: [
+        ...(readOnly ? [<Status key="status" value={item.status} />] : []),
+        ...(item.delay === "מתעכב" ? [<Status key="delay" value={item.delay} />] : []),
+      ],
+      statusControl: readOnly ? undefined : <InlineStandardStatus record={item} variant="mobile" />,
       accent,
       highlightNote: item.delay === "מתעכב" && item.delayReason
         ? { label: "סיבת עיכוב", text: item.delayReason, tone: "amber" }
@@ -113,24 +116,32 @@ export function repairRow(
   customersSource: Map<string, Customer> | Map<string, string>,
   recent = false,
   modelsMap?: Map<string, CatalogModel>,
+  options?: { readOnly?: boolean; pickupAddress?: string },
 ): TableRow {
+  const readOnly = Boolean(options?.readOnly);
   const entry = customersSource.get(item.customerId);
   const customerObj = entry && typeof entry === "object" ? entry : undefined;
   const customerName = customerObj ? customerObj.name : typeof entry === "string" ? entry : undefined;
   const names = new Map(customerName ? [[item.customerId, customerName]] : []);
   const customer = <CustomerLink id={item.customerId} names={names} />;
-  const status = <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" />;
+  const status = readOnly
+    ? <Status key={"status-" + (recent ? "recent" : "list")} value={item.status} />
+    : <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" />;
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
   const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
   const cells = recent ? [modelCell, customer, formatDate(item.createdAt), status]
     : [modelCell, <bdi key="serial">{item.serial}</bdi>, customer, status, formatDate(item.updatedAt)];
   const accent = item.status === "הסתיים" ? "green" : item.status === "בטיפול" ? "blue" : "red";
+  const hasCustomerPhone = Boolean(customerObj?.phone);
+  const whatsappMessage = hasCustomerPhone && customerObj
+    ? completedRepairCustomerMessage(customerObj, item.model, options?.pickupAddress)
+    : formatRepairWhatsapp(item, customerObj);
 
   return {
     id: item.id,
     label: item.number,
     href: "/repairs/" + item.id,
-    editHref: "/repairs/" + item.id + "/edit",
+    editHref: readOnly ? undefined : "/repairs/" + item.id + "/edit",
     cells: [<RecordNumber key="number" number={item.number} />, ...cells],
     card: {
       number: item.number,
@@ -138,8 +149,8 @@ export function repairRow(
       subtitle: item.device,
       modelImageUrl: modelThumbUrl(catalogModel),
       fallbackIcon: "bike",
-      badges: [],
-      statusControl: <InlineRepairStatus record={item} variant="mobile" />,
+      badges: readOnly ? [<Status key="status" value={item.status} />] : [],
+      statusControl: readOnly ? undefined : <InlineRepairStatus record={item} variant="mobile" />,
       accent,
       highlightNote: item.fault ? { label: "תיאור תקלה", text: item.fault, tone: "neutral" } : undefined,
       meta: [
@@ -149,19 +160,21 @@ export function repairRow(
         { label: recent ? "נפתח" : "עדכון אחרון", value: formatDate(recent ? item.createdAt : item.updatedAt) },
       ],
       photos: recordCardPhotos("repairs", item.id, item.photos),
-      whatsappMessage: formatRepairWhatsapp(item, customerObj),
+      whatsappMessage,
+      whatsappPhone: hasCustomerPhone ? customerObj?.phone : undefined,
+      whatsappTargetLabel: hasCustomerPhone ? customerObj?.name : undefined,
       phoneHref: customerObj ? phoneHref(customerObj.phone) : undefined,
     },
   };
 }
 
-export function customerRow(item: Customer, count: number): TableRow {
+export function customerRow(item: Customer, count: number, readOnly = false): TableRow {
   const initial = Array.from(item.name.trim())[0]?.toLocaleUpperCase() || "ל";
   return {
     id: item.id,
     label: item.name,
     href: "/customers/" + item.id,
-    editHref: "/customers/" + item.id + "/edit",
+    editHref: readOnly ? undefined : "/customers/" + item.id + "/edit",
     cells: [item.name, item.customerType === "store" ? item.store || "—" : "—", <PhoneLink key="phone" phone={item.phone} />, count],
     card: {
       title: item.name,
@@ -180,13 +193,13 @@ export function customerRow(item: Customer, count: number): TableRow {
   };
 }
 
-export function modelRow(item: CatalogModel, standardsCount: number, repairsCount: number): TableRow {
+export function modelRow(item: CatalogModel, standardsCount: number, repairsCount: number, readOnly = false): TableRow {
   const photos = recordCardPhotos("models", item.id, item.photos);
   return {
     id: item.id,
     label: item.name,
     href: "/models/" + item.id,
-    editHref: "/models/" + item.id + "/edit",
+    editHref: readOnly ? undefined : "/models/" + item.id + "/edit",
     cells: [<ModelBadge key="model" model={item} />, item.device, standardsCount, repairsCount],
     card: {
       title: item.name,

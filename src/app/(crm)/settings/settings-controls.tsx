@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Lock, MapPin, Plus, ShieldCheck, Users } from "lucide-react";
+import { Activity as ActivityIcon, Check, Copy, DatabaseBackup, Download, KeyRound, Link2, Lock, MapPin, Plus, RefreshCw, ShieldCheck, Users } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
@@ -43,6 +43,7 @@ const actionLabels: Record<string, string> = {
   "password-change": "שינוי סיסמה",
   "delete-password-change": "שינוי סיסמת מחיקה",
   "business-settings-change": "עדכון פרטי העסק",
+  "agent-invite-rotate": "רענון קישור הרשמה לסוכנים",
 };
 
 const entityLabels: Record<string, string> = {
@@ -96,7 +97,7 @@ export function OwnPasswordControl() {
           <Field label="סיסמה נוכחית" error={errors.currentPassword?.message}>
             {(props) => <input {...props} {...register("currentPassword")} type="password" autoComplete="current-password" dir="ltr" required maxLength={128} />}
           </Field>
-          <Field label="סיסמה חדשה" hint="לפחות 12 תווים" error={errors.newPassword?.message}>
+          <Field label="סיסמה חדשה" hint="5–8 תווים פשוטים (ללא צורך באותיות גדולות או סימנים)" error={errors.newPassword?.message}>
             {(props) => <input {...props} {...register("newPassword")} type="password" autoComplete="new-password" dir="ltr" required maxLength={128} />}
           </Field>
           {error && <p className="error-message" role="alert">{error}</p>}
@@ -112,11 +113,13 @@ function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress }: {
-  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string;
+export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress, agentInviteCode = "cortez-agent" }: {
+  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string; agentInviteCode?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState(agentInviteCode);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const [deletePwdOpen, setDeletePwdOpen] = useState(false);
   const [deletePwdError, setDeletePwdError] = useState("");
   const [resetTarget, setResetTarget] = useState<PublicUser | null>(null);
@@ -127,7 +130,7 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
   const [resetError, setResetError] = useState("");
   const [businessError, setBusinessError] = useState("");
   const ignore = useRef(false);
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<z.infer<typeof userInput>>({
+  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting, isDirty } } = useForm<z.infer<typeof userInput>>({
     resolver: zodResolver(userInput), defaultValues: { name: "", username: "", role: "employee", password: "" },
   });
   const passwordForm = useForm<z.infer<typeof resetPasswordSchema>>({
@@ -240,28 +243,86 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
     </section>
     <section className="card detail-card">
       <div className="section-heading">
-        <h2><span className="section-icon"><Users size={18} /></span>משתמשים</h2>
-        <Modal open={open} onOpenChange={(next) => {
-          if (!next) {
-            if (isSubmitting) return;
-            unsaved.requestClose(() => { reset(); setFormError(""); setOpen(false); });
-            return;
-          }
-          setOpen(true);
-        }} title="משתמש חדש" description="הקצאת גישה למערכת התפעול"
-          trigger={<Button variant="outline" size="sm"><Plus size={16} /> משתמש חדש</Button>}>
-          <form className="dialog-form" noValidate onSubmit={submit}>
-            <Field label="שם מלא" error={errors.name?.message}>{(props) => <input {...props} {...register("name")} required maxLength={120} />}</Field>
-            <Field label="שם משתמש" error={errors.username?.message}>{(props) => <input {...props} {...register("username")} required dir="ltr" autoComplete="off" maxLength={80} />}</Field>
-            <Field label="סיסמה" hint="לפחות 12 תווים" error={errors.password?.message}>{(props) => <input {...props} {...register("password")}
-              type="password" autoComplete="new-password" dir="ltr" required maxLength={128} />}</Field>
-            <Field label="הרשאה" error={errors.role?.message}>{(props) => <select {...props} {...register("role")}>
-              {roles.map((role) => <option key={role} value={role}>{roleLabel[role]}</option>)}
-            </select>}</Field>
-            {formError && <p className="error-message" role="alert">{formError}</p>}
-            <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "שומר…" : "יצירת משתמש"}</Button>
-          </form>
-        </Modal>
+        <h2><span className="section-icon"><Users size={18} /></span>משתמשים וסוכנים</h2>
+        <div className="detail-actions">
+          <Button variant="soft" size="sm" onClick={() => {
+            reset({ name: "", username: "", role: "agent", password: "" });
+            setValue("role", "agent");
+            setFormError("");
+            setOpen(true);
+          }}>
+            <Plus size={16} /> פתיחת סוכן חדש
+          </Button>
+          <Modal open={open} onOpenChange={(next) => {
+            if (!next) {
+              if (isSubmitting) return;
+              unsaved.requestClose(() => { reset(); setFormError(""); setOpen(false); });
+              return;
+            }
+            setOpen(true);
+          }} title="משתמש חדש" description="הקצאת גישה למערכת התפעול או פתיחת חשבון סוכן"
+            trigger={<Button variant="outline" size="sm"><Plus size={16} /> משתמש חדש</Button>}>
+            <form className="dialog-form" noValidate onSubmit={submit}>
+              <Field label="שם מלא" error={errors.name?.message}>{(props) => <input {...props} {...register("name")} required maxLength={120} />}</Field>
+              <Field label="שם משתמש" error={errors.username?.message}>{(props) => <input {...props} {...register("username")} required dir="ltr" autoComplete="off" maxLength={80} />}</Field>
+              <Field label="סיסמה" hint="5–8 תווים פשוטים (ללא צורך באותיות גדולות או סימנים)" error={errors.password?.message}>{(props) => <input {...props} {...register("password")}
+                type="password" autoComplete="new-password" dir="ltr" required maxLength={128} />}</Field>
+              <Field label="הרשאה" hint="סוכן: צפייה בלבד במערכת · העלאה ועריכה במודול תקלות ופתיחות הגבלה בלבד · ללא אפשרות מחיקה" error={errors.role?.message}>{(props) => <select {...props} {...register("role")}>
+                {roles.map((role) => <option key={role} value={role}>{roleLabel[role]}</option>)}
+              </select>}</Field>
+              {formError && <p className="error-message" role="alert">{formError}</p>}
+              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "שומר…" : "יצירת משתמש"}</Button>
+            </form>
+          </Modal>
+        </div>
+      </div>
+      <div className="agent-invite-box" style={{ display: "grid", gap: "10px", padding: "14px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--surface-muted, rgba(0,0,0,0.02))", marginBottom: "14px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+          <div>
+            <strong style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}><Link2 size={16} aria-hidden /> קישור הרשמה עצמית לסוכנים</strong>
+            <p className="muted" style={{ margin: "2px 0 0" }}>שלחו את הקישור לסוכן כדי שיוכל להירשם בעצמו למערכת ולקבל משתמש סוכן (צפייה בלבד + עדכון תקלות ופתיחות הגבלה, ללא מחיקה).</p>
+          </div>
+          <div className="detail-actions">
+            <Button type="button" variant="outline" size="sm" onClick={async () => {
+              const url = new URL(`/register-agent?code=${encodeURIComponent(inviteCode)}`, window.location.origin).toString();
+              try {
+                await navigator.clipboard.writeText(url);
+                setCopiedInvite(true);
+                setNotice("קישור ההרשמה לסוכן הועתק ללוח.");
+                window.setTimeout(() => setCopiedInvite(false), 2200);
+              } catch {
+                setNotice(url);
+              }
+            }}>
+              {copiedInvite ? <Check size={15} /> : <Copy size={15} />} {copiedInvite ? "הקישור הועתק" : "העתקת קישור הרשמה לסוכן"}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" disabled={Boolean(action)} onClick={async () => {
+              setAction("rotate-invite");
+              setError("");
+              setNotice("");
+              try {
+                const res = await requestJson<{ token: string }>("/api/settings/agent-invite", "PATCH", {});
+                setInviteCode(res.token);
+                setNotice("קישור ההרשמה לסוכנים רוענן.");
+                router.refresh();
+              } catch (err) {
+                setError((err as Error).message);
+              } finally {
+                setAction("");
+              }
+            }}>
+              <RefreshCw size={15} /> החלפת קישור
+            </Button>
+          </div>
+        </div>
+        <input
+          type="text"
+          readOnly
+          dir="ltr"
+          aria-label="קישור הרשמה לסוכן"
+          value={`/register-agent?code=${inviteCode}`}
+          onFocus={(e) => e.currentTarget.select()}
+        />
       </div>
       <ul className="settings-list">{users.map((user) => <li key={user.id}>
         <div><strong>{user.name}</strong><span><bdi>{user.username}</bdi> · {roleLabel[user.role]} · {user.disabled ? "מושבת" : "פעיל"}</span></div>
@@ -284,7 +345,7 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
         }
       }} title={resetTarget ? "איפוס סיסמה · " + resetTarget.name : "איפוס סיסמה"} description="הגדרת סיסמה חדשה למשתמש">
         <form className="dialog-form" noValidate onSubmit={submitPasswordReset}>
-          <Field label="סיסמה חדשה" hint="לפחות 12 תווים" error={passwordForm.formState.errors.password?.message}>
+          <Field label="סיסמה חדשה" hint="5–8 תווים פשוטים (ללא צורך באותיות גדולות או סימנים)" error={passwordForm.formState.errors.password?.message}>
             {(props) => <input {...props} {...passwordForm.register("password")} type="password" autoComplete="new-password" dir="ltr" required maxLength={128} />}
           </Field>
           {resetError && <p className="error-message" role="alert">{resetError}</p>}

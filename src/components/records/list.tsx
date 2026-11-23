@@ -6,18 +6,24 @@ import { RecordTable } from "@/components/record-table";
 import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
-import { delayStatuses, devices, repairStatuses, standardStatuses, type Module } from "@/lib/validation/models";
+import { canEditModule, DEFAULT_PICKUP_ADDRESS, delayStatuses, devices, repairStatuses, standardStatuses, type Module, type Role } from "@/lib/validation/models";
 
 const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike, faults: ShieldAlert };
 
-export async function RecordList({ module, filters, deleted }: { module: Module; filters: RecordFilters; deleted: boolean }) {
-  const [records, contacts, repairs, standards, models] = await Promise.all([
+export async function RecordList({ module, filters, deleted, userRole = "admin" }: {
+  module: Module; filters: RecordFilters; deleted: boolean; userRole?: Role;
+}) {
+  const canEdit = canEditModule(userRole, module);
+  const readOnly = !canEdit;
+  const [records, contacts, repairs, standards, models, settings] = await Promise.all([
     searchRecords(module, filters),
     module === "repairs" ? readCollection("customers") : [],
     module === "customers" || module === "models" || module === "faults" ? readCollection("repairs") : [],
     module === "models" ? readCollection("standards") : [],
     module === "standards" || module === "repairs" || module === "faults" ? catalogModels() : [],
+    module === "repairs" ? readCollection("settings") : Promise.resolve({ pickupAddress: DEFAULT_PICKUP_ADDRESS }),
   ]);
+  const pickupAddress = settings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS;
   const customersMap = new Map(contacts.map((item) => [item.id, item]));
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const counts = new Map<string, number>();
@@ -33,12 +39,12 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
     modelStandards.set(key, (modelStandards.get(key) ?? 0) + 1);
   }
   const rows = records.map((item) => {
-    if ("tasks" in item) return standardRow(item, "list", modelsMap);
-    if ("serial" in item) return repairRow(item, customersMap, false, modelsMap);
-    if ("phone" in item) return customerRow(item, counts.get(item.id) ?? 0);
+    if ("tasks" in item) return standardRow(item, "list", modelsMap, readOnly);
+    if ("serial" in item) return repairRow(item, customersMap, false, modelsMap, { readOnly, pickupAddress });
+    if ("phone" in item) return customerRow(item, counts.get(item.id) ?? 0, readOnly);
     if ("commonFaults" in item) return faultGuideRow(item, modelRepairs.get(item.model.toLocaleLowerCase("he")) ?? 0, modelsMap);
     const key = item.name.toLocaleLowerCase("he");
-    return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0);
+    return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0, readOnly);
   });
   const copy = moduleCopy[module];
   const columns = module === "standards" ? ["מספר תיק", "דגם", "סוג מכשיר", "סטטוס", "עיכוב", "משימות", "עדכון אחרון"]
@@ -52,7 +58,7 @@ export async function RecordList({ module, filters, deleted }: { module: Module;
   return <div className="page-stack">
     <div className="page-title title-with-action">
       <div><h1>{labels[module]}</h1><p>{copy.description}</p></div>
-      <Button asChild><Link href={href + "/new"}><Plus size={18} /> {copy.create}</Link></Button>
+      {canEdit && <Button asChild><Link href={href + "/new"}><Plus size={18} /> {copy.create}</Link></Button>}
     </div>
     {deleted && <p className="success-message" role="status">הרשומה נמחקה.</p>}
     <section className="card list-card" aria-label={labels[module]}>

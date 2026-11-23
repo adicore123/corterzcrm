@@ -90,6 +90,7 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
               {collapsed ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}
             </Button>
             <span>{labels[current]}</span>
+            {user.role === "agent" && <span className="status status-blue">ממשק סוכן · צפייה ותקלות</span>}
           </div>
           <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>
         </header>

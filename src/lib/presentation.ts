@@ -26,7 +26,7 @@ export function formatDate(value: string, includeTime = false) {
   return (includeTime ? dateAndTime : dateFormat).format(new Date(value));
 }
 
-export const roleLabel = { admin: "מנהל מערכת", employee: "עובד" };
+export const roleLabel = { admin: "מנהל מערכת", employee: "עובד", agent: "סוכן" } as const;
 
 export function phoneHref(phone: string) {
   return "tel:" + phone.replace(/[^+0-9]/g, "");
