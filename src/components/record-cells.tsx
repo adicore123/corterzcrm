@@ -143,7 +143,7 @@ export function repairRow(
       meta: [
         { label: "לקוח", value: customerName ? <Link className="text-link" href={"/customers/" + item.customerId} prefetch={false}>{customerName}</Link> : "—" },
         { label: "מספר סידורי", value: <bdi dir="ltr">{item.serial}</bdi> },
-        ...(!recent && customerObj?.store ? [{ label: "חנות", value: customerObj.store }] : []),
+        ...(!recent && customerObj?.customerType === "store" && customerObj.store ? [{ label: "חנות", value: customerObj.store }] : []),
         { label: recent ? "נפתח" : "עדכון אחרון", value: formatDate(recent ? item.createdAt : item.updatedAt) },
       ],
       photos: recordCardPhotos("repairs", item.id, item.photos),
@@ -160,10 +160,10 @@ export function customerRow(item: Customer, count: number): TableRow {
     label: item.name,
     href: "/customers/" + item.id,
     editHref: "/customers/" + item.id + "/edit",
-    cells: [item.name, item.store || "—", <PhoneLink key="phone" phone={item.phone} />, count],
+    cells: [item.name, item.customerType === "store" ? item.store || "—" : "—", <PhoneLink key="phone" phone={item.phone} />, count],
     card: {
       title: item.name,
-      subtitle: item.store || "לקוח פרטי",
+      subtitle: item.customerType === "store" ? item.store || "חנות" : "לקוח פרטי",
       avatarText: initial,
       fallbackIcon: "customer",
       badges: [<span key="count" className="status status-neutral">{count === 1 ? "תיקון אחד" : `${count} תיקונים`}</span>],

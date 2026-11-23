@@ -45,7 +45,7 @@ export const repairInput = z.object({
   status: z.enum(repairStatuses),
 });
 
-export const customerInput = z.object({
+const customerFieldsSchema = z.object({
   customerType: z.enum(["private", "store"]).optional(),
   name: required("שם לקוח"),
   store: optional(120),
@@ -53,6 +53,17 @@ export const customerInput = z.object({
     .refine((value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 7 && value.replace(/\D/g, "").length <= 15,
       "יש להזין מספר טלפון תקין."),
 });
+type CustomerFields = z.infer<typeof customerFieldsSchema>;
+type NormalizedCustomer<T extends CustomerFields> = Omit<T, "customerType"> & { customerType?: "private" | "store" };
+const normalizeCustomerType = <T extends CustomerFields>(customer: T): NormalizedCustomer<T> => {
+  const customerType = customer.customerType ?? (customer.store.trim() === "פרטי" ? "private" as const : undefined);
+  if (customerType === "private") return { ...customer, customerType, store: "" };
+  if (customerType === "store") return { ...customer, customerType };
+  const legacyCustomer: NormalizedCustomer<T> = { ...customer };
+  delete legacyCustomer.customerType;
+  return legacyCustomer;
+};
+export const customerInput = customerFieldsSchema.transform(normalizeCustomerType);
 
 const mediaUrl = z.string().trim().max(1000).refine((value) => !value || /^https?:\/\//i.test(value), "יש להזין קישור http/https תקין.");
 const point3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
@@ -156,11 +167,7 @@ export const standardSchema = standardsInput.safeExtend({
 export const repairSchema = repairInput.extend({
   ...record, number: z.string().regex(/^REP-\d{4,}$/), photos: z.array(photoSchema).max(10),
 });
-export const customerSchema = customerInput.extend(record).transform((customer) =>
-  !customer.customerType && customer.store.trim() === "פרטי"
-    ? { ...customer, customerType: "private" as const }
-    : customer,
-);
+export const customerSchema = customerFieldsSchema.extend(record).transform(normalizeCustomerType);
 export const catalogModelSchema = modelInput.extend({
   ...record, photos: z.array(photoSchema).max(10),
 });

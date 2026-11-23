@@ -14,7 +14,16 @@ test('customer type and ready message support private, store and legacy customer
 
 test('legacy customer marked private in the store field is recognized without changing other customers', () => {
   const record = { id: '0b745e23-1aca-4c69-95ff-83ced62fbb63', name: 'לקוח', phone: '0501234567', createdAt: '2026-11-23T09:08:19.574Z', updatedAt: '2026-11-23T09:08:19.574Z' };
-  assert.equal(customerSchema.parse({ ...record, store: 'פרטי' }).customerType, 'private');
+  assert.deepEqual(customerSchema.parse({ ...record, store: 'פרטי' }), { ...record, store: '', customerType: 'private' });
   assert.equal(customerSchema.parse({ ...record, store: 'חנות' }).customerType, undefined);
   assert.equal(customerSchema.parse({ ...record, store: 'פרטי', customerType: 'store' }).customerType, 'store');
+});
+
+test('private customer input clears store details while store customer input preserves them', () => {
+  assert.deepEqual(customerInput.parse({ name: 'רועי', store: 'ערך ישן', phone: '0528216677', customerType: 'private' }), {
+    name: 'רועי', store: '', phone: '0528216677', customerType: 'private',
+  });
+  assert.deepEqual(customerInput.parse({ name: 'דנה', store: 'גלגל העיר', phone: '0501234567', customerType: 'store' }), {
+    name: 'דנה', store: 'גלגל העיר', phone: '0501234567', customerType: 'store',
+  });
 });

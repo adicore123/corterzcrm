@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
-import { useForm } from "react-hook-form";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Save, UserRoundPlus, Users } from "lucide-react";
 import { newRequestId, requestJson } from "@/lib/client-api";
@@ -14,15 +14,20 @@ import { useEditor } from "./use-editor";
 const defaults = { name: "", store: "", phone: "", customerType: undefined };
 
 export function CustomerForm({ record }: { record?: Customer }) {
-  const { register, handleSubmit, setError, formState: { errors, isDirty, isSubmitting } } = useForm<CustomerInput>({
+  const { control, register, handleSubmit, setError, setValue, formState: { errors, isDirty, isSubmitting } } = useForm<CustomerInput>({
     resolver: zodResolver(customerInput), defaultValues: record ?? defaults,
   });
+  const customerType = useWatch({ control, name: "customerType" });
+  useEffect(() => {
+    if (customerType === "private") setValue("store", "", { shouldDirty: true });
+  }, [customerType, setValue]);
   const editor = useEditor("customers", record, isDirty);
   return <Editor module="customers" title={record ? "עריכת לקוח" : "לקוח חדש"} cancel={record ? "/customers/" + record.id : "/customers"}
     loading={isSubmitting || editor.leaving} error={editor.error} progress={editor.progress} unsaved={editor.unsaved}
     onSubmit={handleSubmit((values) => { if (!values.customerType) { setError("customerType", { message: "יש לבחור סוג לקוח." }); return; } return editor.save(values); })}>
     <Section title="פרטי לקוח" icon={Users}>
-      <div className="fields-grid"><CustomerFields name={register("name")} store={register("store")} phone={register("phone")} customerType={register("customerType", { setValueAs: (value) => value || undefined })} errors={errors} /></div>
+      <div className="fields-grid"><CustomerFields name={register("name")} store={register("store")} phone={register("phone")}
+        customerType={register("customerType", { setValueAs: (value) => value || undefined })} selectedCustomerType={customerType} errors={errors} /></div>
     </Section>
   </Editor>;
 }
@@ -32,9 +37,13 @@ export function InlineCustomer({ onSave }: { onSave: (customer: Customer) => voi
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [error, setError] = useState("");
   const requestId = useRef("");
-  const { register, handleSubmit, reset, setError: setFormError, formState: { errors, isDirty, isSubmitting } } = useForm<CustomerInput>({
+  const { control, register, handleSubmit, reset, setError: setFormError, setValue, formState: { errors, isDirty, isSubmitting } } = useForm<CustomerInput>({
     resolver: zodResolver(customerInput), defaultValues: defaults,
   });
+  const customerType = useWatch({ control, name: "customerType" });
+  useEffect(() => {
+    if (customerType === "private") setValue("store", "", { shouldDirty: true });
+  }, [customerType, setValue]);
 
   function closeNow() {
     reset();
@@ -74,7 +83,8 @@ export function InlineCustomer({ onSave }: { onSave: (customer: Customer) => voi
     <Modal open={open} onOpenChange={change} title="לקוח חדש" description="הלקוח יישמר וישויך לתיקון."
       trigger={<Button variant="outline" className="inline-customer-button"><UserRoundPlus size={17} /> לקוח חדש</Button>}>
       <form noValidate className="dialog-form" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.stopPropagation(); void handleSubmit(save)(event); }}>
-        <CustomerFields name={register("name")} store={register("store")} phone={register("phone")} customerType={register("customerType", { setValueAs: (value) => value || undefined })} errors={errors} />
+        <CustomerFields name={register("name")} store={register("store")} phone={register("phone")}
+          customerType={register("customerType", { setValueAs: (value) => value || undefined })} selectedCustomerType={customerType} errors={errors} />
         {error && <p role="alert" className="error-message">{error}</p>}
         <div className="dialog-actions"><Button type="submit" disabled={isSubmitting}><Save size={17} /> {isSubmitting ? "שומר…" : "שמירת לקוח"}</Button>
           <Button variant="outline" disabled={isSubmitting} onClick={() => change(false)}>ביטול</Button></div>

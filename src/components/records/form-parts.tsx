@@ -142,8 +142,9 @@ export function DeviceFields({
   </>;
 }
 
-export function CustomerFields({ name, store, phone, customerType, errors }: {
+export function CustomerFields({ name, store, phone, customerType, selectedCustomerType, errors }: {
   name: UseFormRegisterReturn; store: UseFormRegisterReturn; phone: UseFormRegisterReturn; customerType: UseFormRegisterReturn;
+  selectedCustomerType?: "private" | "store";
   errors: { name?: { message?: string }; store?: { message?: string }; phone?: { message?: string }; customerType?: { message?: string } };
 }) {
   return <>
@@ -151,7 +152,9 @@ export function CustomerFields({ name, store, phone, customerType, errors }: {
       <option value="">בחירת סוג לקוח</option><option value="private">לקוח פרטי</option><option value="store">חנות</option>
     </select>}</Field>
     <Field label="שם לקוח" error={errors.name?.message}>{(props) => <input {...props} {...name} autoComplete="name" maxLength={120} required />}</Field>
-    <Field label="שם החנות" error={errors.store?.message}>{(props) => <input {...props} {...store} autoComplete="organization" maxLength={120} />}</Field>
+    {selectedCustomerType === "store" && <Field label="שם החנות" error={errors.store?.message}>
+      {(props) => <input {...props} {...store} autoComplete="organization" maxLength={120} />}
+    </Field>}
     <Field label="מספר טלפון" error={errors.phone?.message}>{(props) => <input {...props} {...phone} type="tel" dir="ltr" autoComplete="tel" maxLength={32} required />}</Field>
   </>;
 }
