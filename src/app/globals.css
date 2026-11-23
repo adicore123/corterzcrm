@@ -357,6 +357,8 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
 .dialog-heading .button { margin: -7px 0 -7px -7px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 4px; }
 .dialog-form { display: grid; gap: 10px; }
+.repair-work-dialog { width: min(calc(100% - 28px), 560px); }
+.repair-work-form textarea { min-height: 132px; resize: vertical; }
 .settings-business-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; max-width: 760px; margin-top: 14px; }
 .settings-business-form .error-message { grid-column: 1 / -1; }
 .photo-modal { width: min(calc(100% - 28px), 900px); }

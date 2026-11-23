@@ -275,6 +275,47 @@ try {
   await field(page, "חיפוש לפי מספר תיקון, דגם או מספר סידורי").fill("SER-TEST-73");
   await field(page, "סינון לפי סטטוס").selectOption("התקבל");
   await button(page, "חיפוש").click();
+  await field(page, "סינון לפי סטטוס").selectOption("");
+  await button(page, "חיפוש").click();
+
+  // Mobile repair cards open a work editor for active/completed statuses. Cancelling must not mutate the repair.
+  await button(page, "סטטוס בטיפול עבור " + repair.number).click();
+  const repairWorkDialog = page.getByRole("dialog", { name: "תיעוד הטיפול" });
+  await visible(repairWorkDialog);
+  await field(repairWorkDialog, "מה נעשה בתיקון?").fill("טקסט שלא אמור להישמר");
+  await button(repairWorkDialog, "ביטול").click();
+  await repairWorkDialog.waitFor({ state: "hidden" });
+  let [inlineRepair] = await readDb("repairs");
+  assert.deepEqual([inlineRepair.status, inlineRepair.work], ["התקבל", ""]);
+
+  await button(page, "סטטוס בטיפול עבור " + repair.number).click();
+  await field(repairWorkDialog, "מה נעשה בתיקון?").fill("בוצע אבחון ראשוני");
+  await button(repairWorkDialog, "שמירת סטטוס ותיעוד").click();
+  await repairWorkDialog.waitFor({ state: "hidden" });
+  await visible(page.locator(".standard-status-block.is-active"));
+  [inlineRepair] = await readDb("repairs");
+  assert.deepEqual([inlineRepair.status, inlineRepair.work], ["בטיפול", "בוצע אבחון ראשוני"]);
+
+  // The desktop table uses the same atomic status + work flow.
+  await admin.goto("/repairs?q=" + encodeURIComponent(repair.number));
+  const repairInlineSelect = admin.locator(".data-table").getByLabel("שינוי סטטוס עבור " + repair.number);
+  await repairInlineSelect.selectOption("הסתיים");
+  const desktopRepairWorkDialog = admin.getByRole("dialog", { name: "תיעוד הטיפול" });
+  await visible(desktopRepairWorkDialog);
+  await field(desktopRepairWorkDialog, "מה נעשה בתיקון?").fill("הכלי נבדק ומוכן");
+  await button(desktopRepairWorkDialog, "שמירת סטטוס ותיעוד").click();
+  await desktopRepairWorkDialog.waitFor({ state: "hidden" });
+  await visible(admin.locator(".data-table .inline-status-saved"));
+  [inlineRepair] = await readDb("repairs");
+  assert.deepEqual([inlineRepair.status, inlineRepair.work], ["הסתיים", "הכלי נבדק ומוכן"]);
+
+  // Returning to received is immediate and must preserve the documented work.
+  await repairInlineSelect.selectOption("התקבל");
+  await admin.locator(".data-table .inline-status-saved").waitFor({ state: "hidden" });
+  await visible(admin.locator(".data-table .inline-status-saved"));
+  [inlineRepair] = await readDb("repairs");
+  assert.deepEqual([inlineRepair.status, inlineRepair.work], ["התקבל", "הכלי נבדק ומוכן"]);
+
   await link(page, repair.number).click();
   await link(page, "עריכה").click();
   await field(page, "מה תוקן?").fill("הוחלף מחבר");

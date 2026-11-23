@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_PICKUP_ADDRESS, customerInput, customerSchema } from '../src/lib/validation/models';
 import { repairReadyMessage } from '../src/lib/whatsapp-card';
+import { repairStatusNeedsWork } from '../src/components/records/inline-repair-status';
 
 test('customer type and ready message support private, store and legacy customers', () => {
   const base = { name: 'דנה', store: 'חנות גלגל', phone: '0501234567' };
@@ -36,4 +37,10 @@ test('private ready message is professional and includes the configured pickup a
     'שלום רועי, הטיפול בקורקינט X הסתיים והכלי שלך מוכן לאיסוף. ניתן להגיע לאיסוף בכתובת לישנסקי 27, ראשון לציון. נשמח לעמוד לשירותך, צוות קורטז.',
   );
   assert.match(repairReadyMessage(customer, 'קורקינט X', 'הרצל 10, תל אביב')!, /הרצל 10, תל אביב/);
+});
+
+test('repair work editor opens only for active and completed statuses', () => {
+  assert.equal(repairStatusNeedsWork('התקבל'), false);
+  assert.equal(repairStatusNeedsWork('בטיפול'), true);
+  assert.equal(repairStatusNeedsWork('הסתיים'), true);
 });

@@ -8,6 +8,7 @@ import {
 } from "@/lib/whatsapp-card";
 import type { CardPhoto } from "./card-actions";
 import { InlineStandardStatus } from "./records/inline-standard-status";
+import { InlineRepairStatus } from "./records/inline-repair-status";
 import type { TableRow } from "./record-table";
 import { Status } from "./ui/status";
 
@@ -118,7 +119,7 @@ export function repairRow(
   const customerName = customerObj ? customerObj.name : typeof entry === "string" ? entry : undefined;
   const names = new Map(customerName ? [[item.customerId, customerName]] : []);
   const customer = <CustomerLink id={item.customerId} names={names} />;
-  const status = <Status value={item.status} />;
+  const status = <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" />;
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
   const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
   const cells = recent ? [modelCell, customer, formatDate(item.createdAt), status]
@@ -137,7 +138,8 @@ export function repairRow(
       subtitle: item.device,
       modelImageUrl: modelThumbUrl(catalogModel),
       fallbackIcon: "bike",
-      badges: [<Status key="status" value={item.status} />],
+      badges: [],
+      statusControl: <InlineRepairStatus record={item} variant="mobile" />,
       accent,
       highlightNote: item.fault ? { label: "תיאור תקלה", text: item.fault, tone: "neutral" } : undefined,
       meta: [
