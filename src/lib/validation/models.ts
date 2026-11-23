@@ -181,8 +181,11 @@ export const faultGuideSchema = faultGuideInput.extend({
 export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9._@+-]{2,79}$/, "יש להזין שם משתמש באותיות לטיניות או בספרות (3–80 תווים).");
 export const passwordSchema = z.string().min(12, "הסיסמה חייבת לכלול לפחות 12 תווים.").max(128, "הסיסמה ארוכה מדי.");
 export const deletePasswordSchema = z.string().trim().min(4, "סיסמת המחיקה חייבת לכלול לפחות 4 תווים.").max(64, "סיסמת המחיקה ארוכה מדי.");
+export const DEFAULT_PICKUP_ADDRESS = "לישנסקי 27, ראשון לציון";
+export const pickupAddressSchema = z.string().trim().min(3, "יש להזין כתובת איסוף.").max(240, "כתובת האיסוף ארוכה מדי.");
 export const systemSettingsSchema = z.object({
   deletePasswordHash: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/).optional(),
+  pickupAddress: pickupAddressSchema.optional(),
   updatedAt: date.optional(),
 });
 export type SystemSettings = z.infer<typeof systemSettingsSchema>;

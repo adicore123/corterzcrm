@@ -7,7 +7,7 @@ import {
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { embedVideoUrl, formatBytes, formatDate, labels, whatsappHref } from "@/lib/presentation";
-import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "@/lib/validation/models";
+import { DEFAULT_PICKUP_ADDRESS, type CatalogModel, type Customer, type FaultGuide, type Module, type Repair, type Standard } from "@/lib/validation/models";
 import {
   formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
   formatRepairWhatsapp, formatStandardWhatsapp,
@@ -37,12 +37,13 @@ export async function RecordDetail({ module, record, admin, saved }: {
   const title = "model" in record ? record.model : record.name;
   const isModelRecord = module === "models" && !("phone" in record) && !("model" in record);
   const isFaultGuide = module === "faults" && "commonFaults" in record;
-  const [customers, repairs, standards, models, faults] = await Promise.all([
+  const [customers, repairs, standards, models, faults, systemSettings] = await Promise.all([
     "serial" in record || isModelRecord || isFaultGuide ? readCollection("customers") : [],
     "phone" in record || isModelRecord || isFaultGuide ? readCollection("repairs") : [],
     isModelRecord ? readCollection("standards") : [],
     catalogModels(),
     isModelRecord ? readCollection("faults") : [],
+    readCollection("settings"),
   ]);
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
   const customer = "serial" in record ? customers.find((item) => item.id === record.customerId) : undefined;
@@ -76,6 +77,9 @@ export async function RecordDetail({ module, record, admin, saved }: {
           ? formatFaultGuideWhatsapp(record, modelRepairs.length)
           : formatModelWhatsapp(record as CatalogModel, modelStandards.length, modelRepairs.length);
   const linkedModelThumb = modelThumbUrl(linkedModel);
+  const readyMessage = "serial" in record && customer
+    ? repairReadyMessage(customer, record.model, systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS)
+    : undefined;
 
   return <div className="page-stack">
     <Link className="back-link" href={"/" + module}><ArrowRight size={16} aria-hidden />{labels[module]}</Link>
@@ -138,7 +142,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
         <div className="detail-notes"><h3>מה התקלה?</h3><p>{record.fault}</p></div>
         <div className="detail-notes"><h3>מה תוקן?</h3><p>{record.work || "טרם תועד תיקון."}</p></div>
         {record.status === "הסתיים" && customer && <div className="detail-notes no-print">
-          {repairReadyMessage(customer, record.model) ? <Button asChild><a href={whatsappHref(customer.phone, repairReadyMessage(customer, record.model))} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
+          {readyMessage ? <Button asChild><a href={whatsappHref(customer.phone, readyMessage)} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
             : <p>יש להגדיר את סוג הלקוח כדי להכין הודעה. <Link className="text-link" href={"/customers/" + customer.id + "/edit"}>עדכון סוג לקוח</Link></p>}
         </div>}
       </section>
@@ -148,7 +152,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
     {"phone" in record && <>
       <section className="card detail-card">
         <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי לקוח</h2>
-        <Details rows={[["שם לקוח", record.name], ["סוג לקוח", record.customerType === "private" ? "לקוח פרטי" : record.customerType === "store" ? "חנות" : "סוג לקוח לבירור"], ["שם החנות", record.store], ["מספר טלפון", <PhoneLink key="phone" phone={record.phone} />], ...dates]} />
+        <Details rows={[["שם לקוח", record.name], ["סוג לקוח", record.customerType === "private" ? "לקוח פרטי" : record.customerType === "store" ? "חנות" : "סוג לקוח לבירור"], ...(record.customerType === "store" ? [["שם החנות", record.store] as Value] : []), ["מספר טלפון", <PhoneLink key="phone" phone={record.phone} />], ...dates]} />
       </section>
       <section className="card data-card">
         <div className="section-heading"><h2>היסטוריית תיקונים</h2>

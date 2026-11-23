@@ -357,6 +357,8 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
 .dialog-heading .button { margin: -7px 0 -7px -7px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 4px; }
 .dialog-form { display: grid; gap: 10px; }
+.settings-business-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; max-width: 760px; margin-top: 14px; }
+.settings-business-form .error-message { grid-column: 1 / -1; }
 .photo-modal { width: min(calc(100% - 28px), 900px); }
 .photo-modal > p { overflow-wrap: anywhere; }
 .card-lightbox-modal { width: min(calc(100% - 24px), 880px); gap: 12px; }
@@ -446,6 +448,7 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
   .topbar { min-height: 57px; padding-block: 5px; }
   .top-date { display: none; }
   .main-content { padding: 15px 13px 26px; }
+  .settings-business-form { grid-template-columns: minmax(0, 1fr); }
   .dashboard, .page-stack { gap: 13px; }
   .dashboard-banner { padding: 17px 15px; min-height: 105px; }
   .dashboard-banner .track-lines { left: -88px; width: 225px; opacity: .74; }

@@ -10,7 +10,7 @@ test("delete password defaults to 5522, enforces record item removals, and allow
   process.env.CORTEZ_STORAGE_DIR = root;
   try {
     const {
-      changeDeletePassword, createUser, DEFAULT_DELETE_PASSWORD, requireDeletePassword, verifyDeletePassword,
+      changeDeletePassword, createUser, DEFAULT_DELETE_PASSWORD, requireDeletePassword, updateBusinessSettings, verifyDeletePassword,
     } = await import("../src/lib/auth/session");
     const { readCollection } = await import("../src/lib/json-db/store");
     const { saveRecord, getRecord } = await import("../src/lib/json-db/records");
@@ -39,6 +39,8 @@ test("delete password defaults to 5522, enforces record item removals, and allow
     }, admin);
 
     await assert.rejects(() => changeDeletePassword("5522", "8899", employee), { status: 403 });
+    await assert.rejects(() => updateBusinessSettings("הרצל 10, תל אביב", employee), { status: 403 });
+    assert.deepEqual(await updateBusinessSettings("לישנסקי 27, ראשון לציון", admin), { ok: true });
     await assert.rejects(() => changeDeletePassword("9999", "8899", admin), { status: 400 });
     await assert.rejects(() => changeDeletePassword("5522", "12", admin));
 
@@ -47,6 +49,7 @@ test("delete password defaults to 5522, enforces record item removals, and allow
 
     const settingsRaw = await readFile(join(root, "data", "settings.json"), "utf8");
     assert.equal(settingsRaw.includes("8899"), false);
+    assert.equal(JSON.parse(settingsRaw).pickupAddress, "לישנסקי 27, ראשון לציון");
     assert.equal(await verifyDeletePassword("5522"), false);
     assert.equal(await verifyDeletePassword("8899"), true);
 

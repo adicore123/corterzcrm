@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { customerInput, customerSchema } from '../src/lib/validation/models';
+import { DEFAULT_PICKUP_ADDRESS, customerInput, customerSchema } from '../src/lib/validation/models';
 import { repairReadyMessage } from '../src/lib/whatsapp-card';
 
 test('customer type and ready message support private, store and legacy customers', () => {
@@ -26,4 +26,14 @@ test('private customer input clears store details while store customer input pre
   assert.deepEqual(customerInput.parse({ name: 'דנה', store: 'גלגל העיר', phone: '0501234567', customerType: 'store' }), {
     name: 'דנה', store: 'גלגל העיר', phone: '0501234567', customerType: 'store',
   });
+});
+
+test('private ready message is professional and includes the configured pickup address', () => {
+  const customer = { name: 'רועי', store: '', phone: '0528216677', customerType: 'private' as const };
+  assert.equal(DEFAULT_PICKUP_ADDRESS, 'לישנסקי 27, ראשון לציון');
+  assert.equal(
+    repairReadyMessage(customer, 'קורקינט X'),
+    'שלום רועי, הטיפול בקורקינט X הסתיים והכלי שלך מוכן לאיסוף. ניתן להגיע לאיסוף בכתובת לישנסקי 27, ראשון לציון. נשמח לעמוד לשירותך, צוות קורטז.',
+  );
+  assert.match(repairReadyMessage(customer, 'קורקינט X', 'הרצל 10, תל אביב')!, /הרצל 10, תל אביב/);
 });

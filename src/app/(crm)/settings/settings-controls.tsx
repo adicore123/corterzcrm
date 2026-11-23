@@ -4,14 +4,14 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Lock, Plus, ShieldCheck, Users } from "lucide-react";
+import { Activity as ActivityIcon, DatabaseBackup, Download, KeyRound, Lock, MapPin, Plus, ShieldCheck, Users } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { formatDate, roleLabel } from "@/lib/presentation";
 import { requestJson } from "@/lib/client-api";
-import { deletePasswordSchema, passwordSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
+import { deletePasswordSchema, passwordSchema, pickupAddressSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
 import { useUnsaved } from "@/components/records/use-editor";
 
 const resetPasswordSchema = z.object({ password: passwordSchema });
@@ -27,6 +27,7 @@ const ownPasswordSchema = z.object({
   currentPassword: z.string().min(1, "יש להזין את הסיסמה הנוכחית.").max(128, "הסיסמה ארוכה מדי."),
   newPassword: passwordSchema,
 });
+const businessSettingsSchema = z.object({ pickupAddress: pickupAddressSchema });
 
 const actionLabels: Record<string, string> = {
   create: "יצירה",
@@ -41,6 +42,7 @@ const actionLabels: Record<string, string> = {
   "password-reset": "איפוס סיסמה",
   "password-change": "שינוי סיסמה",
   "delete-password-change": "שינוי סיסמת מחיקה",
+  "business-settings-change": "עדכון פרטי העסק",
 };
 
 const entityLabels: Record<string, string> = {
@@ -110,8 +112,8 @@ function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false }: {
-  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean;
+export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress }: {
+  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -123,6 +125,7 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
   const [notice, setNotice] = useState("");
   const [formError, setFormError] = useState("");
   const [resetError, setResetError] = useState("");
+  const [businessError, setBusinessError] = useState("");
   const ignore = useRef(false);
   const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm<z.infer<typeof userInput>>({
     resolver: zodResolver(userInput), defaultValues: { name: "", username: "", role: "employee", password: "" },
@@ -133,10 +136,14 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
   const deletePwdForm = useForm<z.infer<typeof changeDeletePwdSchema>>({
     resolver: zodResolver(changeDeletePwdSchema), defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
   });
+  const businessForm = useForm<z.infer<typeof businessSettingsSchema>>({
+    resolver: zodResolver(businessSettingsSchema), defaultValues: { pickupAddress },
+  });
   const unsaved = useUnsaved(
     (open && isDirty)
       || (Boolean(resetTarget) && passwordForm.formState.isDirty)
-      || (deletePwdOpen && deletePwdForm.formState.isDirty),
+      || (deletePwdOpen && deletePwdForm.formState.isDirty)
+      || businessForm.formState.isDirty,
     ignore,
   );
 
@@ -200,9 +207,37 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
     }
   });
 
+  const submitBusinessSettings = businessForm.handleSubmit(async (value) => {
+    setBusinessError("");
+    setNotice("");
+    try {
+      await requestJson("/api/settings/business", "PATCH", value);
+      businessForm.reset(value);
+      setNotice("כתובת האיסוף נשמרה בהצלחה.");
+      router.refresh();
+    } catch (error) {
+      setBusinessError((error as Error).message);
+    }
+  });
+
   return <>
     {notice && <p className="success-message" role="status">{notice}</p>}
     {error && <p className="error-message" role="alert">{error}</p>}
+    <section className="card detail-card">
+      <div className="section-heading">
+        <h2><span className="section-icon"><MapPin size={18} /></span>פרטי העסק</h2>
+      </div>
+      <p className="muted">הכתובת תצורף אוטומטית להודעת האיסוף שנשלחת ללקוח פרטי בסיום הטיפול.</p>
+      <form className="settings-business-form" noValidate onSubmit={submitBusinessSettings}>
+        <Field label="כתובת לאיסוף" error={businessForm.formState.errors.pickupAddress?.message}>
+          {(props) => <input {...props} {...businessForm.register("pickupAddress")} required maxLength={240} autoComplete="street-address" />}
+        </Field>
+        {businessError && <p className="error-message" role="alert">{businessError}</p>}
+        <Button type="submit" disabled={businessForm.formState.isSubmitting || !businessForm.formState.isDirty}>
+          {businessForm.formState.isSubmitting ? "שומר…" : "שמירת כתובת"}
+        </Button>
+      </form>
+    </section>
     <section className="card detail-card">
       <div className="section-heading">
         <h2><span className="section-icon"><Users size={18} /></span>משתמשים</h2>

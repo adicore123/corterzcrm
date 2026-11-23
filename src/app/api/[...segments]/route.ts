@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, requireAdmin, requireDeletePassword, resetUserPassword, sessionCookie, setUserDisabled } from "@/lib/auth/session";
+import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, requireAdmin, requireDeletePassword, resetUserPassword, sessionCookie, setUserDisabled, updateBusinessSettings } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
@@ -10,7 +10,7 @@ import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serv
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
-import { deletePasswordSchema, modules, passwordSchema, usernameSchema, uuid } from "@/lib/validation/models";
+import { deletePasswordSchema, modules, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -282,6 +282,11 @@ async function mutate(request: NextRequest, { params }: Route) {
           newPassword: deletePasswordSchema,
         }).parse(value);
         return json(await changeDeletePassword(input.currentPassword, input.newPassword, user));
+      }
+      if (sub === "business" && method === "PATCH") {
+        const { value } = await parseBody(request);
+        const input = z.object({ pickupAddress: pickupAddressSchema }).parse(value);
+        return json(await updateBusinessSettings(input.pickupAddress, user));
       }
       if (sub === "users" && method === "POST") return json(await createUser((await parseBody(request)).value, user), 201);
       if (sub === "users" && method === "PATCH") {

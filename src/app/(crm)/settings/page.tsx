@@ -5,6 +5,7 @@ import { publicUser } from "@/lib/auth/session";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { listBackups, readCollection } from "@/lib/json-db/store";
 import { roleLabel } from "@/lib/presentation";
+import { DEFAULT_PICKUP_ADDRESS } from "@/lib/validation/models";
 import { AdminSettings, OwnPasswordControl } from "./settings-controls";
 
 export const metadata: Metadata = { title: "הגדרות" };
@@ -30,6 +31,7 @@ export default async function SettingsPage() {
       </dl>
     </section>
     {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups}
-      activity={recentActivity} cloud={usesBlobStorage()} hasCustomDeletePassword={Boolean(systemSettings.deletePasswordHash)} />}
+      activity={recentActivity} cloud={usesBlobStorage()} hasCustomDeletePassword={Boolean(systemSettings.deletePasswordHash)}
+      pickupAddress={systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS} />}
   </div>;
 }

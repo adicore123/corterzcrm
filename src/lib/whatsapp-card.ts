@@ -1,13 +1,17 @@
 import { formatDate } from "./presentation";
-import type { CatalogModel, Customer, FaultGuide, Repair, Standard } from "./validation/models";
+import { DEFAULT_PICKUP_ADDRESS, type CatalogModel, type Customer, type FaultGuide, type Repair, type Standard } from "./validation/models";
 
 export const CORTEZ_WHATSAPP_NUMBER = "972525510004";
 export const CORTEZ_WHATSAPP_DISPLAY = "+972 52-551-0004";
 
 const maxWhatsappChars = 2800;
 
-export function repairReadyMessage(customer: Pick<Customer, "name" | "store" | "customerType">, model: string): string | undefined {
-  if (customer.customerType === "private") return `היי ${customer.name}, כאן קורטז 😊 סיימנו את הטיפול ב${model}, והכלי שלך מוכן לאיסוף. נשמח לראות אותך!`;
+export function repairReadyMessage(
+  customer: Pick<Customer, "name" | "store" | "customerType">,
+  model: string,
+  pickupAddress = DEFAULT_PICKUP_ADDRESS,
+): string | undefined {
+  if (customer.customerType === "private") return `שלום ${customer.name}, הטיפול ב${model} הסתיים והכלי שלך מוכן לאיסוף. ניתן להגיע לאיסוף בכתובת ${pickupAddress}. נשמח לעמוד לשירותך, צוות קורטז.`;
   if (customer.customerType === "store") return `היי ${customer.name}, כאן קורטז. הסתיים הטיפול ב${model} עבור ${customer.store || customer.name}. הכלי יוחזר אליכם בהקדם האפשרי. תודה!`;
   return undefined;
 }

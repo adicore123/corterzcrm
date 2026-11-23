@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import { AppError } from "../errors";
-import { passwordSchema, deletePasswordSchema, userInput, type PublicUser, type User } from "../validation/models";
+import { passwordSchema, deletePasswordSchema, pickupAddressSchema, userInput, type PublicUser, type User } from "../validation/models";
 
 const derive = promisify(scrypt);
 const ttl = 12 * 60 * 60 * 1000;
@@ -59,8 +59,22 @@ export async function changeDeletePassword(currentPassword: string, newPassword:
   return serialized(async () => {
     const active = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled && item.role === "admin");
     if (!active) throw new AppError(403, "פעולה זו זמינה למנהלי מערכת בלבד.");
-    await writeCollection("settings", { deletePasswordHash, updatedAt: new Date().toISOString() });
+    const settings = await readCollection("settings");
+    await writeCollection("settings", { ...settings, deletePasswordHash, updatedAt: new Date().toISOString() });
     await audit(actor.id, "delete-password-change", "settings", "delete-password");
+    return { ok: true };
+  });
+}
+
+export async function updateBusinessSettings(pickupAddress: string, actor: PublicUser) {
+  requireAdmin(actor);
+  const validPickupAddress = pickupAddressSchema.parse(pickupAddress);
+  return serialized(async () => {
+    const active = (await readCollection("users")).find((item) => item.id === actor.id && !item.disabled && item.role === "admin");
+    if (!active) throw new AppError(403, "פעולה זו זמינה למנהלי מערכת בלבד.");
+    const settings = await readCollection("settings");
+    await writeCollection("settings", { ...settings, pickupAddress: validPickupAddress, updatedAt: new Date().toISOString() });
+    await audit(actor.id, "business-settings-change", "settings", "business");
     return { ok: true };
   });
 }
