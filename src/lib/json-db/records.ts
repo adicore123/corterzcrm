@@ -114,7 +114,8 @@ export async function saveRecord(module: Module, id: string | undefined, payload
       const duplicate = !id && requestId ? all.find((item) => item.id === requestId) : undefined;
       if (duplicate) return duplicate;
       const old = id ? existing(all, id) : undefined;
-      const record = { ...customerInput.parse(input), ...recordFields(old, version, requestId) };
+      const customerData = customerInput.parse(input);
+      const record = { ...customerData, customerType: customerData.customerType ?? old?.customerType, ...recordFields(old, version, requestId) };
       await writeCollection(module, upsert(all, record, Boolean(old)));
       await audit(actor.id, old ? "update" : "create", module, record.id);
       return record;

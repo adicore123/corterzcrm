@@ -29,6 +29,7 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
   });
   const selectedDevice = useWatch({ name: "device", control });
   const selectedModel = useWatch({ name: "model", control });
+  const selectedCustomerId = useWatch({ name: "customerId", control });
   const photos = usePhotoDraft(record?.photos ?? []);
   const editor = useEditor("repairs", record, isDirty, photos, cloud);
   const allCatalog = [...addedModels, ...catalog.filter((item) => !addedModels.some((addedItem) => addedItem.id === item.id))];
@@ -58,13 +59,14 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
           <Controller name="customerId" control={control} render={({ field }) => <select {...props} {...field} required>
             <option value="">בחירת לקוח</option>
             {[...added, ...customers.filter((item) => !added.some((customer) => customer.id === item.id))].map((customer) =>
-              <option key={customer.id} value={customer.id}>{customer.name}{customer.store ? " · " + customer.store : ""} · {customer.phone}</option>)}
+              <option key={customer.id} value={customer.id}>{customer.name}{customer.store ? " · " + customer.store : ""} · {customer.customerType === "private" ? "לקוח פרטי" : customer.customerType === "store" ? "חנות" : "סוג לקוח לבירור"} · {customer.phone}</option>)}
           </select>} />
           <InlineCustomer onSave={(customer) => {
             setAdded((items) => [...items, customer]);
             setValue("customerId", customer.id, { shouldDirty: true, shouldValidate: true });
           }} />
         </div>}</Field>
+        {selectedCustomerId && <p className="muted">סוג לקוח: {([...added, ...customers].find((item) => item.id === selectedCustomerId)?.customerType === "private") ? "לקוח פרטי" : ([...added, ...customers].find((item) => item.id === selectedCustomerId)?.customerType === "store") ? "חנות" : "לבירור"}</p>}
       </div>
     </Section>
     <Section title="פרטי תיקון" icon={Wrench}>

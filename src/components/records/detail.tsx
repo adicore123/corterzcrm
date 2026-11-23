@@ -6,11 +6,12 @@ import {
 } from "lucide-react";
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
-import { embedVideoUrl, formatBytes, formatDate, labels } from "@/lib/presentation";
+import { embedVideoUrl, formatBytes, formatDate, labels, whatsappHref } from "@/lib/presentation";
 import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "@/lib/validation/models";
 import {
   formatCustomerWhatsapp, formatFaultGuideWhatsapp, formatModelWhatsapp,
   formatRepairWhatsapp, formatStandardWhatsapp,
+  repairReadyMessage,
 } from "@/lib/whatsapp-card";
 import { CardWhatsappButton } from "@/components/card-actions";
 import { ModelBadge, modelThumbUrl, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
@@ -130,11 +131,16 @@ export async function RecordDetail({ module, record, admin, saved }: {
         </div>}
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["מספר סידורי", <bdi key="serial">{record.serial}</bdi>],
           ["לקוח", customer && <Link key="customer" className="text-link" href={"/customers/" + customer.id}>{customer.name}</Link>],
+          ...(customer ? [["סוג לקוח", customer.customerType === "private" ? "לקוח פרטי" : customer.customerType === "store" ? "חנות" : "סוג לקוח לבירור"] as Value] : []),
           ...(customer ? [["טלפון לקוח", <PhoneLink key="cphone" phone={customer.phone}
             whatsappMessage={`שלום ${customer.name}, עדכון מקורטז לגבי תיקון ${record.number} (${record.model}) — סטטוס הטיפול: ${record.status}.`} />] as Value] : []),
           ["סטטוס תיקון", <Status key="status" value={record.status} />], ...dates]} />
         <div className="detail-notes"><h3>מה התקלה?</h3><p>{record.fault}</p></div>
         <div className="detail-notes"><h3>מה תוקן?</h3><p>{record.work || "טרם תועד תיקון."}</p></div>
+        {record.status === "הסתיים" && customer && <div className="detail-notes no-print">
+          {repairReadyMessage(customer, record.model) ? <Button asChild><a href={whatsappHref(customer.phone, repairReadyMessage(customer, record.model))} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
+            : <p>יש להגדיר את סוג הלקוח כדי להכין הודעה. <Link className="text-link" href={"/customers/" + customer.id + "/edit"}>עדכון סוג לקוח</Link></p>}
+        </div>}
       </section>
       <section className="card detail-card"><h2><span className="section-icon"><Images size={18} /></span>תמונות</h2>
         <PhotoGallery module="repairs" id={record.id} photos={record.photos} /></section>
@@ -142,7 +148,7 @@ export async function RecordDetail({ module, record, admin, saved }: {
     {"phone" in record && <>
       <section className="card detail-card">
         <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי לקוח</h2>
-        <Details rows={[["שם לקוח", record.name], ["שם החנות", record.store], ["מספר טלפון", <PhoneLink key="phone" phone={record.phone} />], ...dates]} />
+        <Details rows={[["שם לקוח", record.name], ["סוג לקוח", record.customerType === "private" ? "לקוח פרטי" : record.customerType === "store" ? "חנות" : "סוג לקוח לבירור"], ["שם החנות", record.store], ["מספר טלפון", <PhoneLink key="phone" phone={record.phone} />], ...dates]} />
       </section>
       <section className="card data-card">
         <div className="section-heading"><h2>היסטוריית תיקונים</h2>

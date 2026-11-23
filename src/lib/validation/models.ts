@@ -46,6 +46,7 @@ export const repairInput = z.object({
 });
 
 export const customerInput = z.object({
+  customerType: z.enum(["private", "store"]).optional(),
   name: required("שם לקוח"),
   store: optional(120),
   phone: z.string().trim().max(32, { error: "מספר הטלפון ארוך מדי." })
@@ -155,7 +156,11 @@ export const standardSchema = standardsInput.safeExtend({
 export const repairSchema = repairInput.extend({
   ...record, number: z.string().regex(/^REP-\d{4,}$/), photos: z.array(photoSchema).max(10),
 });
-export const customerSchema = customerInput.extend(record);
+export const customerSchema = customerInput.extend(record).transform((customer) =>
+  !customer.customerType && customer.store.trim() === "פרטי"
+    ? { ...customer, customerType: "private" as const }
+    : customer,
+);
 export const catalogModelSchema = modelInput.extend({
   ...record, photos: z.array(photoSchema).max(10),
 });

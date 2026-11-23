@@ -6,6 +6,12 @@ export const CORTEZ_WHATSAPP_DISPLAY = "+972 52-551-0004";
 
 const maxWhatsappChars = 2800;
 
+export function repairReadyMessage(customer: Pick<Customer, "name" | "store" | "customerType">, model: string): string | undefined {
+  if (customer.customerType === "private") return `היי ${customer.name}, כאן קורטז 😊 סיימנו את הטיפול ב${model}, והכלי שלך מוכן לאיסוף. נשמח לראות אותך!`;
+  if (customer.customerType === "store") return `היי ${customer.name}, כאן קורטז. הסתיים הטיפול ב${model} עבור ${customer.store || customer.name}. הכלי יוחזר אליכם בהקדם האפשרי. תודה!`;
+  return undefined;
+}
+
 function trimText(value: string, max: number): string {
   const clean = value.trim();
   if (clean.length <= max) return clean;

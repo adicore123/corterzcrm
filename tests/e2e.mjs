@@ -253,6 +253,7 @@ try {
   await field(page, "מה התקלה?").fill("כשל בהדלקה");
   await button(page, "לקוח חדש").click();
   const customer = page.getByRole("dialog", { name: "לקוח חדש" });
+  await field(customer, "סוג לקוח").selectOption("store");
   await field(customer, "שם לקוח").fill("לקוח בדיקה");
   await field(customer, "שם החנות").fill("חנות בדיקה");
   await field(customer, "מספר טלפון").fill("050-1234567");
@@ -297,6 +298,7 @@ try {
   await button(page, "חיפוש").click();
   await visible(link(page, "לקוח בדיקה"));
   await page.goto("/customers/new");
+  await field(page, "סוג לקוח").selectOption("private");
   await field(page, "שם לקוח").fill("לקוח נוסף");
   await field(page, "מספר טלפון").fill("052-5557788");
   await save(page, "customers");
