@@ -12,6 +12,7 @@ import { labels, roleLabel } from "@/lib/presentation";
 import type { PublicUser } from "@/lib/validation/models";
 import { requestJson } from "@/lib/client-api";
 import { Brand } from "./brand";
+import { PwaInstallPrompt } from "./pwa-install-prompt";
 import { Button } from "./ui/button";
 
 const navigation = [
@@ -94,6 +95,7 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
           </div>
           <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>
         </header>
+        <PwaInstallPrompt />
         <main id="main" className="main-content">{children}</main>
       </div>
     </Dialog.Root>

@@ -118,6 +118,13 @@ try {
   assert.equal(await admin.locator(".app-shell.is-collapsed").count(), 1);
   await button(admin, "הרחבת סרגל ניווט").click();
   assert.equal(await admin.locator(".app-shell.is-collapsed").count(), 0);
+  // Verify PWA install prompt banner, logo, and manifest
+  await visible(admin.locator(".pwa-install-banner"));
+  await button(admin, "התקנה כאפליקציה").click();
+  await visible(admin.getByRole("dialog", { name: "התקנת אפליקציית CORTEZ בטלפון" }));
+  await button(admin, "הבנתי, תודה").click();
+  assert.equal((await anonymous.get("/manifest.webmanifest")).status(), 200);
+  assert.equal((await anonymous.get("/icons/cortez-icon-512.png")).status(), 200);
 
   stage = "mobile standards workflow";
   const mobile = await browser.newContext({
@@ -308,10 +315,11 @@ try {
   await visible(admin.locator(".data-table .inline-status-saved"));
   [inlineRepair] = await readDb("repairs");
   assert.deepEqual([inlineRepair.status, inlineRepair.work], ["הסתיים", "הכלי נבדק ומוכן"]);
-  // Verify completed repair WhatsApp link targets the customer's phone number (050-1234567 -> 972501234567), not the owner's number
+  // Verify completed repair WhatsApp link targets the customer's phone number (050-1234567 -> 972501234567) and includes the repair work details
   const completedRepairWaHref = await admin.locator(".data-table .action-pill-wa").first().getAttribute("href");
   assert.ok(completedRepairWaHref?.startsWith("https://wa.me/972501234567?text="), "Completed repair WhatsApp must target customer phone");
   assert.match(decodeURIComponent(completedRepairWaHref), /מוכן לאיסוף/);
+  assert.match(decodeURIComponent(completedRepairWaHref), /הכלי נבדק ומוכן/);
 
   // Returning to received is immediate and must preserve the documented work.
   await repairInlineSelect.selectOption("התקבל");

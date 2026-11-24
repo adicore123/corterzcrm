@@ -31,15 +31,20 @@ test('private customer input clears store details while store customer input pre
   });
 });
 
-test('completed repair WhatsApp message targets customer phone directly and includes configured pickup address', () => {
+test('completed repair WhatsApp message targets customer phone directly and includes configured pickup address and work details', () => {
   const customer = { name: 'רועי', store: '', phone: '052-8216677', customerType: 'private' as const };
   assert.equal(DEFAULT_PICKUP_ADDRESS, 'לישנסקי 27, ראשון לציון');
-  const msg = repairReadyMessage(customer, 'קורקינט X')!;
+  const msg = repairReadyMessage(customer, 'קורקינט X', DEFAULT_PICKUP_ADDRESS, 'הוחלף בקר 48V ורפידות בלם')!;
   assert.match(msg, /היי רועי/);
   assert.match(msg, /קורקינט X/);
   assert.match(msg, /מוכן לאיסוף/);
+  assert.match(msg, /פירוט התיקון שבוצע: הוחלף בקר 48V ורפידות בלם/);
   assert.match(msg, /לישנסקי 27, ראשון לציון/);
-  assert.match(repairReadyMessage(customer, 'קורקינט X', 'הרצל 10, תל אביב')!, /הרצל 10, תל אביב/);
+  assert.match(repairReadyMessage(customer, 'קורקינט X', 'הרצל 10, תל אביב', 'כיוון בלמים')!, /הרצל 10, תל אביב/);
+
+  const storeCustomer = { name: 'דנה', store: 'גלגל העיר', phone: '050-1234567', customerType: 'store' as const };
+  const storeMsg = repairReadyMessage(storeCustomer, 'אופניים Y', DEFAULT_PICKUP_ADDRESS, 'החלפת צמיג אחורי')!;
+  assert.match(storeMsg, /פירוט התיקון שבוצע: החלפת צמיג אחורי/);
 
   const targetUrl = buildTargetWhatsappUrl(msg, customer.phone, 'https://corterzcrm.vercel.app/repairs/123');
   assert.ok(targetUrl.startsWith('https://wa.me/972528216677?text='));

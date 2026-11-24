@@ -81,7 +81,7 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
   const linkedModelThumb = modelThumbUrl(linkedModel);
   const pickupAddress = systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS;
   const readyMessage = "serial" in record && customer
-    ? completedRepairCustomerMessage(customer, record.model, pickupAddress)
+    ? completedRepairCustomerMessage(customer, record.model, pickupAddress, record.work)
     : undefined;
   const hasRepairCustomerPhone = "serial" in record && Boolean(customer?.phone);
   const headerWhatsappMessage = hasRepairCustomerPhone && readyMessage

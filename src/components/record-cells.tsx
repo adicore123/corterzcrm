@@ -126,7 +126,7 @@ export function repairRow(
   const customer = <CustomerLink id={item.customerId} names={names} />;
   const status = readOnly
     ? <Status key={"status-" + (recent ? "recent" : "list")} value={item.status} />
-    : <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" />;
+    : <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" customer={customerObj} pickupAddress={options?.pickupAddress} />;
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
   const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
   const cells = recent ? [modelCell, customer, formatDate(item.createdAt), status]
@@ -134,7 +134,7 @@ export function repairRow(
   const accent = item.status === "הסתיים" ? "green" : item.status === "בטיפול" ? "blue" : "red";
   const hasCustomerPhone = Boolean(customerObj?.phone);
   const whatsappMessage = hasCustomerPhone && customerObj
-    ? completedRepairCustomerMessage(customerObj, item.model, options?.pickupAddress)
+    ? completedRepairCustomerMessage(customerObj, item.model, options?.pickupAddress, item.work)
     : formatRepairWhatsapp(item, customerObj);
 
   return {
@@ -150,7 +150,7 @@ export function repairRow(
       modelImageUrl: modelThumbUrl(catalogModel),
       fallbackIcon: "bike",
       badges: readOnly ? [<Status key="status" value={item.status} />] : [],
-      statusControl: readOnly ? undefined : <InlineRepairStatus record={item} variant="mobile" />,
+      statusControl: readOnly ? undefined : <InlineRepairStatus record={item} variant="mobile" customer={customerObj} pickupAddress={options?.pickupAddress} />,
       accent,
       highlightNote: item.fault ? { label: "תיאור תקלה", text: item.fault, tone: "neutral" } : undefined,
       meta: [

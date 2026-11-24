@@ -10,13 +10,16 @@ export function repairReadyMessage(
   customer: Pick<Customer, "name" | "store" | "customerType">,
   model: string,
   pickupAddress = DEFAULT_PICKUP_ADDRESS,
+  work?: string,
 ): string | undefined {
+  const cleanWork = work?.trim();
+  const workLine = cleanWork ? `\nפירוט התיקון שבוצע: ${trimText(cleanWork, 500)}.` : "";
   if (customer.customerType === "private") {
-    return `היי ${customer.name}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי שלך מוכן לאיסוף! מוזמן להגיע לאסוף אותו בכתובת ${pickupAddress}. מחכים לך, צוות קורטז.`;
+    return `היי ${customer.name}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי שלך מוכן לאיסוף!${workLine}\nמוזמן להגיע לאסוף אותו בכתובת ${pickupAddress}. מחכים לך, צוות קורטז.`;
   }
   if (customer.customerType === "store") {
     const storeLabel = customer.store ? ` (${customer.store})` : "";
-    return `היי ${customer.name}${storeLabel}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי מוכן לאיסוף! מוזמנים להגיע לאסוף אותו בכתובת ${pickupAddress}. תודה, צוות קורטז.`;
+    return `היי ${customer.name}${storeLabel}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי מוכן לאיסוף!${workLine}\nמוזמנים להגיע לאסוף אותו בכתובת ${pickupAddress}. תודה, צוות קורטז.`;
   }
   return undefined;
 }
@@ -25,13 +28,16 @@ export function completedRepairCustomerMessage(
   customer: Pick<Customer, "name" | "store" | "customerType">,
   model: string,
   pickupAddress = DEFAULT_PICKUP_ADDRESS,
+  work?: string,
 ): string {
-  const explicit = repairReadyMessage(customer, model, pickupAddress);
+  const explicit = repairReadyMessage(customer, model, pickupAddress, work);
   if (explicit) return explicit;
+  const cleanWork = work?.trim();
+  const workLine = cleanWork ? `\nפירוט התיקון שבוצע: ${trimText(cleanWork, 500)}.` : "";
   if (customer.store && customer.store.trim() && customer.store.trim() !== "פרטי") {
-    return `היי ${customer.name} (${customer.store}), כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי מוכן לאיסוף! מוזמנים להגיע לאסוף אותו בכתובת ${pickupAddress}. תודה, צוות קורטז.`;
+    return `היי ${customer.name} (${customer.store}), כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי מוכן לאיסוף!${workLine}\nמוזמנים להגיע לאסוף אותו בכתובת ${pickupAddress}. תודה, צוות קורטז.`;
   }
-  return `היי ${customer.name}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי שלך מוכן לאיסוף! מוזמן להגיע לאסוף אותו בכתובת ${pickupAddress}. מחכים לך, צוות קורטז.`;
+  return `היי ${customer.name}, כאן צוות קורטז. שמחים לעדכן שהתיקון של ה־${model} הסתיים והכלי שלך מוכן לאיסוף!${workLine}\nמוזמן להגיע לאסוף אותו בכתובת ${pickupAddress}. מחכים לך, צוות קורטז.`;
 }
 
 function trimText(value: string, max: number): string {

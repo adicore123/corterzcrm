@@ -4,7 +4,8 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CircleCheck, ClipboardList, Clock3 } from "lucide-react";
 import { requestJson } from "@/lib/client-api";
-import { repairStatuses, type Repair } from "@/lib/validation/models";
+import { repairStatuses, type Customer, type Repair } from "@/lib/validation/models";
+import { buildTargetWhatsappUrl, completedRepairCustomerMessage } from "@/lib/whatsapp-card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
@@ -25,7 +26,17 @@ function StatusIcon({ value }: { value: Repair["status"] }) {
   return <ClipboardList size={16} aria-hidden />;
 }
 
-export function InlineRepairStatus({ record, variant }: { record: Repair; variant: "table" | "mobile" }) {
+export function InlineRepairStatus({
+  record,
+  variant,
+  customer,
+  pickupAddress,
+}: {
+  record: Repair;
+  variant: "table" | "mobile";
+  customer?: Pick<Customer, "name" | "store" | "phone" | "customerType">;
+  pickupAddress?: string;
+}) {
   const router = useRouter();
   const [override, setOverride] = useState<{ status: Repair["status"]; work: string; version: string } | null>(null);
   const [pendingStatus, setPendingStatus] = useState<Repair["status"] | null>(null);
@@ -66,6 +77,13 @@ export function InlineRepairStatus({ record, variant }: { record: Repair; varian
       setOverride({ status: nextStatus, work: nextWork, version: saved.updatedAt });
       setPendingStatus(null);
       setSavedFlash(true);
+      if (customer?.phone) {
+        const updatedMsg = completedRepairCustomerMessage(customer, record.model, pickupAddress, nextWork);
+        const updatedUrl = buildTargetWhatsappUrl(updatedMsg, customer.phone);
+        document.querySelectorAll<HTMLAnchorElement>(`a[data-record-href="/repairs/${record.id}"]`).forEach((anchor) => {
+          anchor.href = updatedUrl;
+        });
+      }
       window.setTimeout(() => setSavedFlash(false), 1800);
       router.refresh();
     } catch (err) {

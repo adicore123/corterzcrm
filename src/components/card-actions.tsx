@@ -37,6 +37,7 @@ export function CardWhatsappButton({
   if (variant === "table") {
     return <a
       href={initialHref}
+      data-record-href={recordHref}
       target="_blank"
       rel="noopener noreferrer"
       onClick={handleClick}
@@ -51,6 +52,7 @@ export function CardWhatsappButton({
   if (variant === "detail") {
     return <a
       href={initialHref}
+      data-record-href={recordHref}
       target="_blank"
       rel="noopener noreferrer"
       onClick={handleClick}
@@ -65,6 +67,7 @@ export function CardWhatsappButton({
 
   return <a
     href={initialHref}
+    data-record-href={recordHref}
     target="_blank"
     rel="noopener noreferrer"
     onClick={handleClick}
