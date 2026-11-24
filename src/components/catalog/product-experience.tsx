@@ -50,11 +50,13 @@ export function ProductExperience({
   model,
   showPrice = true,
   standalone = false,
+  proposalMode = false,
   initialStudioState = {},
 }: {
   model: CatalogModel;
   showPrice?: boolean;
   standalone?: boolean;
+  proposalMode?: boolean;
   initialStudioState?: InitialStudioState;
 }) {
   const variants = useMemo(() => resolveModelVariants(model), [model]);
@@ -452,7 +454,7 @@ export function ProductExperience({
 
           {model.published !== false ? (
             <>
-              <div className="product-primary-actions product-actions">
+              {!proposalMode && <div className="product-primary-actions product-actions">
                 <button type="button" onClick={copy}>
                   {copied ? <Check size={17} /> : <Copy size={17} />}
                   <span>{copied ? "הקישור לדגם הועתק" : "העתקת קישור לדגם"}</span>
@@ -460,9 +462,9 @@ export function ProductExperience({
                 <button type="button" onClick={() => window.print()} aria-label="הדפסת דף המוצר">
                   <Printer size={17} /> הדפסה
                 </button>
-              </div>
+              </div>}
               {copied && <span role="status" className="product-copy-status">הקישור הועתק ללוח</span>}
-              {!variant && <ProductArEntry studio={model.studio} modelUrl={modelUrl} poster={image} productUrl={sharePath} />}
+              {!variant && !proposalMode && <ProductArEntry studio={model.studio} modelUrl={modelUrl} poster={image} productUrl={sharePath} />}
               {!standalone && (
                 <Link className="product-full-link text-button" href={sharePath}>
                   פתיחת עמוד מוצר מלא <ArrowUpLeft size={16} />

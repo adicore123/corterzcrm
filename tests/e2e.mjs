@@ -689,7 +689,36 @@ try {
   await field(worker, "סיסמה").fill("12345"); // 5-char simple password
   await button(worker, "הרשמה וכניסה למערכת").click();
   await worker.waitForURL("**/dashboard");
-  await visible(worker.getByText("ממשק סוכן · צפייה ותקלות"));
+  await visible(worker.getByText("ממשק סוכן · קטלוג והצעות מחיר"));
+  await worker.goto("/quotes");
+  await visible(heading(worker, "הצעות מחיר"));
+  await button(worker, "הצעה חדשה").click();
+  await field(worker, "שם איש קשר").fill("לקוח להצעה");
+  await field(worker, "טלפון").fill("0521234567");
+  await field(worker, "כמות").fill("2");
+  await field(worker, "שיטת תמחור").selectOption("total");
+  await field(worker, "מחיר כולל לכמות ₪").fill("1999.99");
+  await button(worker, "יצירת הצעה וקישור").click();
+  await worker.waitForTimeout(250);
+  assert.equal(await worker.locator(".quote-form .error-message").count(), 0, "Quote form error: " + (await worker.locator(".quote-form .error-message").allTextContents()).join("; "));
+  await visible(worker.getByText("ההצעה מוכנה לשיתוף"));
+  const [createdQuote] = await readDb("quotes");
+  assert.equal(createdQuote.customerName, "לקוח להצעה");
+  assert.equal(createdQuote.totalPriceAgorot, 199999);
+  assert.equal((await anonymous.get("/proposal/" + createdQuote.shareToken)).status(), 200);
+  await page.goto("/proposal/" + createdQuote.shareToken);
+  await visible(button(page, "אישור ההצעה"));
+  await noOverflow(page);
+  await worker.goto("/proposal/" + createdQuote.shareToken);
+  await visible(button(worker, "אישור ההצעה"));
+  if (process.env.CORTEZ_QUOTE_SCREENSHOT) {
+    await visible(worker.locator(".beach-stage-root canvas"));
+    await worker.waitForTimeout(1200);
+    await worker.screenshot({ path: process.env.CORTEZ_QUOTE_SCREENSHOT, fullPage: false });
+  }
+  await button(worker, "אישור ההצעה").click();
+  await visible(worker.getByText("ההצעה אושרה. תודה! ניצור איתכם קשר להמשך."));
+  assert.equal((await readDb("quotes"))[0].status, "accepted");
   // Agent cannot create or edit repairs/standards/customers via API or UI
   await api(employee.request, "POST", "/api/records/customers", { name: "חסום", store: "", phone: "0501112233", customerType: "private" }, 403);
   await api(employee.request, "PUT", "/api/records/standards/" + standardId, { ...input, version: updated.updatedAt }, 403);

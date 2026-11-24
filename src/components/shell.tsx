@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
 import {
   Bike, CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PanelRightClose,
-  PanelRightOpen, Settings, ShieldAlert, Sparkles, Users, Wrench, X,
+  PanelRightOpen, Settings, ShieldAlert, Sparkles, Users, Wrench, X, FileText,
 } from "lucide-react";
 import { labels, roleLabel } from "@/lib/presentation";
 import type { PublicUser } from "@/lib/validation/models";
@@ -17,7 +17,7 @@ import { Button } from "./ui/button";
 
 const navigation = [
   ["dashboard", LayoutDashboard], ["standards", ClipboardList], ["repairs", Wrench],
-  ["customers", Users], ["models", Bike], ["faults", ShieldAlert], ["catalog", Sparkles], ["settings", Settings],
+  ["customers", Users], ["models", Bike], ["faults", ShieldAlert], ["catalog", Sparkles], ["quotes", FileText], ["settings", Settings],
 ] as const;
 
 export function Shell({ user, today, children }: { user: PublicUser; today: string; children: ReactNode }) {
@@ -91,7 +91,7 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
               {collapsed ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}
             </Button>
             <span>{labels[current]}</span>
-            {user.role === "agent" && <span className="status status-blue">ממשק סוכן · צפייה ותקלות</span>}
+            {user.role === "agent" && <span className="status status-blue">ממשק סוכן · קטלוג והצעות מחיר</span>}
           </div>
           <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>
         </header>

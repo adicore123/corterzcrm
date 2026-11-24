@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./coastal-showroom.css";
+@import "./proposal.css";
 @import "./studio-v2.css";
 
 :root {

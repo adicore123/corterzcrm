@@ -73,6 +73,7 @@ function initialMongoState(): State {
     format: 1,
     standards: [],
     repairs: [],
+    quotes: [],
     customers: [],
     models: [...defaultCatalogModels],
     faults: [],

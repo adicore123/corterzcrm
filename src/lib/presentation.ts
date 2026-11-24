@@ -8,6 +8,7 @@ export const labels = {
   models: "מאגר דגמים",
   faults: "תקלות ופתיחות הגבלה",
   catalog: "קטלוג סוכנים",
+  quotes: "הצעות מחיר",
   settings: "הגדרות",
 };
 
