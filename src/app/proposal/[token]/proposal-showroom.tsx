@@ -3,8 +3,25 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { Box, Camera, ChevronLeft, ChevronRight, Maximize2, Palette, Rotate3D, RotateCcw, X } from "lucide-react";
+import {
+  Box,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Eye,
+  Maximize2,
+  Palette,
+  Rotate3D,
+  RotateCcw,
+  Sun,
+  Sunset,
+  X,
+} from "lucide-react";
 import { getModelImages, toWebglTextureUrl } from "@/components/catalog/catalog-utils";
+import { BeachScene } from "@/components/three/BeachScene";
+import type { CoastalLightingMode } from "@/components/three/AtmosphericSky";
+import type { CoastalCameraPreset } from "@/components/three/CameraController";
 import { getProposalHeroCutoutUrl, resolveModelVariants } from "@/lib/catalog/coastal-assets";
 import type { CatalogModel } from "@/lib/validation/models";
 import type { ProposalMedia } from "@/lib/quotes/proposal-media";
@@ -43,11 +60,18 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
   const [attempt, setAttempt] = useState(0);
   const [activeFeature, setActiveFeature] = useState<number | undefined>(undefined);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [photoCameraPreset, setPhotoCameraPreset] = useState<CoastalCameraPreset>("wide");
+  const [photoLightingMode, setPhotoLightingMode] = useState<CoastalLightingMode>("daylight");
 
   const picture = photos[index] || toWebglTextureUrl(media.poster || "");
   const show3d = mode === "3d" && media.kind === "3d";
   const studioFeatures = model.studio?.features ?? [];
   const selectedFeature = activeFeature !== undefined ? studioFeatures[activeFeature] : undefined;
+
+  // Ground the selected photo/variant on the live V3 3D Mediterranean beach stage
+  const stageProductImage = useMemo(() => {
+    return picture || primaryCutout;
+  }, [picture, primaryCutout]);
 
   const handleVariantSelect = (variantId: string, imageUrl?: string) => {
     setActiveVariantId(variantId);
@@ -60,6 +84,11 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
     }
   };
 
+  const handleShowroomPreset = (preset: CoastalCameraPreset, mood?: CoastalLightingMode) => {
+    setPhotoCameraPreset(preset);
+    if (mood) setPhotoLightingMode(mood);
+  };
+
   return (
     <section
       id="proposal-experience"
@@ -68,7 +97,7 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
     >
       <div className="proposal-showroom-top">
         <div className="proposal-showroom-heading-group">
-          <span className="proposal-overline">גלריית הדגם וגוונים · CORTEZ STUDIO</span>
+          <span className="proposal-overline">במת תצוגה חיה וגוונים · CORTEZ 3D COASTAL STUDIO</span>
           <strong className="proposal-showroom-title" dir="ltr">{model.name}</strong>
         </div>
         <span className="proposal-view-badge">
@@ -122,13 +151,12 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
           />
         )}
 
-        {(!show3d || status !== "ready") && (
+        {show3d && status !== "ready" && (
           <div className="proposal-poster">
-            <div className="proposal-poster-backdrop" aria-hidden />
             {picture ? (
               <Image
                 src={picture}
-                alt={`${model.name} — ${show3d ? "תמונת פתיחה למודל" : `צילום ${index + 1}`}`}
+                alt={`${model.name} — תמונת פתיחה למודל`}
                 fill
                 sizes="(max-width: 900px) 100vw, 60vw"
                 priority
@@ -137,12 +165,94 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
             ) : (
               <span>{model.name}</span>
             )}
-            {show3d && (
-              <span className="proposal-loading" role="status">
-                טוען מודל תלת־ממדי…
-              </span>
-            )}
-            {!show3d && picture && (
+            <span className="proposal-loading" role="status">
+              טוען מודל תלת־ממדי…
+            </span>
+          </div>
+        )}
+
+        {!show3d && (
+          <div className="proposal-coastal-photo-stage">
+            {/* Live Interactive V3 WebGL 2 Mediterranean Beach, Sun, Caustics & Fat-Tire Tracks Stage */}
+            <BeachScene
+              productName={model.name}
+              productMode="photo"
+              productImageUrl={stageProductImage}
+              cameraPreset={photoCameraPreset}
+              lightingMode={photoLightingMode}
+              centerStage
+              interactiveDrag
+            />
+
+            {/* Floating High-Res Studio Photo Preview Card (keeps .proposal-visual img visible & opens Lightbox) */}
+            <div className="proposal-studio-preview-card" onClick={() => setLightboxOpen(true)}>
+              <div className="proposal-studio-preview-thumb">
+                {picture ? (
+                  <Image
+                    src={picture}
+                    alt={`${model.name} — צילום ${index + 1}`}
+                    fill
+                    sizes="180px"
+                    priority
+                    unoptimized
+                  />
+                ) : (
+                  <span>{model.name}</span>
+                )}
+              </div>
+              <div className="proposal-studio-preview-meta">
+                <span>צילום {index + 1} מתוך {Math.max(photos.length, 1)}</span>
+                <strong>הגדלת צילום סטודיו</strong>
+              </div>
+            </div>
+
+            {/* Interactive V3 Coastal Camera & Light Mood Controls */}
+            <div className="proposal-photo-stage-bar" role="group" aria-label="זוויות מצלמה ותאורת חוף">
+              <button
+                type="button"
+                className="proposal-photo-stage-btn"
+                aria-pressed={photoCameraPreset === "wide" && photoLightingMode === "daylight"}
+                onClick={() => handleShowroomPreset("wide", "daylight")}
+              >
+                <Eye size={14} aria-hidden />
+                <span>מבט חוף רחב</span>
+              </button>
+              <button
+                type="button"
+                className="proposal-photo-stage-btn"
+                aria-pressed={photoCameraPreset === "closeup"}
+                onClick={() => handleShowroomPreset("closeup")}
+              >
+                <Camera size={14} aria-hidden />
+                <span>תקריב כלי על החול</span>
+              </button>
+              <button
+                type="button"
+                className="proposal-photo-stage-btn"
+                aria-pressed={photoCameraPreset === "sunset" && photoLightingMode === "golden"}
+                onClick={() => handleShowroomPreset("sunset", "golden")}
+              >
+                <Compass size={14} aria-hidden />
+                <span>זווית שמש וים</span>
+              </button>
+              <button
+                type="button"
+                className="proposal-photo-stage-btn is-gold"
+                aria-pressed={photoLightingMode === "golden"}
+                onClick={() =>
+                  setPhotoLightingMode((prev) => (prev === "daylight" ? "golden" : "daylight"))
+                }
+              >
+                {photoLightingMode === "golden" ? (
+                  <Sunset size={14} aria-hidden />
+                ) : (
+                  <Sun size={14} aria-hidden />
+                )}
+                <span>{photoLightingMode === "golden" ? "שעת שקיעה זהובה" : "שמש ים־תיכונית"}</span>
+              </button>
+            </div>
+
+            {picture && (
               <div className="proposal-photo-overlay-controls">
                 {photos.length > 1 && (
                   <>
@@ -265,7 +375,7 @@ export function ProposalShowroom({ model, media }: { model: CatalogModel; media:
       <p className="proposal-media-note">
         {show3d
           ? "המוצר מוצג כמודל תלת־ממדי של הדגם. צבע, גרסה ואבזור יש לאמת מול פרטי ההצעה."
-          : "גלריית סטודיו ברזולוציה גבוהה של הדגם הרשמי מבית קורטז."}
+          : "צילומי המוצר הרשמיים של קורטז מוצבים בבמת חוף הים התיכון החיה. ניתן לגרור לסיבוב זווית המבט, להחליף תאורת שמש/שקיעה ולעבור בין זוויות הצילום והגוונים."}
       </p>
 
       {lightboxOpen && picture && (
