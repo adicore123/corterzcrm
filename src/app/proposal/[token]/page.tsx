@@ -10,6 +10,7 @@ import {
 import { CinematicHero } from "@/components/proposal/CinematicHero";
 import { ProductHighlights } from "@/components/proposal/ProductHighlights";
 import { ProductStorytelling } from "@/components/proposal/ProductStorytelling";
+import { ScrollRevealObserver } from "@/components/proposal/ScrollRevealObserver";
 import { TechnicalSpecifications } from "@/components/proposal/TechnicalSpecifications";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
 import { publicCatalogModels } from "@/lib/catalog/public-model";
@@ -122,6 +123,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
 
   return (
     <main className="proposal-page" dir="rtl" lang="he">
+      <ScrollRevealObserver />
       {/* SECTION 01 — FULL-BLEED CINEMATIC 3D MEDITERRANEAN HERO STAGE */}
       <CinematicHero
         customerDisplay={customer}

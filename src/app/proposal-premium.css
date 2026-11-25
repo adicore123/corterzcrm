@@ -225,15 +225,29 @@
 
 .proposal-hero-content {
   pointer-events: auto;
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  border: 1px solid rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.88);
   border-radius: 24px;
   padding: clamp(18px, 1.8vw, 26px);
   box-shadow:
-    0 24px 64px rgba(16, 33, 43, 0.13),
+    0 24px 64px rgba(11, 36, 51, 0.14),
     inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+/* Scroll-Triggered Stagger Reveal Micro-Interactions */
+.will-scroll-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity 540ms cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-stagger, 0ms),
+    transform 540ms cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-stagger, 0ms);
+}
+
+.will-scroll-reveal.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .proposal-hero-eyebrow-row {
