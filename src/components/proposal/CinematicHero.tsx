@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Compass, Pause, Play, ShieldCheck, Sparkles } from "lucide-react";
+import { Camera, Compass, Eye, Pause, Play, ShieldCheck, Sparkles, Sun, Sunset } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { BeachScene } from "@/components/three/BeachScene";
 import type { GraphicsQualityProfile } from "@/components/three/AdaptiveQualityManager";
+import type { CoastalLightingMode } from "@/components/three/AtmosphericSky";
+import type { CoastalCameraPreset } from "@/components/three/CameraController";
 
 export interface CinematicHeroProps {
   customerDisplay: string;
@@ -22,9 +24,9 @@ export interface CinematicHeroProps {
 }
 
 /**
- * ProposalHeader + SECTION 01 — Cinematic Hero
- * Combines the real-time WebGL 2 Mediterranean coastline with an immediate, crystal-clear
- * Hebrew RTL presentation of the personal greeting, product, payable price, and primary CTAs.
+ * ProposalHeader + SECTION 01 — Expanded Cinematic 3D Mediterranean Hero (V2).
+ * Dedicates ~70% of the viewport to the live WebGL 2 Mediterranean coastline with a visible
+ * HDR Sun Orb & Corona, interactive camera presets, lighting mode toggle, and drag-to-orbit parallax.
  */
 export function CinematicHero({
   customerDisplay,
@@ -42,6 +44,8 @@ export function CinematicHero({
 }: CinematicHeroProps) {
   const [motionPaused, setMotionPaused] = useState(false);
   const [qualityProfile, setQualityProfile] = useState<GraphicsQualityProfile>("BALANCED");
+  const [cameraPreset, setCameraPreset] = useState<CoastalCameraPreset>("wide");
+  const [lightingMode, setLightingMode] = useState<CoastalLightingMode>("daylight");
 
   return (
     <>
@@ -74,13 +78,16 @@ export function CinematicHero({
             model3dUrl={model3dUrl}
             productImageUrl={productImageUrl}
             motionPaused={motionPaused}
+            cameraPreset={cameraPreset}
+            lightingMode={lightingMode}
+            interactiveDrag
             onQualityChange={setQualityProfile}
           />
           <div className="proposal-hero-scrim" aria-hidden />
         </div>
 
         <div className="proposal-hero-inner">
-          {/* Desktop RTL Right Side: Personal Greeting, Product Title, Summary, Price & Primary CTA */}
+          {/* Desktop RTL Right Side: Sleek Floating Glassmorphic Personal Proposal Card */}
           <div className="proposal-hero-content">
             <div className="proposal-hero-eyebrow-row">
               <span className="proposal-kicker">CORTEZ · MEDITERRANEAN LAUNCH EDITION</span>
@@ -128,11 +135,52 @@ export function CinematicHero({
             </div>
           </div>
 
-          {/* Desktop RTL Left Side: Framing caption for the product on the live Mediterranean shoreline */}
-          <div className="proposal-hero-stage-window" aria-hidden>
-            <div className="proposal-stage-location-pill">
-              <Sparkles size={14} />
-              <span>CORTEZ COASTAL STAGE · חוף הים התיכון</span>
+          {/* Desktop RTL Left Side: Expanded 3D Mediterranean Beach Stage & Interactive Camera/Sun Controls */}
+          <div className="proposal-hero-stage-window">
+            <div className="proposal-stage-controls-dock" role="group" aria-label="שליטה בזווית המצלמה ובתאורת החוף">
+              <div className="proposal-stage-location-pill">
+                <Sparkles size={14} aria-hidden />
+                <span>במת חוף חיה · גררו לסיבוב זווית המבט</span>
+              </div>
+
+              <div className="proposal-stage-pills">
+                <button
+                  type="button"
+                  className="proposal-stage-pill"
+                  aria-pressed={cameraPreset === "wide"}
+                  onClick={() => setCameraPreset("wide")}
+                >
+                  <Eye size={14} aria-hidden />
+                  <span>מבט חוף רחב</span>
+                </button>
+                <button
+                  type="button"
+                  className="proposal-stage-pill"
+                  aria-pressed={cameraPreset === "closeup"}
+                  onClick={() => setCameraPreset("closeup")}
+                >
+                  <Camera size={14} aria-hidden />
+                  <span>תקריב כלי על החול</span>
+                </button>
+                <button
+                  type="button"
+                  className="proposal-stage-pill"
+                  aria-pressed={cameraPreset === "sunset"}
+                  onClick={() => setCameraPreset("sunset")}
+                >
+                  <Compass size={14} aria-hidden />
+                  <span>זווית שמש וים</span>
+                </button>
+                <button
+                  type="button"
+                  className="proposal-stage-pill is-lighting"
+                  aria-pressed={lightingMode === "golden"}
+                  onClick={() => setLightingMode((prev) => (prev === "daylight" ? "golden" : "daylight"))}
+                >
+                  {lightingMode === "golden" ? <Sunset size={14} aria-hidden /> : <Sun size={14} aria-hidden />}
+                  <span>{lightingMode === "golden" ? "שעת שקיעה זהובה" : "שמש ים־תיכונית"}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

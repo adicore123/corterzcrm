@@ -127,25 +127,25 @@
 }
 
 /* ============================================================================
-   SECTION 01 — CINEMATIC 3D MEDITERRANEAN HERO
+   SECTION 01 — EXPANDED CINEMATIC 3D MEDITERRANEAN HERO (V2)
    ============================================================================ */
 .proposal-cinematic-hero {
   position: relative;
-  min-height: clamp(560px, 74vh, 760px);
-  max-width: 1680px;
-  margin: 18px auto 0;
-  padding: 0 clamp(20px, 4vw, 68px);
+  min-height: clamp(580px, 76vh, 800px);
+  max-width: 1740px;
+  margin: 12px auto 0;
+  padding: 0 clamp(16px, 3vw, 48px);
   display: flex;
   align-items: stretch;
 }
 
 .proposal-hero-canvas-layer {
   position: absolute;
-  inset: 0 clamp(20px, 4vw, 68px);
-  border-radius: 30px;
+  inset: 0 clamp(16px, 3vw, 48px);
+  border-radius: 32px;
   overflow: hidden;
   box-shadow:
-    0 32px 80px rgba(7, 87, 109, 0.14),
+    0 34px 86px rgba(7, 87, 109, 0.16),
     0 0 0 1px rgba(16, 33, 43, 0.08);
   background: linear-gradient(180deg, #9AD5EA 0%, #D9F1F6 44%, #38B8B4 58%, #E9D8BD 100%);
 }
@@ -155,6 +155,11 @@
   inset: 0;
   width: 100%;
   height: 100%;
+  cursor: grab;
+}
+
+.proposal-beach-stage:active {
+  cursor: grabbing;
 }
 
 .proposal-beach-canvas {
@@ -185,9 +190,9 @@
   pointer-events: none;
   background: linear-gradient(
     270deg,
-    rgba(247, 242, 232, 0.76) 0%,
-    rgba(247, 242, 232, 0.34) 38%,
-    rgba(247, 242, 232, 0.0) 62%
+    rgba(247, 242, 232, 0.64) 0%,
+    rgba(247, 242, 232, 0.22) 32%,
+    rgba(247, 242, 232, 0.0) 52%
   );
 }
 
@@ -195,23 +200,25 @@
   position: relative;
   z-index: 3;
   width: 100%;
-  padding: clamp(26px, 3.4vw, 48px);
+  padding: clamp(22px, 2.8vw, 40px);
   display: grid;
-  grid-template-columns: minmax(340px, 530px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
   align-items: center;
   gap: 28px;
+  pointer-events: none;
 }
 
 .proposal-hero-content {
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   border: 1px solid rgba(255, 255, 255, 0.92);
   border-radius: 26px;
-  padding: clamp(24px, 2.6vw, 36px);
+  padding: clamp(22px, 2.2vw, 32px);
   box-shadow:
-    0 24px 64px rgba(16, 33, 43, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    0 24px 64px rgba(16, 33, 43, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
 }
 
 .proposal-hero-eyebrow-row {
@@ -384,23 +391,76 @@
 .proposal-hero-stage-window {
   align-self: end;
   justify-self: end;
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.proposal-stage-controls-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 .proposal-stage-location-pill {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 15px;
+  padding: 7px 14px;
   border-radius: 999px;
   background: rgba(16, 33, 43, 0.62);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.24);
   color: #fff;
-  font-size: 0.73rem;
+  font-size: 0.72rem;
   font-weight: 720;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
+}
+
+.proposal-stage-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 36px rgba(16, 33, 43, 0.15);
+}
+
+.proposal-stage-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--med-text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 740;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.proposal-stage-pill:hover {
+  background: rgba(7, 87, 109, 0.10);
+}
+
+.proposal-stage-pill[aria-pressed="true"] {
+  background: var(--med-sea-deep);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(7, 87, 109, 0.24);
+}
+
+.proposal-stage-pill.is-lighting[aria-pressed="true"] {
+  background: linear-gradient(135deg, #c97d28, #e69d3a);
+  color: #fff;
 }
 
 /* Fallback Stage when WebGL is disabled */
@@ -619,6 +679,117 @@
 .proposal-poster > span:not(.proposal-loading) {
   font-size: clamp(2rem, 5vw, 5rem);
   color: var(--med-sea-deep);
+}
+
+/* Interactive 3D Coastal Photo Showroom inside Section 02 */
+.proposal-coastal-photo-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.proposal-studio-preview-card {
+  position: absolute;
+  z-index: 7;
+  top: 16px;
+  inset-inline-start: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px 7px 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 30px rgba(16, 33, 43, 0.14);
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.proposal-studio-preview-card:hover {
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.proposal-studio-preview-thumb {
+  position: relative;
+  width: 62px;
+  height: 48px;
+  border-radius: 10px;
+  background: var(--med-sand-light);
+  border: 1px solid var(--med-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.proposal-studio-preview-thumb img {
+  object-fit: contain;
+  padding: 3px;
+}
+
+.proposal-studio-preview-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.proposal-studio-preview-meta span {
+  font-size: 0.68rem;
+  color: var(--med-text-muted);
+  font-weight: 680;
+}
+
+.proposal-studio-preview-meta strong {
+  font-size: 0.75rem;
+  color: var(--med-sea-deep);
+  font-weight: 780;
+}
+
+.proposal-photo-stage-bar {
+  position: absolute;
+  z-index: 7;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 32px rgba(16, 33, 43, 0.15);
+  max-width: calc(100% - 130px);
+  overflow-x: auto;
+}
+
+.proposal-photo-stage-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--med-text-primary);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 740;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.proposal-photo-stage-btn[aria-pressed="true"] {
+  background: var(--med-sea-deep);
+  color: #fff;
+}
+
+.proposal-photo-stage-btn.is-gold[aria-pressed="true"] {
+  background: linear-gradient(135deg, #c97d28, #e69d3a);
+  color: #fff;
 }
 
 .proposal-photo-overlay-controls {
@@ -1460,16 +1631,17 @@
   .proposal-hero-canvas-layer {
     position: relative;
     inset: auto;
-    height: clamp(320px, 46vh, 420px);
-    border-radius: 22px;
+    height: clamp(390px, 54vh, 500px);
+    border-radius: 24px;
   }
   .proposal-hero-scrim {
-    background: linear-gradient(180deg, transparent 55%, rgba(247, 242, 232, 0.72) 100%);
+    background: linear-gradient(180deg, transparent 58%, rgba(247, 242, 232, 0.68) 100%);
   }
   .proposal-hero-inner {
     padding: 0;
-    margin-top: -38px;
+    margin-top: -34px;
     display: block;
+    pointer-events: auto;
   }
   .proposal-hero-content {
     border-radius: 22px;
@@ -1483,6 +1655,17 @@
   }
   .proposal-hero-stage-window {
     display: none;
+  }
+  .proposal-photo-stage-bar {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    transform: none;
+    max-width: none;
+  }
+  .proposal-photo-zoom-btn {
+    top: 14px;
+    bottom: auto;
   }
 
   .proposal-layout {

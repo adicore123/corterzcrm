@@ -12,6 +12,7 @@ export interface ProductModelConfig {
   imageUrl?: string;
   isMobile: boolean;
   sunDirection: THREE.Vector3;
+  centerStage?: boolean;
   onStatusChange?: (status: "loading" | "ready" | "error") => void;
   onFootprintChange?: (centerXZ: THREE.Vector2, span: number) => void;
 }
@@ -19,6 +20,7 @@ export interface ProductModelConfig {
 export interface ProductModelHandle {
   group: THREE.Group;
   updateLayout: (isMobile: boolean) => void;
+  syncSunDirection: (sunDirection: THREE.Vector3) => void;
   tick: (timeSec: number) => void;
   dispose: () => void;
 }
@@ -83,10 +85,36 @@ void main() {
   float smoothAlpha = clamp(alpha * 0.6 + (aN + aS + aE + aW) * 0.1, 0.0, 1.0);
 
   // Subtle warm Mediterranean sunlight rim on upper/sunward silhouette edges
-  float rim = clamp((smoothAlpha - aW) * 0.55 + (smoothAlpha - aN) * 0.45, 0.0, 1.0);
-  vec3 color = center.rgb + vec3(0.11, 0.09, 0.06) * rim;
+  float rim = clamp((smoothAlpha - aW) * 0.58 + (smoothAlpha - aN) * 0.46, 0.0, 1.0);
+  vec3 color = center.rgb + vec3(0.13, 0.10, 0.06) * rim;
 
   gl_FragColor = vec4(color, smoothAlpha);
+}
+`;
+
+/**
+ * Wet-sand vertical mirror reflection shader beneath the product tires:
+ * Adds subtle water-ripple horizontal shimmer and smooth vertical attenuation.
+ */
+const wetSandReflectionFragment = /* glsl */ `
+uniform sampler2D uMap;
+uniform float uHasAlpha;
+uniform float uTime;
+
+varying vec2 vUv;
+
+void main() {
+  // Only reflect the lower 58% of the vehicle onto the damp sand
+  if (vUv.y > 0.58) discard;
+  float ripple = sin(vUv.y * 42.0 + uTime * 2.2) * 0.0045 * vUv.y;
+  vec2 sampleUv = clamp(vec2(vUv.x + ripple, vUv.y), 0.001, 0.999);
+  vec4 s = texture2D(uMap, sampleUv);
+  float a = uHasAlpha > 0.5 ? s.a : (1.0 - smoothstep(0.90, 0.985, dot(s.rgb, vec3(0.299, 0.587, 0.114))));
+  if (a < 0.05) discard;
+
+  float fade = exp(-vUv.y * 5.2) * (1.0 - smoothstep(0.0, 0.58, vUv.y));
+  vec3 tinted = mix(s.rgb * 0.72, vec3(0.45, 0.38, 0.28), 0.35);
+  gl_FragColor = vec4(tinted, a * fade * 0.26);
 }
 `;
 
@@ -106,11 +134,11 @@ void main() {
 
   vec4 rootWorld = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   vec3 sun = normalize(uSunDir);
-  float cotElev = 1.0 / max(sun.y, 0.24);
+  float cotElev = 1.0 / max(sun.y, 0.22);
 
   vec2 projectedXZ = rootWorld.xz + vec2(
-    localX - sun.x * heightOnPlane * cotElev * 0.55,
-    -sun.z * heightOnPlane * cotElev * 0.48
+    localX - sun.x * heightOnPlane * cotElev * 0.52,
+    -sun.z * heightOnPlane * cotElev * 0.45
   );
   float sandY = coastalTerrainHeight(projectedXZ) + 0.014;
   gl_Position = projectionMatrix * viewMatrix * vec4(projectedXZ.x, sandY, projectedXZ.y, 1.0);
@@ -127,8 +155,8 @@ void main() {
   float a = uHasAlpha > 0.5 ? s.a : (1.0 - smoothstep(0.90, 0.985, dot(s.rgb, vec3(0.299, 0.587, 0.114))));
   if (a < 0.08) discard;
   // Shadow softens with distance from the tire contact line (vUv.y = 0)
-  float distanceSoftness = 1.0 - smoothstep(0.0, 0.95, vUv.y) * 0.58;
-  gl_FragColor = vec4(vec3(0.08, 0.06, 0.04), a * 0.42 * distanceSoftness);
+  float distanceSoftness = 1.0 - smoothstep(0.0, 0.95, vUv.y) * 0.56;
+  gl_FragColor = vec4(vec3(0.07, 0.05, 0.03), a * 0.46 * distanceSoftness);
 }
 `;
 
@@ -150,21 +178,21 @@ export function createProductModel(
   let ktx2: KTX2Loader | null = null;
 
   const targetAnchor = (isMobile: boolean) => {
-    // Desktop RTL: right side has Hebrew copy/offer, left side (-X) showcases the product on the shore
-    // Mobile: product centered horizontally in the upper coastal frame
-    const x = isMobile ? 0.0 : -1.18;
-    const z = isMobile ? 1.65 : 1.75;
+    // When centerStage is true (Section 02 Showroom) or on mobile, center the product horizontally
+    // On Desktop Hero (RTL split), position at x = -1.08 on the open left-center beach terrace
+    const x = config.centerStage || isMobile ? 0.0 : -1.08;
+    const z = isMobile ? 1.72 : 1.85;
     const y = evalCoastalHeightJS(x, z);
     return new THREE.Vector3(x, y, z);
   };
 
-  const applyAnchor = (isMobile: boolean, span = 1.6) => {
+  const applyAnchor = (isMobile: boolean, span = 1.85) => {
     const pos = targetAnchor(isMobile);
     group.position.copy(pos);
     config.onFootprintChange?.(new THREE.Vector2(pos.x, pos.z), span);
   };
 
-  applyAnchor(config.isMobile, 1.6);
+  applyAnchor(config.isMobile, 1.85);
 
   if (config.mode === "3d" && config.model3dUrl) {
     config.onStatusChange?.("loading");
@@ -186,7 +214,7 @@ export function createProductModel(
         const size = bounds.getSize(new THREE.Vector3());
         const center = bounds.getCenter(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z, 0.01);
-        const targetSpan = config.isMobile ? 1.28 : 1.48;
+        const targetSpan = config.isMobile ? 1.42 : 1.68;
         const scale = targetSpan / maxDim;
 
         glbObject.scale.setScalar(scale);
@@ -226,14 +254,14 @@ export function createProductModel(
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.minFilter = THREE.LinearFilter;
       tex.magFilter = THREE.LinearFilter;
-      tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
       tex.needsUpdate = true;
       loadedTexture = tex;
 
       const w = img.naturalWidth || img.width || 4;
       const h = img.naturalHeight || img.height || 3;
       const aspect = Math.max(0.65, Math.min(2.1, w / h));
-      const baseHeight = config.isMobile ? 1.36 : 1.56;
+      const baseHeight = config.isMobile ? 1.44 : 1.66;
       const baseWidth = baseHeight * aspect;
 
       const planeGeo = new THREE.PlaneGeometry(baseWidth, baseHeight, 1, 1);
@@ -251,12 +279,12 @@ export function createProductModel(
       });
 
       photoMesh = new THREE.Mesh(planeGeo, photoMat);
-      photoMesh.position.set(0, baseHeight * 0.47, 0);
+      photoMesh.position.set(0, baseHeight * 0.465, 0);
       photoMesh.renderOrder = 6;
       group.add(photoMesh);
 
       // Sun-projected silhouette shadow on the 3D sand
-      const shadowGeo = new THREE.PlaneGeometry(1, 1, 20, 20);
+      const shadowGeo = new THREE.PlaneGeometry(1, 1, 24, 24);
       const shadowMat = new THREE.ShaderMaterial({
         uniforms: {
           uMap: { value: tex },
@@ -274,27 +302,25 @@ export function createProductModel(
       shadowMesh.renderOrder = 4;
       group.add(shadowMesh);
 
-      // Subtle wet-sand vertical mirror reflection beneath the wheels
+      // Wet-sand vertical mirror reflection beneath the wheels
       const reflMat = new THREE.ShaderMaterial({
         uniforms: {
           uMap: { value: tex },
-          uTexel: { value: new THREE.Vector2(1 / w, 1 / h) },
           uHasAlpha: { value: hasCutoutAlpha ? 1.0 : 0.0 },
+          uTime: { value: 0 },
         },
         vertexShader: cutoutProductVertex,
-        fragmentShader: cutoutProductFragment,
+        fragmentShader: wetSandReflectionFragment,
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
         toneMapped: false,
       });
       reflectionMesh = new THREE.Mesh(planeGeo, reflMat);
-      reflectionMesh.scale.y = -0.32;
-      reflectionMesh.position.set(0, -baseHeight * 0.14, 0.02);
+      reflectionMesh.scale.y = -0.38;
+      reflectionMesh.position.set(0, -baseHeight * 0.16, 0.03);
       reflectionMesh.renderOrder = 5;
-      // Modulate opacity softly via onBeforeCompile or custom fragment if needed; keep subtle
       group.add(reflectionMesh);
-      reflectionMesh.visible = false; // Enabled only when product sits near wet reflection zone
 
       applyAnchor(config.isMobile, baseWidth);
       config.onStatusChange?.("ready");
@@ -310,12 +336,21 @@ export function createProductModel(
   return {
     group,
     updateLayout(isMobile: boolean) {
-      applyAnchor(isMobile, isMobile ? 2.1 : 2.45);
+      applyAnchor(isMobile, isMobile ? 1.56 : 1.85);
+    },
+    syncSunDirection(nextSunDir: THREE.Vector3) {
+      if (shadowMesh) {
+        const mat = shadowMesh.material as THREE.ShaderMaterial;
+        mat.uniforms.uSunDir.value.copy(nextSunDir);
+      }
     },
     tick(timeSec: number) {
-      // Very subtle micro-suspension breathing only for 3D mesh
       if (glbObject) {
         glbObject.position.y = Math.sin(timeSec * 0.9) * 0.004;
+      }
+      if (reflectionMesh) {
+        const mat = reflectionMesh.material as THREE.ShaderMaterial;
+        mat.uniforms.uTime.value = timeSec;
       }
     },
     dispose() {

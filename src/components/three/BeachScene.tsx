@@ -7,13 +7,13 @@ import {
   detectInitialQualityProfile,
   type GraphicsQualityProfile,
 } from "./AdaptiveQualityManager";
-import { createAtmosphericSky } from "./AtmosphericSky";
+import { createAtmosphericSky, type CoastalLightingMode } from "./AtmosphericSky";
 import { createSunLighting } from "./SunLighting";
 import { createOceanSurface } from "./OceanSurface";
 import { createShorelineSystem } from "./ShorelineSystem";
 import { createSandTerrain } from "./SandTerrain";
 import { createProductModel } from "./ProductModel";
-import { createCameraController } from "./CameraController";
+import { createCameraController, type CoastalCameraPreset } from "./CameraController";
 import { SceneFallback } from "./SceneFallback";
 
 export interface BeachSceneProps {
@@ -22,14 +22,18 @@ export interface BeachSceneProps {
   model3dUrl?: string;
   productImageUrl?: string;
   motionPaused?: boolean;
+  cameraPreset?: CoastalCameraPreset;
+  lightingMode?: CoastalLightingMode;
+  centerStage?: boolean;
+  interactiveDrag?: boolean;
   onQualityChange?: (profile: GraphicsQualityProfile) => void;
 }
 
 /**
- * Real-Time WebGL 2 Mediterranean Coastal Environment + Authentic Product Stage.
- * Combines multi-directional Gerstner ocean waves, bathymetric shoreline swash & lacy foam,
- * wet/dry PBR golden sand terrain, Preetham atmospheric sky & PMREM reflections, and
- * authentic product presentation (Mode A GLB or Mode B transparent cutout with cast shadow).
+ * Real-Time WebGL 2 Mediterranean Coastal Environment + Authentic Product Stage (V2).
+ * Combines visible HDR Sun Disc & Corona, multi-directional Gerstner ocean waves with seabed caustics
+ * and solar shimmer highway, 3-tier breaking surf foam, wet/dry PBR golden sand with tire tracks
+ * and wet-sand product mirror reflection, plus interactive camera presets and drag orbit.
  */
 export function BeachScene({
   productName,
@@ -37,6 +41,10 @@ export function BeachScene({
   model3dUrl,
   productImageUrl,
   motionPaused = false,
+  cameraPreset = "wide",
+  lightingMode = "daylight",
+  centerStage = false,
+  interactiveDrag = false,
   onQualityChange,
 }: BeachSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -44,9 +52,24 @@ export function BeachScene({
   const [ready, setReady] = useState(false);
   const motionPausedRef = useRef(motionPaused);
 
+  const controlsRef = useRef<{
+    setCameraPreset?: (preset: CoastalCameraPreset) => void;
+    setLightingMode?: (mode: CoastalLightingMode) => void;
+    triggerFrame?: () => void;
+  }>({});
+
   useEffect(() => {
     motionPausedRef.current = motionPaused;
+    controlsRef.current.triggerFrame?.();
   }, [motionPaused]);
+
+  useEffect(() => {
+    controlsRef.current.setCameraPreset?.(cameraPreset);
+  }, [cameraPreset]);
+
+  useEffect(() => {
+    controlsRef.current.setLightingMode?.(lightingMode);
+  }, [lightingMode]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -82,7 +105,7 @@ export function BeachScene({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.maxPixelRatio));
     renderer.setSize(width, height);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.04;
+    renderer.toneMappingExposure = 1.06;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -93,14 +116,15 @@ export function BeachScene({
     canvas.style.width = "100%";
     canvas.style.height = "100%";
     canvas.style.display = "block";
-    canvas.style.pointerEvents = "none";
+    canvas.style.pointerEvents = interactiveDrag ? "auto" : "none";
+    canvas.style.touchAction = "pan-y";
     container.appendChild(canvas);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#d9e8ef");
 
-    const cameraCtrl = createCameraController(width, height, initialMobile);
-    const skyHandle = createAtmosphericSky(scene, renderer);
+    const cameraCtrl = createCameraController(width, height, initialMobile, centerStage);
+    const skyHandle = createAtmosphericSky(scene, renderer, "daylight");
     const sunHandle = createSunLighting(scene, skyHandle.sunDirection);
     const sandHandle = createSandTerrain(scene, skyHandle.sunDirection, settings);
     const oceanHandle = createOceanSurface(scene, skyHandle.sunDirection, settings);
@@ -112,6 +136,7 @@ export function BeachScene({
       imageUrl: productImageUrl,
       isMobile: initialMobile,
       sunDirection: skyHandle.sunDirection,
+      centerStage,
       onFootprintChange(centerXZ, span) {
         sandHandle.uniforms.uProductXZ.value.copy(centerXZ);
         sandHandle.uniforms.uProductSpan.value = span;
@@ -149,6 +174,7 @@ export function BeachScene({
 
       const elapsedSec = (nowMs - startTime) * 0.001;
       cameraCtrl.tick(dtMs * 0.001, elapsedSec, animated);
+      skyHandle.tick(simSeconds, cameraCtrl.camera.position);
 
       oceanHandle.uniforms.uTime.value = simSeconds;
       oceanHandle.uniforms.uCameraPos.value.copy(cameraCtrl.camera.position);
@@ -181,6 +207,30 @@ export function BeachScene({
       rafId = window.requestAnimationFrame(loop);
     }
 
+    controlsRef.current = {
+      setCameraPreset(preset: CoastalCameraPreset) {
+        cameraCtrl.setPreset(preset);
+        renderSingleFrame(performance.now());
+        scheduleLoop();
+      },
+      setLightingMode(mode: CoastalLightingMode) {
+        skyHandle.setLightingMode(mode);
+        sunHandle.syncSunDirection(skyHandle.sunDirection, mode);
+        oceanHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+        sandHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+        shorelineHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+        productHandle.syncSunDirection(skyHandle.sunDirection);
+        renderer.toneMappingExposure = mode === "golden" ? 1.12 : 1.06;
+        renderSingleFrame(performance.now());
+        scheduleLoop();
+      },
+      triggerFrame() {
+        lastFrameTime = performance.now();
+        renderSingleFrame(lastFrameTime);
+        scheduleLoop();
+      },
+    };
+
     // Render initial frame immediately
     renderSingleFrame(performance.now());
     queueMicrotask(() => {
@@ -188,9 +238,33 @@ export function BeachScene({
     });
     scheduleLoop();
 
+    let isDragging = false;
+    let lastDragX = 0;
+    let lastDragY = 0;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!interactiveDrag) return;
+      isDragging = true;
+      lastDragX = event.clientX;
+      lastDragY = event.clientY;
+    };
+
+    const onPointerUp = () => {
+      isDragging = false;
+    };
+
     const onPointerMove = (event: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
+
+      if (isDragging && interactiveDrag) {
+        const dx = ((event.clientX - lastDragX) / Math.max(rect.width, 1)) * 2.4;
+        const dy = -((event.clientY - lastDragY) / Math.max(rect.height, 1)) * 1.4;
+        lastDragX = event.clientX;
+        lastDragY = event.clientY;
+        cameraCtrl.addDragOffset(dx, dy);
+      }
+
       const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       const ny = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
       cameraCtrl.setPointerOffset(nx, ny);
@@ -242,6 +316,8 @@ export function BeachScene({
     );
     intersectionObserver.observe(container);
 
+    container.addEventListener("pointerdown", onPointerDown, { passive: true });
+    window.addEventListener("pointerup", onPointerUp, { passive: true });
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -250,9 +326,12 @@ export function BeachScene({
 
     return () => {
       disposed = true;
+      controlsRef.current = {};
       if (rafId) window.cancelAnimationFrame(rafId);
       resizeObserver.disconnect();
       intersectionObserver.disconnect();
+      container.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("scroll", onScroll);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -268,12 +347,7 @@ export function BeachScene({
       renderer.dispose();
       canvas.remove();
     };
-  }, [productName, productMode, model3dUrl, productImageUrl, onQualityChange]);
-
-  // Trigger a fresh frame or resume loop when motionPaused toggles
-  useEffect(() => {
-    window.dispatchEvent(new Event("scroll"));
-  }, [motionPaused]);
+  }, [productName, productMode, model3dUrl, productImageUrl, centerStage, interactiveDrag, onQualityChange]);
 
   if (webglFailed) {
     return <SceneFallback productName={productName} imageUrl={productImageUrl} />;

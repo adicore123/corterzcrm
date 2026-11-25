@@ -1,9 +1,11 @@
 import * as THREE from "three";
+import type { CoastalLightingMode } from "./AtmosphericSky";
 
 export interface SunLightingHandle {
   sunLight: THREE.DirectionalLight;
   hemiLight: THREE.HemisphereLight;
   fillLight: THREE.DirectionalLight;
+  syncSunDirection: (sunDirection: THREE.Vector3, mode: CoastalLightingMode) => void;
   dispose: () => void;
 }
 
@@ -14,7 +16,7 @@ export function createSunLighting(
   scene: THREE.Scene,
   sunDirection: THREE.Vector3,
 ): SunLightingHandle {
-  const sunLight = new THREE.DirectionalLight(0xfff4e0, 2.85);
+  const sunLight = new THREE.DirectionalLight(0xfff3dc, 3.05);
   sunLight.position.copy(sunDirection).multiplyScalar(28);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(1024, 1024);
@@ -30,10 +32,10 @@ export function createSunLighting(
   sunLight.shadow.camera.updateProjectionMatrix();
 
   // Sky-to-warm-sand hemisphere fill
-  const hemiLight = new THREE.HemisphereLight(0xbbe2f5, 0xe8d5b5, 1.45);
+  const hemiLight = new THREE.HemisphereLight(0xbbe2f5, 0xe8d5b5, 1.48);
 
   // Soft sea-breeze rim/fill light from the water side
-  const fillLight = new THREE.DirectionalLight(0x9bd7e8, 0.85);
+  const fillLight = new THREE.DirectionalLight(0x9bd7e8, 0.88);
   fillLight.position.set(-sunDirection.x * 14, 7, 14);
 
   scene.add(sunLight, hemiLight, fillLight);
@@ -42,6 +44,20 @@ export function createSunLighting(
     sunLight,
     hemiLight,
     fillLight,
+    syncSunDirection(nextSunDir: THREE.Vector3, mode: CoastalLightingMode) {
+      sunLight.position.copy(nextSunDir).multiplyScalar(28);
+      if (mode === "golden") {
+        sunLight.color.setHex(0xffd79e);
+        sunLight.intensity = 3.25;
+        hemiLight.color.setHex(0xffdfba);
+        hemiLight.groundColor.setHex(0xdcb88e);
+      } else {
+        sunLight.color.setHex(0xfff3dc);
+        sunLight.intensity = 3.05;
+        hemiLight.color.setHex(0xbbe2f5);
+        hemiLight.groundColor.setHex(0xe8d5b5);
+      }
+    },
     dispose() {
       scene.remove(sunLight, hemiLight, fillLight);
       sunLight.dispose();
