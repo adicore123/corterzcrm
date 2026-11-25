@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { oceanVertexShader } from "@/shaders/ocean.vert.glsl";
 import { oceanFragmentShader } from "@/shaders/ocean.frag.glsl";
 import type { QualitySettings } from "./AdaptiveQualityManager";
+import type { CoastalLightingMode } from "./AtmosphericSky";
+import { SCENE_CONFIG, srgbToLinearVec3 } from "./scene.config";
 
 export interface OceanSurfaceHandle {
   mesh: THREE.Mesh;
@@ -10,32 +12,53 @@ export interface OceanSurfaceHandle {
     uQuality: { value: number };
     uSunDir: { value: THREE.Vector3 };
     uCameraPos: { value: THREE.Vector3 };
+    uWaterlineColor: { value: THREE.Vector3 };
+    uShallowNearColor: { value: THREE.Vector3 };
+    uShallowFarColor: { value: THREE.Vector3 };
+    uMidColor: { value: THREE.Vector3 };
+    uDeepNearColor: { value: THREE.Vector3 };
+    uDeepFarColor: { value: THREE.Vector3 };
+    uCrestSssColor: { value: THREE.Vector3 };
+    uSubmergedSandColor: { value: THREE.Vector3 };
+    uSkyZenith: { value: THREE.Vector3 };
+    uSkyMid: { value: THREE.Vector3 };
+    uSkyHorizon: { value: THREE.Vector3 };
   };
   updateQuality: (settings: QualitySettings) => void;
+  setMood: (mode: CoastalLightingMode) => void;
   dispose: () => void;
 }
 
-/**
- * Real-time GPU Gerstner wave ocean surface extending from the breaking shoreline to the distant Mediterranean horizon.
- */
+function buildOceanGeometry(segX: number, segZ: number): THREE.PlaneGeometry {
+  const geo = new THREE.PlaneGeometry(185, 130, segX, segZ);
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, 0, -61.5);
+  return geo;
+}
+
 export function createOceanSurface(
   scene: THREE.Scene,
   sunDirection: THREE.Vector3,
-  initialQuality: QualitySettings,
+  initialSettings: QualitySettings,
+  initialMood: CoastalLightingMode = "daylight",
 ): OceanSurfaceHandle {
+  const moodCfg = SCENE_CONFIG.moods[initialMood];
   const uniforms = {
     uTime: { value: 0 },
-    uQuality: { value: initialQuality.shaderQuality },
+    uQuality: { value: initialSettings.shaderQuality },
     uSunDir: { value: sunDirection.clone() },
-    uCameraPos: { value: new THREE.Vector3(0, 1.6, 7.5) },
-  };
-
-  const buildGeometry = (segs: [number, number]) => {
-    const geo = new THREE.PlaneGeometry(220, 128, segs[0], segs[1]);
-    geo.rotateX(-Math.PI / 2);
-    // Position so z spans from -127 (horizon) up to +1.0 (overlapping the swash run-up zone on the beach)
-    geo.translate(0, 0, -63.0);
-    return geo;
+    uCameraPos: { value: new THREE.Vector3(0, 1.45, 6.8) },
+    uWaterlineColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.waterlineHex) },
+    uShallowNearColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.shallowNearHex) },
+    uShallowFarColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.shallowFarHex) },
+    uMidColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.midHex) },
+    uDeepNearColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.deepNearHex) },
+    uDeepFarColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.deepFarHex) },
+    uCrestSssColor: { value: srgbToLinearVec3(SCENE_CONFIG.water.crestSssHex) },
+    uSubmergedSandColor: { value: srgbToLinearVec3(SCENE_CONFIG.sand.dryHex) },
+    uSkyZenith: { value: srgbToLinearVec3(moodCfg.skyZenithHex) },
+    uSkyMid: { value: srgbToLinearVec3(moodCfg.skyMidHex) },
+    uSkyHorizon: { value: srgbToLinearVec3(moodCfg.skyHorizonHex) },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -45,18 +68,36 @@ export function createOceanSurface(
     transparent: true,
     depthWrite: true,
     side: THREE.FrontSide,
-    toneMapped: true,
   });
 
-  const mesh = new THREE.Mesh(buildGeometry(initialQuality.oceanSegments), material);
+  const [segX, segZ] = initialSettings.oceanSegments;
+  const geometry = buildOceanGeometry(segX, segZ);
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.renderOrder = 2;
   scene.add(mesh);
+
+  let currentSegX = segX;
+  let currentSegZ = segZ;
 
   return {
     mesh,
     uniforms,
     updateQuality(settings: QualitySettings) {
       uniforms.uQuality.value = settings.shaderQuality;
+      const [nextX, nextZ] = settings.oceanSegments;
+      if (nextX !== currentSegX || nextZ !== currentSegZ) {
+        currentSegX = nextX;
+        currentSegZ = nextZ;
+        const oldGeo = mesh.geometry;
+        mesh.geometry = buildOceanGeometry(nextX, nextZ);
+        oldGeo.dispose();
+      }
+    },
+    setMood(mode: CoastalLightingMode) {
+      const m = SCENE_CONFIG.moods[mode];
+      uniforms.uSkyZenith.value.copy(srgbToLinearVec3(m.skyZenithHex));
+      uniforms.uSkyMid.value.copy(srgbToLinearVec3(m.skyMidHex));
+      uniforms.uSkyHorizon.value.copy(srgbToLinearVec3(m.skyHorizonHex));
     },
     dispose() {
       scene.remove(mesh);

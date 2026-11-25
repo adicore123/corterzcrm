@@ -1,62 +1,51 @@
 /**
- * Shared coastal bathymetry & shoreline curve functions in GLSL.
- * Coordinate system:
- *   X: along-shore (-left to +right)
- *   Y: vertical elevation
- *   Z: cross-shore (-deep ocean toward horizon, +dry beach terrace toward viewer)
- *
- * The dry product terrace sits around Z in [1.2 .. 5.5], Y ~= 0.0.
- * The natural curving shoreline sits around Z ~= -1.35 + curve(X).
- * For Z < shorelineZ, the seabed slopes smoothly downward into the Mediterranean.
+ * Shared GLSL Coastal Bathymetry & Shoreline Swash Physics (V3).
+ * Used identically by the Gerstner Ocean, Shoreline Swash System, and 3D Sand Terrain
+ * so depth = waterLevel - sandHeight(x,z) is mathematically continuous across all passes.
  */
 export const shorelineCommonGlsl = /* glsl */ `
-float shorelineCurve(float x) {
+// Curving Mediterranean shoreline profile along X (in world meters)
+float shorelineCurveZ(float x) {
   return -1.45
     + 0.38 * sin(x * 0.11 + 0.4)
     + 0.19 * sin(x * 0.27 - 1.1)
     + 0.08 * cos(x * 0.61 + 2.0);
 }
 
-// Signed cross-shore distance: positive on land (toward viewer), negative seaward
+// Signed distance from the mean shoreline (+ toward dry beach, - toward open sea)
 float signedShoreDistance(vec2 xz) {
-  return xz.y - shorelineCurve(xz.x);
+  return xz.y - shorelineCurveZ(xz.x);
 }
 
-// Continuous coastal seabed-to-terrace elevation y(x, z)
+// Continuous 3D terrain elevation (seabed -> shallow shelf -> gently sloped dune beach)
 float coastalTerrainHeight(vec2 xz) {
   float d = signedShoreDistance(xz);
-  // Seaward slope: gently deepens from 0 at shoreline to -4.8m offshore
-  float seaSlope = d < 0.0 ? -4.8 * (1.0 - exp(d * 0.22)) + 0.06 * d : 0.0;
-  // Landward beach face -> levels onto the dry product presentation terrace around y = 0.28
-  float landRise = d >= 0.0 ? 0.30 * (1.0 - exp(-d * 0.72)) : 0.0;
-  // Subtle wind-formed macro sand undulation on the dry upper beach (fades near wheel contact zone)
-  float productZoneMask = smoothstep(0.9, 2.8, length(xz - vec2(0.0, 2.15)));
-  float dune = (sin(xz.x * 0.42 + xz.y * 0.31) * 0.022 + cos(xz.x * 0.85 - xz.y * 0.55) * 0.011)
-    * smoothstep(0.3, 2.4, d) * productZoneMask;
-  return seaSlope + landRise + dune;
+  if (d < 0.0) {
+    // Gradual Mediterranean sandy shelf: 0 -> -1.5m in the first 7m, descending to -8.5m offshore
+    return -5.4 * (1.0 - exp(d * 0.16)) + 0.055 * d;
+  }
+  // Gentle beach berm and soft background dunes sloping toward the water
+  float duneUndulation = sin(xz.x * 0.22 + 0.8) * cos(xz.y * 0.31 - 0.4) * 0.028 * smoothstep(0.0, 2.5, d);
+  return 0.31 * (1.0 - exp(-d * 0.68)) + duneUndulation;
 }
 
-// Asymmetric swash surge cycle: fast incoming wave run-up, slower gravity backwash
+// Asymmetric swash run-up cycle (7.6s period: surge up the sand, pause, slow backwash)
 float swashSurgeOffset(float x, float time) {
-  float p1 = fract(time * 0.145 + sin(x * 0.09) * 0.18);
-  // Fast rise (0..0.32), slow recession (0.32..1.0)
-  float w1 = p1 < 0.32
-    ? smoothstep(0.0, 0.32, p1)
-    : pow(1.0 - (p1 - 0.32) / 0.68, 1.45);
-
-  float p2 = fract(time * 0.093 + 0.47 - cos(x * 0.13 + 1.2) * 0.15);
-  float w2 = p2 < 0.30
-    ? smoothstep(0.0, 0.30, p2)
-    : pow(1.0 - (p2 - 0.30) / 0.70, 1.55);
-
-  return (w1 * 0.68 + w2 * 0.42) * 1.35;
+  float period = 7.6;
+  float omega = 6.2831853 / period;
+  float phase = time * omega + sin(x * 0.19) * 1.15 + cos(x * 0.43) * 0.55;
+  float raw = sin(phase);
+  // Steep incoming run-up, elongated receding backwash
+  float asymmetric = raw + 0.28 * sin(2.0 * phase - 0.65);
+  return asymmetric * 0.68;
 }
 
-// Wetness persistence memory: lags behind the receding swash so exposed sand stays dark & reflective
+// Wet sand persistence boundary: stays dark/glossy after wave recedes and dries gradually
 float swashWetnessReach(float x, float time) {
-  float currentReach = swashSurgeOffset(x, time);
-  float delayed1 = swashSurgeOffset(x, time - 1.35) * 0.94;
-  float delayed2 = swashSurgeOffset(x, time - 2.85) * 0.86;
-  return max(currentReach, max(delayed1, delayed2)) + 0.28;
+  float current = swashSurgeOffset(x, time);
+  float trail1 = swashSurgeOffset(x, time - 1.35);
+  float trail2 = swashSurgeOffset(x, time - 2.80);
+  float trail3 = swashSurgeOffset(x, time - 4.20);
+  return max(max(current, trail1 * 0.94), max(trail2 * 0.86, trail3 * 0.76)) + 0.52;
 }
 `;

@@ -1,4 +1,5 @@
 import type { CatalogModel } from "@/lib/validation/models";
+import { extractBatteryCapacityAh, extractBatteryVoltage } from "@/components/catalog/catalog-utils";
 import { BatteryCharging, Compass, Disc, Gauge, Layers, Monitor, ShieldCheck, Sparkles } from "lucide-react";
 
 interface HighlightItem {
@@ -32,7 +33,7 @@ const HIGHLIGHT_MATCHERS: Array<{
   {
     key: "motor",
     category: "הנעה ובקר",
-    terms: ["מנוע", "בקר", "הספק"],
+    terms: ["בקר", "מנוע", "הספק"],
     detail: "מערכת הנעה חשמלית מבוקרת לתגובה חלקה ויעילה בעיר.",
   },
   {
@@ -62,9 +63,9 @@ const HIGHLIGHT_MATCHERS: Array<{
   },
   {
     key: "frame",
-    category: "שלדה ומשקל",
-    terms: ["שלדה", "משקל", "קיפול", "כושר העמסה"],
-    detail: "הנדסת שלדה מוקפדת המשלבת חוזק מבני ונוחות תפעול יומיומית.",
+    category: "שלדה והילוכים",
+    terms: ["הילוכים", "שלדה", "משקל", "קיפול"],
+    detail: "הנדסת שלדה ומכלולים המשלבת חוזק מבני ונוחות תפעול יומיומית.",
   },
 ];
 
@@ -81,14 +82,26 @@ function getIcon(key: string) {
   }
 }
 
+/** Filters out vague non-numeric placeholders such as "מנוע עוצמתי" */
+function isVagueSpec(label: string, value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+  if (label.includes("מנוע") && v === "מנוע עוצמתי") return true;
+  return false;
+}
+
 /**
- * SECTION 03 — Key Product Highlights
- * Strictly renders only specifications that actually exist in the product's verified data.
+ * SECTION 02 — Key Product Highlights
+ * Strictly renders verified specifications with computed Wh energy when both V and Ah exist.
  */
 export function ProductHighlights({ model }: { model: CatalogModel }) {
-  const specs = model.specs ?? [];
+  const specs = (model.specs ?? []).filter((s) => !isVagueSpec(s.label, s.value));
   const usedLabels = new Set<string>();
   const items: HighlightItem[] = [];
+
+  const voltage = extractBatteryVoltage(model);
+  const capacityAh = extractBatteryCapacityAh(model);
+  const computedWh = voltage && capacityAh ? Math.round(voltage * capacityAh) : null;
 
   for (const matcher of HIGHLIGHT_MATCHERS) {
     const found = specs.find(
@@ -96,17 +109,19 @@ export function ProductHighlights({ model }: { model: CatalogModel }) {
     );
     if (found && found.value.trim()) {
       usedLabels.add(found.label);
+      const isBattery = matcher.key === "battery" && computedWh;
       items.push({
         key: matcher.key,
         category: found.label,
         value: found.value.trim(),
-        detail: matcher.detail,
+        detail: isBattery
+          ? `קיבולת אנרגיה מחושבת של כ־${computedWh} Wh (${voltage}V × ${capacityAh}Ah) לאספקת כוח רציפה.`
+          : matcher.detail,
         ltr: matcher.ltr || /^[0-9a-zA-Z×x./\s\-+VAhW"״']+$/i.test(found.value.trim()),
       });
     }
   }
 
-  // Fill up to 6 highlights from remaining verified specs or features if fewer matched
   for (const spec of specs) {
     if (items.length >= 6) break;
     if (!usedLabels.has(spec.label) && spec.value.trim()) {
@@ -126,9 +141,9 @@ export function ProductHighlights({ model }: { model: CatalogModel }) {
   return (
     <section className="proposal-highlights" id="proposal-highlights" aria-labelledby="highlights-title">
       <div className="proposal-section-heading">
-        <span>03 / מאפייני ליבה בדגם</span>
+        <span>02 / נתוני מפתח ומאפייני ליבה</span>
         <h2 id="highlights-title">הנדסה מדויקת. נוכחות שמורגשת בכל נסיעה.</h2>
-        <p>נתוני הליבה של {model.name} כפי שהם מופיעים במפרט הדגם הרשמי של קורטז.</p>
+        <p>נתוני הליבה המאומתים של {model.name} מתוך מפרט הדגם הרשמי של קורטז.</p>
       </div>
 
       {items.length > 0 ? (

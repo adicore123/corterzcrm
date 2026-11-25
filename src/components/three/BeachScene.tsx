@@ -14,6 +14,7 @@ import { createShorelineSystem } from "./ShorelineSystem";
 import { createSandTerrain } from "./SandTerrain";
 import { createProductModel } from "./ProductModel";
 import { createCameraController, type CoastalCameraPreset } from "./CameraController";
+import { SCENE_CONFIG } from "./scene.config";
 import { SceneFallback } from "./SceneFallback";
 
 export interface BeachSceneProps {
@@ -30,10 +31,12 @@ export interface BeachSceneProps {
 }
 
 /**
- * Real-Time WebGL 2 Mediterranean Coastal Environment + Authentic Product Stage (V2).
- * Combines visible HDR Sun Disc & Corona, multi-directional Gerstner ocean waves with seabed caustics
- * and solar shimmer highway, 3-tier breaking surf foam, wet/dry PBR golden sand with tire tracks
- * and wet-sand product mirror reflection, plus interactive camera presets and drag orbit.
+ * Real-Time WebGL 2 Mediterranean Coastal Environment + Grounded Product Stage (V3).
+ * - Khronos PBR Neutral Tone Mapping (THREE.NeutralToneMapping) so CORTEZ red #bf1619 stays accurate
+ * - Single WebGL 2 Canvas architecture with zero layout shift crossfade over LCP poster
+ * - Depth-driven Beer-Lambert water with refracted seabed caustics & 7.6s swash cycle
+ * - Pale warm Mediterranean sand (#E9D5AE / #B79B6E) with fat-tire tracks leading to the bike
+ * - 1.6s smooth mood transitions & 1.45s eased camera preset arcs
  */
 export function BeachScene({
   productName,
@@ -102,10 +105,11 @@ export function BeachScene({
     }
 
     const settings = qualityManager.getSettings();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.maxPixelRatio));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, Math.min(1.75, settings.maxPixelRatio)));
     renderer.setSize(width, height);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.06;
+    // Khronos PBR Neutral tone mapping preserves product colors and brand red #bf1619 without ACES orange shift
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = SCENE_CONFIG.moods.daylight.exposure;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -126,8 +130,8 @@ export function BeachScene({
     const cameraCtrl = createCameraController(width, height, initialMobile, centerStage);
     const skyHandle = createAtmosphericSky(scene, renderer, "daylight");
     const sunHandle = createSunLighting(scene, skyHandle.sunDirection);
-    const sandHandle = createSandTerrain(scene, skyHandle.sunDirection, settings);
-    const oceanHandle = createOceanSurface(scene, skyHandle.sunDirection, settings);
+    const sandHandle = createSandTerrain(scene, skyHandle.sunDirection, settings, "daylight");
+    const oceanHandle = createOceanSurface(scene, skyHandle.sunDirection, settings, "daylight");
     const shorelineHandle = createShorelineSystem(scene, skyHandle.sunDirection, settings.shaderQuality);
 
     const productHandle = createProductModel(scene, renderer, {
@@ -158,13 +162,16 @@ export function BeachScene({
       if (disposed) return;
       const dtMs = Math.min(nowMs - lastFrameTime, 100);
       lastFrameTime = nowMs;
+      const dtSec = dtMs * 0.001;
       const animated = !prefersReducedMotion && !motionPausedRef.current;
       if (animated) {
-        simSeconds += dtMs * 0.001;
+        simSeconds += dtSec;
         const switched = qualityManager.recordFrame(dtMs, nowMs);
         if (switched) {
           const nextSettings = qualityManager.getSettings();
-          renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, nextSettings.maxPixelRatio));
+          renderer.setPixelRatio(
+            Math.min(window.devicePixelRatio || 1, Math.min(1.75, nextSettings.maxPixelRatio)),
+          );
           oceanHandle.updateQuality(nextSettings);
           sandHandle.updateQuality(nextSettings);
           shorelineHandle.uniforms.uQuality.value = nextSettings.shaderQuality;
@@ -173,8 +180,14 @@ export function BeachScene({
       }
 
       const elapsedSec = (nowMs - startTime) * 0.001;
-      cameraCtrl.tick(dtMs * 0.001, elapsedSec, animated);
-      skyHandle.tick(simSeconds, cameraCtrl.camera.position);
+      cameraCtrl.tick(dtSec, elapsedSec, animated);
+      skyHandle.tick(simSeconds, dtSec, cameraCtrl.camera.position, animated);
+
+      // Keep sun direction synchronized during 1.6s mood transitions
+      oceanHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+      sandHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+      shorelineHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
+      productHandle.syncSunDirection(skyHandle.sunDirection);
 
       oceanHandle.uniforms.uTime.value = simSeconds;
       oceanHandle.uniforms.uCameraPos.value.copy(cameraCtrl.camera.position);
@@ -183,7 +196,7 @@ export function BeachScene({
       sandHandle.uniforms.uCameraPos.value.copy(cameraCtrl.camera.position);
 
       shorelineHandle.uniforms.uTime.value = simSeconds;
-      productHandle.tick(simSeconds);
+      productHandle.tick(simSeconds, cameraCtrl.camera.position);
 
       try {
         renderer.render(scene, cameraCtrl.camera);
@@ -216,11 +229,9 @@ export function BeachScene({
       setLightingMode(mode: CoastalLightingMode) {
         skyHandle.setLightingMode(mode);
         sunHandle.syncSunDirection(skyHandle.sunDirection, mode);
-        oceanHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
-        sandHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
-        shorelineHandle.uniforms.uSunDir.value.copy(skyHandle.sunDirection);
-        productHandle.syncSunDirection(skyHandle.sunDirection);
-        renderer.toneMappingExposure = mode === "golden" ? 1.12 : 1.06;
+        oceanHandle.setMood(mode);
+        sandHandle.setMood(mode);
+        renderer.toneMappingExposure = SCENE_CONFIG.moods[mode].exposure;
         renderSingleFrame(performance.now());
         scheduleLoop();
       },
@@ -243,6 +254,7 @@ export function BeachScene({
     let lastDragY = 0;
 
     const onPointerDown = (event: PointerEvent) => {
+      cameraCtrl.notifyUserInteraction();
       if (!interactiveDrag) return;
       isDragging = true;
       lastDragX = event.clientX;
@@ -258,8 +270,8 @@ export function BeachScene({
       if (rect.width <= 0 || rect.height <= 0) return;
 
       if (isDragging && interactiveDrag) {
-        const dx = ((event.clientX - lastDragX) / Math.max(rect.width, 1)) * 2.4;
-        const dy = -((event.clientY - lastDragY) / Math.max(rect.height, 1)) * 1.4;
+        const dx = ((event.clientX - lastDragX) / Math.max(rect.width, 1)) * 2.1;
+        const dy = -((event.clientY - lastDragY) / Math.max(rect.height, 1)) * 1.2;
         lastDragX = event.clientX;
         lastDragY = event.clientY;
         cameraCtrl.addDragOffset(dx, dy);
@@ -356,8 +368,15 @@ export function BeachScene({
   return (
     <div
       ref={containerRef}
-      className={"proposal-beach-stage" + (ready ? " is-ready" : "")}
+      className={
+        "proposal-beach-stage"
+        + (ready ? " is-ready" : "")
+        + (cameraPreset === "closeup" ? " is-closeup-dof" : "")
+      }
       data-quality-ready={ready ? "true" : "false"}
-    />
+      data-camera-preset={cameraPreset}
+    >
+      <div className="proposal-beach-vignette" aria-hidden />
+    </div>
   );
 }
