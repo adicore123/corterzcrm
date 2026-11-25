@@ -1,58 +1,91 @@
 import * as THREE from "three";
+import { Sky } from "three/examples/jsm/objects/Sky.js";
+import { oceanVertexShader } from "@/shaders/ocean.vert.glsl";
+import { oceanFragmentShader } from "@/shaders/ocean.frag.glsl";
+import { sandVertexShader, sandFragmentShader } from "@/shaders/sand.glsl";
 
-/** A lightweight sea and sky for an actual glTF product mesh. */
+/**
+ * Photorealistic Mediterranean Coastal Environment for 360-degree glTF/GLB product inspection.
+ * Combines Preetham Atmospheric Sky, 8-wave Gerstner Ocean, and Wet/Dry PBR Sand Terrain.
+ */
 export function addCoastalProductScene(scene: THREE.Scene, radius: number, reducedMotion: boolean) {
-  scene.background = new THREE.Color("#dcecf1");
-  scene.fog = new THREE.Fog("#dcecf1", radius * 18, radius * 56);
+  const s = Math.max(radius, 0.5);
+  scene.background = new THREE.Color("#d9e8ef");
 
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 58, 32, 16),
-    new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      vertexShader: "varying vec3 vPosition; void main(){ vPosition = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
-      fragmentShader: "varying vec3 vPosition; void main(){ float h = smoothstep(-0.08, 0.58, normalize(vPosition).y); vec3 horizon = vec3(0.86, 0.94, 0.95); vec3 zenith = vec3(0.58, 0.79, 0.86); gl_FragColor = vec4(mix(horizon, zenith, h), 1.0); }",
-    }),
-  );
+  const sky = new Sky();
+  sky.scale.setScalar(s * 240);
+  const elevationDeg = 14.0;
+  const azimuthDeg = -26.0;
+  const phi = THREE.MathUtils.degToRad(90 - elevationDeg);
+  const theta = THREE.MathUtils.degToRad(180 + azimuthDeg);
+  const sunDirection = new THREE.Vector3().setFromSphericalCoords(1, phi, theta).normalize();
+
+  sky.material.uniforms["turbidity"].value = 3.2;
+  sky.material.uniforms["rayleigh"].value = 1.75;
+  sky.material.uniforms["mieCoefficient"].value = 0.0042;
+  sky.material.uniforms["mieDirectionalG"].value = 0.84;
+  sky.material.uniforms["sunPosition"].value.copy(sunDirection);
   scene.add(sky);
 
-  const uniforms = { uTime: { value: 0 } };
-  const sea = new THREE.Mesh(
-    new THREE.PlaneGeometry(radius * 115, radius * 115, 64, 64),
-    new THREE.ShaderMaterial({
-      uniforms,
-      side: THREE.DoubleSide,
-      vertexShader: `uniform float uTime; varying vec3 vWorld;
-        void main() {
-          vec3 p = position;
-          p.z += (sin(p.x * 0.27 + uTime * 0.55) + sin(p.y * 0.22 - uTime * 0.42)) * 0.065;
-          vec4 world = modelMatrix * vec4(p, 1.0);
-          vWorld = world.xyz;
-          gl_Position = projectionMatrix * viewMatrix * world;
-        }`,
-      fragmentShader: `uniform float uTime; varying vec3 vWorld;
-        void main() {
-          float ripple = sin(vWorld.x * 0.48 + uTime * 0.7) * sin(vWorld.z * 0.34 - uTime * 0.46);
-          float foam = smoothstep(0.68, 0.92, ripple) * 0.08;
-          vec3 shallow = vec3(0.45, 0.72, 0.75);
-          vec3 deep = vec3(0.28, 0.59, 0.68);
-          vec3 color = mix(deep, shallow, clamp(ripple * 0.25 + 0.5, 0.0, 1.0));
-          gl_FragColor = vec4(color + foam, 1.0);
-        }`,
-    }),
-  );
-  sea.rotation.x = -Math.PI / 2;
-  sea.position.y = -radius * 0.86;
-  sea.receiveShadow = false;
-  scene.add(sea);
+  const oceanUniforms = {
+    uTime: { value: 18.4 },
+    uQuality: { value: 1.0 },
+    uSunDir: { value: sunDirection.clone() },
+    uCameraPos: { value: new THREE.Vector3(0, s * 1.4, s * 3.5) },
+  };
+  const oceanGeo = new THREE.PlaneGeometry(s * 140, s * 90, 96, 84);
+  oceanGeo.rotateX(-Math.PI / 2);
+  oceanGeo.translate(0, -s * 0.52, -s * 42);
+  const oceanMat = new THREE.ShaderMaterial({
+    uniforms: oceanUniforms,
+    vertexShader: oceanVertexShader,
+    fragmentShader: oceanFragmentShader,
+    transparent: true,
+    depthWrite: true,
+    toneMapped: true,
+  });
+  const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+  oceanMesh.renderOrder = 2;
+  scene.add(oceanMesh);
+
+  const sandUniforms = {
+    uTime: { value: 18.4 },
+    uQuality: { value: 1.0 },
+    uSunDir: { value: sunDirection.clone() },
+    uCameraPos: { value: new THREE.Vector3(0, s * 1.4, s * 3.5) },
+    uProductXZ: { value: new THREE.Vector2(0, 0) },
+    uProductSpan: { value: s * 1.65 },
+  };
+  const sandGeo = new THREE.PlaneGeometry(s * 120, s * 34, 72, 56);
+  sandGeo.rotateX(-Math.PI / 2);
+  sandGeo.translate(0, -s * 0.54, -s * 5);
+  const sandMat = new THREE.ShaderMaterial({
+    uniforms: sandUniforms,
+    vertexShader: sandVertexShader,
+    fragmentShader: sandFragmentShader,
+    toneMapped: true,
+  });
+  const sandMesh = new THREE.Mesh(sandGeo, sandMat);
+  sandMesh.receiveShadow = true;
+  sandMesh.renderOrder = 1;
+  scene.add(sandMesh);
 
   return {
-    tick(now: number) { if (!reducedMotion) uniforms.uTime.value = now / 1000; },
+    tick(now: number) {
+      if (!reducedMotion) {
+        const t = 18.4 + now * 0.001;
+        oceanUniforms.uTime.value = t;
+        sandUniforms.uTime.value = t;
+      }
+    },
     dispose() {
-      scene.remove(sky, sea);
-      sky.geometry.dispose(); (sky.material as THREE.Material).dispose();
-      sea.geometry.dispose(); (sea.material as THREE.Material).dispose();
-      scene.fog = null;
+      scene.remove(sky, oceanMesh, sandMesh);
+      sky.geometry.dispose();
+      sky.material.dispose();
+      oceanGeo.dispose();
+      oceanMat.dispose();
+      sandGeo.dispose();
+      sandMat.dispose();
     },
   };
 }

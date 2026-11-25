@@ -1,84 +1,191 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
-import { Brand } from "@/components/brand";
+import { extractKeySpecs, getModelImages } from "@/components/catalog/catalog-utils";
+import { CinematicHero } from "@/components/proposal/CinematicHero";
+import { ProductHighlights } from "@/components/proposal/ProductHighlights";
+import { ProductStorytelling } from "@/components/proposal/ProductStorytelling";
+import { TechnicalSpecifications } from "@/components/proposal/TechnicalSpecifications";
+import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
 import { publicCatalogModels } from "@/lib/catalog/public-model";
 import { catalogModels } from "@/lib/json-db/queries";
-import { quoteByToken } from "@/lib/quotes/service";
 import { quoteTotal } from "@/lib/quotes/pricing";
 import { resolveProposalMedia } from "@/lib/quotes/proposal-media";
+import { quoteByToken } from "@/lib/quotes/service";
 import { AcceptQuote } from "./accept-quote";
 import { ProposalShowroom } from "./proposal-showroom";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "הצעת מחיר אישית | קורטז", robots: { index: false, follow: false } };
-const shekels = (agorot: number) => new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS" }).format(agorot / 100);
+export const metadata = {
+  title: "הצעת מחיר אישית | קורטז",
+  robots: { index: false, follow: false },
+};
+
+const shekels = (agorot: number) =>
+  new Intl.NumberFormat("he-IL", { style: "currency", currency: "ILS" }).format(agorot / 100);
 
 export default async function ProposalPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const quote = await quoteByToken(token);
   if (!quote) notFound();
+
   const storedModel = (await catalogModels()).find((item) => item.id === quote.modelId);
   const model = storedModel ? publicCatalogModels([{ ...storedModel, published: true }])[0] : undefined;
   const price = quoteTotal(quote);
-  const customer = quote.customerType === "store" ? quote.storeName || quote.customerName : quote.customerName;
-  return <main className="proposal-page" dir="rtl">
-    <header className="proposal-header"><Brand /><span>הצעה אישית עבור {customer}</span><a href="#offer">פרטי ההצעה <span aria-hidden>↙</span></a></header>
-    <div className="proposal-shell">
-      <section className="proposal-heading" aria-labelledby="proposal-title">
-        <div><span className="proposal-kicker">CORTEZ · הצעה אישית</span><h1 id="proposal-title" dir="ltr">{quote.modelName}</h1><p>{model?.summary || "הדגם וההצעה שלך, במקום אחד."}</p></div>
-        <div className="proposal-heading-total"><span>סך ההצעה</span><strong>{shekels(price.payableAgorot)}</strong><small>{quote.quantity} {quote.quantity === 1 ? "יחידה" : "יחידות"} · {quote.vatMode === "included" ? "כולל מע״מ" : "בתוספת מע״מ"}</small><a href="#proposal-accept">לבדיקת ההצעה ←</a></div>
-      </section>
-      <div className="proposal-layout">
-        {model ? <ProposalShowroom model={model} media={resolveProposalMedia(model)} /> : <section className="proposal-missing-model"><span>תצוגת מוצר</span><h2>{quote.modelName}</h2><p>תמונות ופרטי הדגם אינם זמינים כרגע. פרטי ההצעה נמצאים לצד התצוגה.</p></section>}
-        <aside className="proposal-offer" id="offer" aria-labelledby="offer-title">
-          <div className="proposal-offer-top"><span>01 / ההצעה שלך</span><span>CORTEZ PRIVATE OFFER</span></div>
-          <h2 id="offer-title">{quote.customerType === "store" ? `הצעה עבור ${customer}` : `הצעה אישית עבור ${customer}`}</h2>
-          <p className="proposal-offer-description">{quote.customerType === "store" ? "פרטי העסקה לחנות, בצורה ברורה ומרוכזת." : "כל פרטי העסקה שלך, לפני קבלת החלטה."}</p>
-          <div className="proposal-offer-product"><span dir="ltr">{quote.modelName}</span><strong>{quote.quantity} {quote.quantity === 1 ? "יחידה" : "יחידות"}</strong></div>
-          <dl className="proposal-price-list">
-            {quote.totalPriceAgorot === undefined && <div><dt>מחיר ליחידה</dt><dd>{shekels(quote.unitPriceAgorot)}</dd></div>}
-            <div><dt>מחיר לכמות</dt><dd>{shekels(price.subtotalAgorot)}</dd></div>
-            {price.discountAgorot > 0 && <div className="proposal-discount"><dt>הנחה</dt><dd>−{shekels(price.discountAgorot)}</dd></div>}
-            <div><dt>מע״מ</dt><dd>{quote.vatMode === "included" ? "כלול במחיר" : shekels(price.vatAgorot)}</dd></div>
-            <div className="proposal-grand-total"><dt>סך ההצעה</dt><dd>{shekels(price.payableAgorot)}</dd></div>
-          </dl>
-          <div id="proposal-accept"><AcceptQuote token={token} accepted={quote.status === "accepted"} /></div>
-          <p className="proposal-note">
-            {quote.customerType === "store"
-              ? "אישור ההצעה מתעד את הזמנת החנות במערכת קורטז. לתיאום מועד אספקה ותנאי התחשבנות ניצור איתכם קשר."
-              : "אישור ההצעה מתעד את הסכמתך במערכת. לתיאום זמינות, מסירה ותשלום ניצור איתך קשר."}
-          </p>
-        </aside>
+  const customer =
+    quote.customerType === "store" ? quote.storeName || quote.customerName : quote.customerName;
+
+  const media = model ? resolveProposalMedia(model) : undefined;
+  const primaryExhibitUrl = model
+    ? getProposalHeroCutoutUrl(model) || media?.poster || getModelImages(model)[0]
+    : undefined;
+
+  const keySpecs = model ? extractKeySpecs(model) : null;
+  const keyBadges: Array<{ label: string; value: string }> = [];
+  if (keySpecs?.battery) keyBadges.push({ label: "סוללה", value: keySpecs.battery });
+  if (keySpecs?.range) keyBadges.push({ label: "טווח נסיעה", value: keySpecs.range });
+  if (keySpecs?.highlight) keyBadges.push(keySpecs.highlight);
+  for (const spec of model?.specs ?? []) {
+    if (keyBadges.length >= 4) break;
+    if (!keyBadges.some((b) => b.label === spec.label)) {
+      keyBadges.push({ label: spec.label, value: spec.value });
+    }
+  }
+
+  const vatLabel = quote.vatMode === "included" ? "כולל מע״מ" : "בתוספת מע״מ";
+
+  return (
+    <main className="proposal-page" dir="rtl" lang="he">
+      {/* HEADER + SECTION 01 — CINEMATIC 3D MEDITERRANEAN HERO */}
+      <CinematicHero
+        customerDisplay={customer}
+        customerType={quote.customerType}
+        modelName={quote.modelName}
+        deviceType={model?.device}
+        summary={model?.summary || "הדגם וההצעה האישית שלך מחברת קורטז, מוכנים לאישור."}
+        formattedPayable={shekels(price.payableAgorot)}
+        quantity={quote.quantity}
+        vatLabel={vatLabel}
+        productMode={media?.kind === "3d" ? "3d" : "photo"}
+        model3dUrl={media?.kind === "3d" ? media.url : undefined}
+        productImageUrl={primaryExhibitUrl}
+        keyBadges={keyBadges.slice(0, 4)}
+      />
+
+      <div className="proposal-shell">
+        {/* SECTION 02 (PRODUCT EXPERIENCE) + SECTION 06 & 07 (PERSONAL QUOTATION & APPROVAL) */}
+        <div className="proposal-layout">
+          {model && media ? (
+            <ProposalShowroom model={model} media={media} />
+          ) : (
+            <section className="proposal-missing-model">
+              <span>תצוגת מוצר</span>
+              <h2>{quote.modelName}</h2>
+              <p>תמונות ופרטי הדגם אינם זמינים כרגע. פרטי ההצעה נמצאים לצד התצוגה.</p>
+            </section>
+          )}
+
+          <aside className="proposal-offer" id="offer" aria-labelledby="offer-title">
+            <div className="proposal-offer-top">
+              <span>06 / הצעת המחיר האישית שלך</span>
+              <span>CORTEZ PRIVATE QUOTATION</span>
+            </div>
+
+            <h2 id="offer-title">
+              {quote.customerType === "store"
+                ? `הצעה עבור ${customer}`
+                : `הצעה אישית עבור ${customer}`}
+            </h2>
+            <p className="proposal-offer-description">
+              {quote.customerType === "store"
+                ? "פרטי העסקה לחנות, בצורה ברורה ומרוכזת."
+                : "כל פרטי העסקה שלך, לפני קבלת החלטה."}
+            </p>
+
+            <div className="proposal-offer-product-card">
+              {primaryExhibitUrl && (
+                <div className="proposal-offer-thumb" aria-hidden>
+                  <Image
+                    src={primaryExhibitUrl}
+                    alt=""
+                    fill
+                    sizes="96px"
+                    unoptimized
+                  />
+                </div>
+              )}
+              <div className="proposal-offer-product-meta">
+                {model?.device && (
+                  <small className="proposal-offer-device">{model.device}</small>
+                )}
+                <div className="proposal-offer-product">
+                  <span dir="ltr">{quote.modelName}</span>
+                  <strong>
+                    {quote.quantity} {quote.quantity === 1 ? "יחידה" : "יחידות"}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <dl className="proposal-price-list">
+              {quote.totalPriceAgorot === undefined && (
+                <div>
+                  <dt>מחיר ליחידה</dt>
+                  <dd dir="ltr">{shekels(quote.unitPriceAgorot)}</dd>
+                </div>
+              )}
+              <div>
+                <dt>מחיר לכמות</dt>
+                <dd dir="ltr">{shekels(price.subtotalAgorot)}</dd>
+              </div>
+              {price.discountAgorot > 0 && (
+                <div className="proposal-discount">
+                  <dt>הנחה מיוחדת</dt>
+                  <dd dir="ltr">−{shekels(price.discountAgorot)}</dd>
+                </div>
+              )}
+              <div>
+                <dt>מע״מ</dt>
+                <dd>{quote.vatMode === "included" ? "כלול במחיר" : shekels(price.vatAgorot)}</dd>
+              </div>
+              <div className="proposal-grand-total">
+                <dt>סך ההצעה</dt>
+                <dd dir="ltr">{shekels(price.payableAgorot)}</dd>
+              </div>
+            </dl>
+
+            <div id="proposal-accept" className="proposal-approval-zone">
+              <div className="proposal-approval-badge">
+                <span>07 / אישור דיגיטלי מהיר</span>
+              </div>
+              <AcceptQuote token={token} accepted={quote.status === "accepted"} />
+            </div>
+
+            <p className="proposal-note">
+              {quote.customerType === "store"
+                ? "אישור ההצעה מתעד את הזמנת החנות במערכת קורטז. לתיאום מועד אספקה ותנאי התחשבנות ניצור איתכם קשר."
+                : "אישור ההצעה מתעד את הסכמתך במערכת. לתיאום זמינות, מסירה ותשלום ניצור איתך קשר."}
+            </p>
+          </aside>
+        </div>
+
+        {/* SECTION 03 — KEY PRODUCT HIGHLIGHTS */}
+        {model && <ProductHighlights model={model} />}
+
+        {/* SECTION 04 — PRODUCT STORYTELLING */}
+        {model && <ProductStorytelling model={model} />}
+
+        {/* SECTION 05 — FULL TECHNICAL SPECIFICATIONS */}
+        {model && <TechnicalSpecifications model={model} />}
       </div>
-      {model && ((model.features?.length ?? 0) > 0 || (model.specs?.length ?? 0) > 0) && <section className="proposal-highlights" aria-labelledby="highlights-title">
-        <div className="proposal-section-heading"><span>02 / מה בדגם</span><h2 id="highlights-title">לראות את הפרטים. להבין את הבחירה.</h2></div>
-        <div className="proposal-highlight-grid">{model.features?.length ? model.features.slice(0, 3).map((feature, index) => <article key={`${feature.title}-${index}`}><span>0{index + 1}</span><h3>{feature.title}</h3><p>{feature.description}</p></article>) : model.specs?.slice(0, 3).map((spec, index) => <article key={`${spec.label}-${index}`}><span>0{index + 1}</span><h3>{spec.label}</h3><p>{spec.value}</p></article>)}</div>
-      </section>}
-      {model && <section className="proposal-product-details" aria-labelledby="details-title"><div className="proposal-section-heading"><span>03 / המפרט המלא</span><h2 id="details-title">כל פרט, במקום אחד.</h2><p>מפרט, מידות ותכונות הדגם כפי שהם מופיעים בקטלוג קורטז.</p></div>
-        {(model.studio?.dimensions || model.dimensions || model.foldedDimensions) && (
-          <dl className="proposal-spec-grid" aria-label="מידות הדגם">
-            {model.studio?.dimensions && (
-              <div>
-                <dt>מידות מאומתות (אורך × רוחב × גובה)</dt>
-                <dd dir="ltr">{Math.round(model.studio.dimensions.length * 100)} × {Math.round(model.studio.dimensions.width * 100)} × {Math.round(model.studio.dimensions.height * 100)} ס״מ</dd>
-              </div>
-            )}
-            {model.dimensions && (
-              <div>
-                <dt>מידות הכלי</dt>
-                <dd>{model.dimensions}</dd>
-              </div>
-            )}
-            {model.foldedDimensions && (
-              <div>
-                <dt>מידות במצב מקופל</dt>
-                <dd>{model.foldedDimensions}</dd>
-              </div>
-            )}
-          </dl>
-        )}
-        {model.specs?.length ? <dl className="proposal-spec-grid">{model.specs.slice(0, 12).map((spec) => <div key={`${spec.label}-${spec.value}`}><dt>{spec.label}</dt><dd>{spec.value}</dd></div>)}</dl> : <p className="proposal-no-specs">מפרט הדגם יימסר על ידי נציג קורטז.</p>}
-      </section>}
-    </div>
-    <div className="proposal-mobile-action"><span><small>סך ההצעה</small><strong>{shekels(price.payableAgorot)}</strong></span><a href="#proposal-accept">לבדיקת ההצעה</a></div>
-  </main>;
+
+      {/* MOBILE STICKY CTA BAR */}
+      <div className="proposal-mobile-action">
+        <span>
+          <small>סך ההצעה</small>
+          <strong dir="ltr">{shekels(price.payableAgorot)}</strong>
+        </span>
+        <a href="#proposal-accept">לבדיקת ההצעה</a>
+      </div>
+    </main>
+  );
 }

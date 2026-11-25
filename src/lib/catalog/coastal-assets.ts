@@ -357,6 +357,26 @@ export function getPrimaryExhibitImage(model: CatalogModel): string | undefined 
   return model.imageUrl || model.galleryUrls?.[0];
 }
 
+const LEGACY_EXHIBIT_FALLBACKS: Record<string, string> = {
+  "+max 2": "/catalog/exhibits/cortez-max-2-2027.webp",
+  "max 2+": "/catalog/exhibits/cortez-max-2-2027.webp",
+  "max 36": "/catalog/exhibits/cortez-xmax-48.webp",
+  "black mamba": "/catalog/exhibits/cortez-black-mamba-2027.webp",
+  "black mamba 3": "/catalog/exhibits/cortez-black-mamba-premium.webp",
+};
+
+/** Resolves a local transparent WebP cutout exhibit for the 3D proposal beach hero across all 32 catalog models. */
+export function getProposalHeroCutoutUrl(model: CatalogModel): string | undefined {
+  if (model.photos.length > 0) {
+    return "/api/images/models/" + model.id + "/" + model.photos[0].id;
+  }
+  const asset = getCoastalAsset(model);
+  if (asset?.exhibitUrl) return asset.exhibitUrl;
+  const legacyExhibit = LEGACY_EXHIBIT_FALLBACKS[normalizeCatalogModelKey(model.name)];
+  if (legacyExhibit) return legacyExhibit;
+  return model.imageUrl || model.galleryUrls?.[0];
+}
+
 /** Prefer CRM-authored studio variants; otherwise return official color variants. */
 export function resolveModelVariants(model: CatalogModel): StudioVariant[] {
   if (model.studio?.variants?.length) {
