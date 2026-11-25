@@ -525,7 +525,7 @@ try {
     meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }],
     animations: [{ name: "Fold", samplers: [{ input: 1, output: 2, interpolation: "LINEAR" }], channels: [{ sampler: 0, target: { node: 0, path: "rotation" } }] }] };
   fixtureGeometry.dispose();
-  const fixtureStudio = { assetVerified: true, scaleVerified: true, source: "PRIVATE-ASSET-SOURCE", dimensions: { length: 2, width: 1, height: 2 },
+  const fixtureStudio = { assetVerified: true, scaleVerified: true, verifiedModel3dUrl: baseURL + "/qa-model.glb", source: "PRIVATE-ASSET-SOURCE", dimensions: { length: 2, width: 1, height: 2 }, verifiedDimensions: { length: 2, width: 1, height: 2 },
     features: [{ title: "רכיב בדיקה", description: "תיאור רכיב מאומת לצורך בדיקת הממשק", nodePath: "0", point: [0, 0, .5] }],
     actions: [{ id: "fold", title: "הדגמת קיפול", clip: "Fold" }],
     variants: [{ id: "white", title: "לבן", sku: "QA-WHITE", color: "#eeeeee", price: 3500, materials: [{ name: "Frame paint", color: "#eeeeee" }] }] };
@@ -534,6 +534,25 @@ try {
   const geometryModel = await api(desktop.request, "POST", "/api/records/models", {
     device: "קורקינט חשמלי", name: "QA geometry fixture", notes: "", published: true, model3dUrl: baseURL + "/qa-model.glb", studio: fixtureStudio,
   }, 201);
+  const geometryQuote = await api(desktop.request, "POST", "/api/quotes", {
+    customerName: "לקוח תלת־ממד", customerType: "private", customerPhone: "0521234567", modelId: geometryModel.id,
+    quantity: 1, unitPriceAgorot: 300000, discount: { type: "none" }, vatMode: "included", vatBasisPoints: 1800,
+  }, 201);
+  await admin.goto("/proposal/" + geometryQuote.shareToken);
+  await visible(admin.getByText("מודל תלת־ממדי מאומת"));
+  await visible(admin.locator(".proposal-visual .product-real-canvas canvas"));
+  await visible(admin.locator(".proposal-visual .product-viewer-controls"));
+  if (process.env.CORTEZ_3D_SCREENSHOT) await admin.screenshot({ path: process.env.CORTEZ_3D_SCREENSHOT, fullPage: false });
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await visible(button(admin, "מצב חקירה · סיבוב והתקרבות"));
+  assert.equal(await admin.locator(".proposal-visual canvas").evaluate((element) => element.style.touchAction), "pan-y");
+  await button(admin, "מצב חקירה · סיבוב והתקרבות").click();
+  assert.equal(await admin.locator(".proposal-visual canvas").evaluate((element) => element.style.touchAction), "none");
+  await button(admin, "סיום חקירה · חזרה לגלילה").click();
+  assert.equal(await admin.locator(".proposal-visual canvas").evaluate((element) => element.style.touchAction), "pan-y");
+  await admin.setViewportSize({ width: 1487, height: 1058 });
+  assert.equal(await admin.locator(".beach-stage-root canvas").count(), 0, "Proposal must not show a photo plane as 3D");
+  await api(desktop.request, "DELETE", "/api/quotes/" + geometryQuote.id, undefined, 200);
   await admin.goto("/showroom/" + geometryModel.id);
   await admin.emulateMedia({ reducedMotion: "reduce" });
   await button(admin, "תלת־ממד").click();
@@ -702,23 +721,27 @@ try {
   await worker.waitForTimeout(250);
   assert.equal(await worker.locator(".quote-form .error-message").count(), 0, "Quote form error: " + (await worker.locator(".quote-form .error-message").allTextContents()).join("; "));
   await visible(worker.getByText("ההצעה מוכנה לשיתוף"));
-  const [createdQuote] = await readDb("quotes");
+  const createdQuote = (await readDb("quotes")).find((item) => item.customerName === "לקוח להצעה");
+  assert.ok(createdQuote);
   assert.equal(createdQuote.customerName, "לקוח להצעה");
   assert.equal(createdQuote.totalPriceAgorot, 199999);
   assert.equal((await anonymous.get("/proposal/" + createdQuote.shareToken)).status(), 200);
   await page.goto("/proposal/" + createdQuote.shareToken);
   await visible(button(page, "אישור ההצעה"));
+  await visible(page.getByText("צילומי מוצר", { exact: true }));
+  assert.equal(await page.getByRole("button", { name: /תלת־ממד/ }).count(), 0, "Unverified product media must not be called 3D");
+  await visible(page.locator(".proposal-mobile-action"));
+  if (process.env.CORTEZ_MOBILE_QUOTE_SCREENSHOT) await page.screenshot({ path: process.env.CORTEZ_MOBILE_QUOTE_SCREENSHOT, fullPage: false });
   await noOverflow(page);
   await worker.goto("/proposal/" + createdQuote.shareToken);
   await visible(button(worker, "אישור ההצעה"));
   if (process.env.CORTEZ_QUOTE_SCREENSHOT) {
-    await visible(worker.locator(".beach-stage-root canvas"));
-    await worker.waitForTimeout(1200);
+    await visible(worker.locator(".proposal-visual img").first());
     await worker.screenshot({ path: process.env.CORTEZ_QUOTE_SCREENSHOT, fullPage: false });
   }
   await button(worker, "אישור ההצעה").click();
   await visible(worker.getByText("ההצעה אושרה. תודה! ניצור איתכם קשר להמשך."));
-  assert.equal((await readDb("quotes"))[0].status, "accepted");
+  assert.equal((await readDb("quotes")).find((item) => item.id === createdQuote.id)?.status, "accepted");
   // Agent cannot create or edit repairs/standards/customers via API or UI
   await api(employee.request, "POST", "/api/records/customers", { name: "חסום", store: "", phone: "0501112233", customerType: "private" }, 403);
   await api(employee.request, "PUT", "/api/records/standards/" + standardId, { ...input, version: updated.updatedAt }, 403);

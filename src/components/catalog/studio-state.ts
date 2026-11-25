@@ -55,6 +55,10 @@ export function tourReducer(state: TourState, action: TourAction): TourState {
 export function isScaleAccurate(size: Vec3, dimensions: StudioConfig["dimensions"]): boolean {
   return !!dimensions && [Math.abs(size[0] - dimensions.length) / dimensions.length, Math.abs(size[2] - dimensions.width) / dimensions.width, Math.abs(size[1] - dimensions.height) / dimensions.height].every((error) => Number.isFinite(error) && error < .12);
 }
+export function isVolumetricModel(size: Vec3): boolean {
+  const longest = Math.max(...size);
+  return Number.isFinite(longest) && longest > .1 && size.every((extent) => Number.isFinite(extent) && extent >= Math.max(.03, longest * .06));
+}
 export type TourStep = { title: string; description: string; view?: string; featureIndex?: number; imageIndex?: number; durationMs?: number };
 export function buildTour(model: { name: string; summary?: string; features?: { title: string; description: string }[]; studio?: StudioConfig }): TourStep[] {
   if (model.studio?.tour?.length) return model.studio.tour;

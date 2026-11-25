@@ -12,6 +12,8 @@ export function publicCatalogModels(models: CatalogModel[]): CatalogModel[] {
     dimensions: model.dimensions, foldedDimensions: model.foldedDimensions,
     studio: model.studio ? {
       assetVerified: model.studio.assetVerified, scaleVerified: model.studio.scaleVerified,
+      verifiedModel3dUrl: model.studio.verifiedModel3dUrl,
+      verifiedDimensions: model.studio.verifiedDimensions,
       usdzUrl: model.studio.usdzUrl, arEnabled: model.studio.arEnabled, dimensions: model.studio.dimensions,
       cameras: model.studio.cameras, features: model.studio.features, tour: model.studio.tour,
       actions: model.studio.actions, variants: model.studio.variants,

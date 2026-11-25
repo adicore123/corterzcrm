@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { Camera, Crosshair, Plus, Trash2 } from "lucide-react";
 import type { StudioConfig } from "@/lib/validation/models";
 import type { StudioAssetInfo } from "./product-viewer-3d";
-import { studioViews, type CameraPose } from "./studio-state";
+import { isScaleAccurate, isVolumetricModel, studioViews, type CameraPose } from "./studio-state";
 
 const Viewer = dynamic(() => import("./product-viewer-3d").then((module) => module.ProductViewer3D), { ssr: false });
 const makeId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -15,19 +15,28 @@ export function StudioContentEditor({ value = {}, onChange, assetUrl, name, onRe
   name: string;
   onRequestDelete?: (description: string, onConfirmed: () => void) => void;
 }) {
-  const [assetInfo, setAssetInfo] = useState<StudioAssetInfo | null>(null), [picking, setPicking] = useState<number | null>(null);
+  const [assetRecord, setAssetRecord] = useState<{ url: string; info: StudioAssetInfo } | null>(null), [picking, setPicking] = useState<number | null>(null);
+  const [readyAssetUrl, setReadyAssetUrl] = useState("");
   const [cameraPose, setCameraPose] = useState<CameraPose>(studioViews.signature);
+  const assetInfo = assetRecord && assetRecord.url === assetUrl ? assetRecord.info : null;
+  const assetReady = !!assetUrl && readyAssetUrl === assetUrl;
   const patch = (next: Partial<StudioConfig>) => onChange({ ...value, ...next });
+  const verifiedAsset = !!assetUrl && value.verifiedModel3dUrl === assetUrl && !!value.assetVerified;
+  const matchingScale = !!assetInfo && isScaleAccurate(assetInfo.size, value.dimensions);
+  const certifiedScale = !!value.scaleVerified && !!value.dimensions && !!value.verifiedDimensions &&
+    value.dimensions.length === value.verifiedDimensions.length && value.dimensions.width === value.verifiedDimensions.width && value.dimensions.height === value.verifiedDimensions.height;
+  const volumetric = !!assetInfo && isVolumetricModel(assetInfo.size);
   const features = value.features ?? [], cameras = value.cameras ?? [], variants = value.variants ?? [], actions = value.actions ?? [], tour = value.tour ?? [];
   const confirmDelete = (description: string, action: () => void) => {
     if (onRequestDelete) onRequestDelete(description, action);
     else action();
   };
   return <div className="studio-content-editor">
-    <div className="studio-editor-flags"><label><input type="checkbox" checked={!!value.assetVerified} onChange={(event) => patch({ assetVerified: event.target.checked })} /> המודל נבדק מול המוצר המקורי</label><label><input type="checkbox" checked={!!value.scaleVerified} onChange={(event) => patch({ scaleVerified: event.target.checked })} /> היחידות והמידות במודל אומתו במטרים</label></div>
+    <div className="studio-editor-flags"><label><input type="checkbox" checked={verifiedAsset} disabled={!assetReady || !volumetric} onChange={(event) => patch({ assetVerified: event.target.checked, verifiedModel3dUrl: event.target.checked ? assetUrl : undefined, scaleVerified: false, verifiedDimensions: undefined })} /> המודל נבדק מול המוצר המקורי</label><label><input type="checkbox" checked={verifiedAsset && certifiedScale} disabled={!verifiedAsset || !matchingScale} onChange={(event) => patch({ scaleVerified: event.target.checked, verifiedDimensions: event.target.checked ? value.dimensions : undefined })} /> היחידות והמידות במודל אומתו במטרים</label></div>
+    <p className="muted">תלת־ממד יוצג בהצעת מחיר רק לאחר שהקובץ נטען, נבדק מול הכלי והמידות תואמות. החלפת קישור הקובץ מחייבת אימות מחדש.</p>
     <label>מקור המודל והאימות<input value={value.source ?? ""} onChange={(event) => patch({ source: event.target.value })} maxLength={500} placeholder="ספק, קובץ מקור ותאריך בדיקה" /></label>
     <div className="studio-editor-preview">
-      {assetUrl ? <Viewer key={assetUrl} url={assetUrl} name={name || "תצוגה מקדימה"} studio={value} pickMode={picking !== null} onAssetInfo={setAssetInfo} onPoseChange={setCameraPose} onPick={(anchor) => {
+      {assetUrl ? <Viewer key={assetUrl} url={assetUrl} name={name || "תצוגה מקדימה"} studio={value} pickMode={picking !== null} onReady={(ready) => setReadyAssetUrl(ready ? assetUrl : "")} onAssetInfo={(info) => setAssetRecord({ url: assetUrl, info })} onPoseChange={setCameraPose} onPick={(anchor) => {
         if (picking === null) return;
         const viewId = makeId("detail");
         patch({ features: features.map((feature, i) => i === picking ? { ...feature, ...anchor, view: viewId } : feature), cameras: [...cameras, { id: viewId, title: features[picking]?.title || "מבט רכיב", ...cameraPose }].slice(0, 16) });
@@ -35,7 +44,7 @@ export function StudioContentEditor({ value = {}, onChange, assetUrl, name, onRe
       }} /> : <p>לאחר הוספת קובץ GLB ניתן לסמן רכיבים ולשמור מבטי מצלמה ישירות על המודל.</p>}
     </div>
     {picking !== null && <p role="status" className="studio-editor-hint">לחצו על הרכיב במודל כדי לעגן אליו את ״{features[picking]?.title || "המאפיין"}״. <button type="button" onClick={() => setPicking(null)}>ביטול סימון</button></p>}
-    {assetInfo && <p className="muted">מידות הגאומטריה: {assetInfo.size.map((number) => number.toFixed(3)).join(" × ")} מטר · {assetInfo.clips.length} אנימציות · {assetInfo.materials.length} חומרים בעלי שם</p>}
+    {assetInfo && <p className="muted">מידות הגאומטריה: {assetInfo.size.map((number) => number.toFixed(3)).join(" × ")} מטר · {assetInfo.clips.length} אנימציות · {assetInfo.materials.length} חומרים בעלי שם{!volumetric ? " · הקובץ שטוח ואינו מודל תלת־ממדי מתאים" : ""}{value.dimensions && !matchingScale ? " · המידות שהוזנו אינן תואמות למודל" : ""}</p>}
     <fieldset><legend>מבטי מצלמה שמורים</legend><p className="muted">סובבו את המודל למבט הרצוי ושמרו אותו. כל מבט זמין אחר כך בתחנות הסיור.</p>
       {cameras.map((camera, i) => <div className="studio-editor-row" key={camera.id}><input aria-label={`שם מבט ${i + 1}`} value={camera.title} onChange={(event) => patch({ cameras: cameras.map((item, j) => i === j ? { ...item, title: event.target.value } : item) })} /><button type="button" aria-label={`מחיקת מבט ${i + 1}`} onClick={() => confirmDelete(`למחוק את מבט ${i + 1}? יש להזין סיסמת מחיקה.`, () => patch({ cameras: cameras.filter((_, j) => i !== j) }))}><Trash2 size={15} /></button></div>)}
       <button type="button" disabled={!assetUrl || cameras.length >= 16} onClick={() => patch({ cameras: [...cameras, { id: makeId("view"), title: `מבט ${cameras.length + 1}`, ...cameraPose }] })}><Camera size={15} /> שמירת זווית נוכחית</button>

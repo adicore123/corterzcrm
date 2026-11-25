@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { Focus, RotateCcw, Ruler, UserRound } from "lucide-react";
 import type { StudioConfig, StudioFeature, StudioVariant } from "@/lib/validation/models";
-import { cameraAt, createCameraMove, isScaleAccurate, studioViews, type CameraMove, type CameraPose, type Vec3 } from "./studio-state";
+import { cameraAt, createCameraMove, isScaleAccurate, isVolumetricModel, studioViews, type CameraMove, type CameraPose, type Vec3 } from "./studio-state";
 import { studioEnvironments, type StudioEnvironment } from "./studio-environments";
+import { addCoastalProductScene } from "./coastal-product-scene";
 
 export type StudioAssetInfo = { clips: string[]; materials: string[]; size: Vec3; radius: number };
 export type PickedAnchor = { nodePath: string; point: Vec3 };
@@ -20,19 +24,22 @@ type ViewerProps = {
   onAssetInfo?: (info: StudioAssetInfo) => void; pickMode?: boolean; onPick?: (point: PickedAnchor) => void;
   synchronizedPose?: { source: string; pose: CameraPose }; viewerId?: string;
   onPoseChange?: (pose: CameraPose) => void; framingRadius?: number;
+  coastal?: boolean; onStatus?: (status: "loading" | "ready" | "error") => void;
 };
 
 export function ProductViewer3D(props: ViewerProps) {
-  const { url, name, studio, environment = "day", view = "signature", activeFeature, onReady } = props;
+  const { url, name, studio, environment = "day", view = "signature", activeFeature, onReady, onStatus, coastal } = props;
   const host = useRef<HTMLDivElement>(null), shell = useRef<HTMLDivElement>(null), overlays = useRef<HTMLDivElement>(null);
   const latest = useRef(props);
   const runtime = useRef<{ sync: () => void; select: (view: string) => void; action: (id: string, progress: number, play?: boolean) => void; dimensions: (show: boolean) => void; reference: (show: boolean) => void } | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading"), [attempt, setAttempt] = useState(0);
+  const [touchInspect, setTouchInspect] = useState(false);
   const [info, setInfo] = useState<StudioAssetInfo | null>(null), [scaleValid, setScaleValid] = useState(false);
   const [showDimensions, setShowDimensions] = useState(false), [showReference, setShowReference] = useState(false);
   const [actionId, setActionId] = useState(""), [actionProgress, setActionProgress] = useState(0);
   useEffect(() => { latest.current = props; runtime.current?.sync(); });
   useEffect(() => { onReady?.(status === "ready"); }, [status, onReady]);
+  useEffect(() => { onStatus?.(status); }, [status, onStatus]);
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -44,13 +51,14 @@ export function ProductViewer3D(props: ViewerProps) {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(36, 1, .01, 1000);
     camera.position.set(3, 1.4, 3);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8)); renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, coastal ? 1.5 : 1.8)); renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.setAttribute("aria-label", `מודל תלת־ממד של ${name}`); renderer.domElement.setAttribute("role", "img");
     element.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     renderer.domElement.style.touchAction = "pan-y";
-    controls.enablePan = false; controls.enableZoom = false; controls.maxPolarAngle = Math.PI * .85;
+    controls.enablePan = false; controls.enableZoom = !!coastal; controls.maxPolarAngle = Math.PI * (coastal ? .51 : .85);
+    controls.minPolarAngle = coastal ? Math.PI * .13 : 0;
     let pmrem: THREE.PMREMGenerator | null = null;
     let environmentMap: THREE.WebGLRenderTarget | null = null;
     try {
@@ -66,6 +74,8 @@ export function ProductViewer3D(props: ViewerProps) {
     const keyLight = new THREE.DirectionalLight(0xffffff, 3); keyLight.castShadow = true; keyLight.shadow.mapSize.set(1024, 1024);
     const rimLight = new THREE.DirectionalLight(0xbccfe4, 2); scene.add(ambient, keyLight, rimLight);
     let radius = 1, size = new THREE.Vector3(1, 1, 1), object: THREE.Group | undefined;
+    let coastalScene: ReturnType<typeof addCoastalProductScene> | undefined;
+    let inView = true;
     let floor: THREE.Mesh | undefined, rulers: THREE.Group | undefined, reference: THREE.Group | undefined;
     let mixer: THREE.AnimationMixer | undefined, clips: THREE.AnimationClip[] = [], selectedAction: THREE.AnimationAction | undefined;
     let cameraMove: CameraMove | null = null, actionMove: { from: number; to: number; start: number; duration: number } | null = null;
@@ -150,14 +160,16 @@ export function ProductViewer3D(props: ViewerProps) {
         selectedAction.time = selectedAction.getClip().duration * currentProgress; mixer.update(0);
         if (t >= 1) actionMove = null;
       }
+      coastalScene?.tick(now);
       draw();
-      if (cameraMove || actionMove) requestDraw();
+      if (cameraMove || actionMove || (coastalScene && inView && !reducedMotion)) requestDraw();
     }
     function sync() {
       const next = latest.current;
       const lighting = studioEnvironments[next.environment ?? "day"] ?? studioEnvironments.day;
-      scene.background = new THREE.Color(lighting.background); ambient.intensity = lighting.ambient * 1.8; renderer.toneMappingExposure = lighting.exposure;
-      if (floor && floor.material instanceof THREE.MeshStandardMaterial) floor.material.color.set(lighting.deck);
+      if (!next.coastal) scene.background = new THREE.Color(lighting.background);
+      ambient.intensity = lighting.ambient * 1.8; renderer.toneMappingExposure = next.coastal ? 1.15 : lighting.exposure;
+      if (floor && floor.material instanceof THREE.MeshStandardMaterial && !next.coastal) floor.material.color.set(lighting.deck);
       if (object && next.framingRadius !== previousFraming) { previousFraming = next.framingRadius; selectView(next.view ?? "signature"); }
       if (object && next.view !== previousView) { previousView = next.view ?? "signature"; selectView(previousView); }
       if (object && next.activeFeature !== previousFeature) { previousFeature = next.activeFeature; if (next.activeFeature !== undefined) focusFeature(next.activeFeature); }
@@ -197,6 +209,11 @@ export function ProductViewer3D(props: ViewerProps) {
       const width = Math.max(element.clientWidth, 1), height = Math.max(element.clientHeight, 1);
       renderer.setSize(width, height); camera.aspect = width / height; camera.updateProjectionMatrix(); requestDraw();
     }); observer.observe(element);
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      if (inView) requestDraw();
+    });
+    visibilityObserver.observe(element);
     const contextLost = (event: Event) => { event.preventDefault(); contextUnavailable = true; setStatus("error"); };
     renderer.domElement.addEventListener("webglcontextlost", contextLost);
     const disposeObject = (root: THREE.Object3D) => {
@@ -204,12 +221,18 @@ export function ProductViewer3D(props: ViewerProps) {
       root.traverse((node) => { if (node instanceof THREE.Mesh || node instanceof THREE.Line) { geometries.add(node.geometry); for (const material of Array.isArray(node.material) ? node.material : [node.material]) { materials.add(material); for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value); } } });
       textures.forEach((item) => item.dispose()); materials.forEach((item) => item.dispose()); geometries.forEach((item) => item.dispose());
     };
-    new GLTFLoader().load(url, (gltf) => {
+    const draco = new DRACOLoader().setDecoderPath("/3d/decoders/draco/");
+    const ktx2 = new KTX2Loader().setTranscoderPath("/3d/decoders/basis/");
+    ktx2.detectSupport(renderer);
+    const loader = new GLTFLoader().setDRACOLoader(draco).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+    loader.load(url, (gltf) => {
       if (disposed || contextUnavailable) { disposeObject(gltf.scene); return; }
       object = gltf.scene;
       const bounds = new THREE.Box3().setFromObject(object);
       if (bounds.isEmpty()) { disposeObject(object); setStatus("error"); return; }
       size = bounds.getSize(new THREE.Vector3()); radius = Math.max(size.length() / 2, .01);
+      if (coastal && !isVolumetricModel(size.toArray() as Vec3)) { disposeObject(object); object = undefined; setStatus("error"); return; }
+      if (latest.current.coastal) coastalScene = addCoastalProductScene(scene, radius, reducedMotion);
       object.position.sub(bounds.getCenter(new THREE.Vector3()));
       camera.near = radius / 100; camera.far = radius * 100; camera.updateProjectionMatrix();
       controls.minDistance = radius * 1.05; controls.maxDistance = radius * 7;
@@ -222,7 +245,7 @@ export function ProductViewer3D(props: ViewerProps) {
       setScaleValid(scaleMatches);
       keyLight.position.set(radius * 2, radius * 4, radius * 3); rimLight.position.set(-radius * 3, radius * 2, -radius * 2);
       Object.assign(keyLight.shadow.camera, { left: -radius * 3, right: radius * 3, top: radius * 3, bottom: -radius * 3, near: radius * .1, far: radius * 15 }); keyLight.shadow.camera.updateProjectionMatrix();
-      floor = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.6, radius * 1.65, radius * .04, 64), new THREE.MeshStandardMaterial({ color: 0xf5f6f7, roughness: .75, metalness: .15 }));
+      floor = new THREE.Mesh(new THREE.CylinderGeometry(radius * 1.6, radius * 1.65, radius * .04, 64), new THREE.MeshStandardMaterial({ color: latest.current.coastal ? 0xe9ded0 : 0xf5f6f7, roughness: .75, metalness: .15 }));
       floor.position.y = -size.y / 2 - radius * .025; floor.receiveShadow = true; scene.add(floor);
       if (scaleMatches) {
         rulers = new THREE.Group(); const pad = radius * .12, bottom = -size.y / 2;
@@ -238,12 +261,16 @@ export function ProductViewer3D(props: ViewerProps) {
       selectView(latest.current.view ?? "signature", true); previousView = latest.current.view ?? "signature"; sync(); setStatus("ready");
     }, undefined, () => { if (!disposed) setStatus("error"); });
     return () => {
-      disposed = true; cancelAnimationFrame(raf); observer.disconnect(); controls.dispose();
+      disposed = true; cancelAnimationFrame(raf); observer.disconnect(); visibilityObserver.disconnect(); controls.dispose();
       renderer.domElement.removeEventListener("webglcontextlost", contextLost); renderer.domElement.removeEventListener("pointerdown", pointerDown); renderer.domElement.removeEventListener("pointerup", pointerUp);
       mixer?.stopAllAction(); if (object) mixer?.uncacheRoot(object);
-      disposeObject(scene); environmentMap?.dispose(); pmrem?.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); runtime.current = null;
+      coastalScene?.dispose(); disposeObject(scene); environmentMap?.dispose(); pmrem?.dispose(); draco.dispose(); ktx2.dispose(); renderer.dispose(); renderer.forceContextLoss(); renderer.domElement.remove(); runtime.current = null;
     };
-  }, [url, name, attempt]);
+  }, [url, name, attempt, coastal]);
+  useEffect(() => {
+    const canvas = host.current?.querySelector("canvas");
+    if (canvas) canvas.style.touchAction = coastal && touchInspect ? "none" : "pan-y";
+  }, [coastal, touchInspect, status]);
   const actions = studio?.actions?.filter((action) => info?.clips.includes(action.clip)) ?? [];
   function select(id: string) { props.onInteraction?.(); if (id !== "in" && id !== "out") props.onViewChange?.(id); runtime.current?.select(id); }
   const cameras = studio?.cameras?.length ? studio.cameras.map((item) => [item.id, item.title]) : [["front", "חזית"], ["side", "צד"], ["back", "אחור"]];
@@ -252,6 +279,7 @@ export function ProductViewer3D(props: ViewerProps) {
     <div ref={overlays} className="product-anchor-layer">{studio?.features?.map((feature, index) => feature.point && <button key={index} hidden data-feature-anchor={index} aria-pressed={activeFeature === index} onClick={() => props.onFeatureSelect?.(index)}><span />{feature.title}</button>)}</div>
     {status !== "ready" && <div className="product-viewer-status" role="status">{status === "loading" ? "טוען את מודל המוצר…" : <>התלת־ממד אינו זמין כרגע. אפשר להמשיך לבדוק את המוצר בסטודיו או בגלריה.<button onClick={() => { setStatus("loading"); setAttempt((value) => value + 1); }}>ניסיון נוסף</button></>}</div>}
     {status === "ready" && <>
+      {coastal && <button className="product-touch-inspect" type="button" aria-pressed={touchInspect} onClick={() => setTouchInspect((value) => !value)}>{touchInspect ? "סיום חקירה · חזרה לגלילה" : "מצב חקירה · סיבוב והתקרבות"}</button>}
       <div className="studio-viewer-mark">CORTEZ · PRODUCT EXPLORER</div>
       {scaleValid && !actionId && <div className="studio-dimension-controls"><button aria-pressed={showDimensions} onClick={() => { setShowDimensions(!showDimensions); runtime.current?.dimensions(!showDimensions); }}><Ruler size={15} />מידות</button><button aria-pressed={showReference} onClick={() => { setShowReference(!showReference); runtime.current?.reference(!showReference); }}><UserRound size={15} />קנה מידה</button></div>}
       {showDimensions && scaleValid && studio?.dimensions && <div className="studio-dimension-labels">אורך {Math.round(studio.dimensions.length * 100)} ס״מ · רוחב {Math.round(studio.dimensions.width * 100)} ס״מ · גובה {Math.round(studio.dimensions.height * 100)} ס״מ</div>}

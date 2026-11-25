@@ -77,13 +77,16 @@ export const customerInput = customerFieldsSchema.transform(normalizeCustomerTyp
 const mediaUrl = z.string().trim().max(1000).refine((value) => !value || /^https?:\/\//i.test(value), "יש להזין קישור http/https תקין.");
 const point3 = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
 const studioId = z.string().regex(/^[a-zA-Z0-9_-]{1,96}$/, "מזהה יכול להכיל אותיות לטיניות, ספרות ומקף.");
+const dimensionsSchema = z.object({ length: z.number().positive().max(100), width: z.number().positive().max(100), height: z.number().positive().max(100) });
 export const studioSchema = z.object({
   assetVerified: z.boolean().optional(),
   scaleVerified: z.boolean().optional(),
+  verifiedModel3dUrl: mediaUrl.optional(),
+  verifiedDimensions: dimensionsSchema.optional(),
   source: optional(500).optional(),
   usdzUrl: mediaUrl.optional(),
   arEnabled: z.boolean().optional(),
-  dimensions: z.object({ length: z.number().positive().max(100), width: z.number().positive().max(100), height: z.number().positive().max(100) }).optional(),
+  dimensions: dimensionsSchema.optional(),
   cameras: z.array(z.object({ id: studioId, title: required("שם מבט", 80), position: point3, target: point3 })).max(16).optional(),
   features: z.array(z.object({ title: required("שם רכיב", 120), description: required("הסבר", 1000), nodePath: z.string().regex(/^(\d+(\/\d+)*)?$/).optional(), point: point3.optional(), imageUrl: mediaUrl.optional(), view: studioId.optional() })).max(12).optional(),
   tour: z.array(z.object({ title: required("כותרת תחנה", 120), description: required("תיאור תחנה", 1000), view: studioId.optional(), featureIndex: z.number().int().min(0).max(11).optional(), imageIndex: z.number().int().min(0).max(21).optional(), durationMs: z.number().int().min(3000).max(15000).optional() })).max(10).optional(),

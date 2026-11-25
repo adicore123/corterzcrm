@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraAt, createCameraMove, tourReducer, initialTour, buildTour, resolveVariant, studioShareParams, isScaleAccurate } from "../src/components/catalog/studio-state";
+import { cameraAt, createCameraMove, tourReducer, initialTour, buildTour, resolveVariant, studioShareParams, isScaleAccurate, isVolumetricModel } from "../src/components/catalog/studio-state";
 import { modelInput } from "../src/lib/validation/models";
 
 test("camera moves interpolate exactly, respect reduced motion and can be interrupted", () => {
@@ -19,6 +19,12 @@ test("camera travels around the product rather than through it between opposing 
   assert.ok(Math.hypot(...cameraAt(move, 500).position) > 5.99);
   assert.equal(isScaleAccurate([1.2, 1.1, .5], { length: 1.2, width: .5, height: 1.1 }), true);
   assert.equal(isScaleAccurate([1200, 1100, 500], { length: 1.2, width: .5, height: 1.1 }), false);
+});
+
+test("a flat image plane cannot be certified as a product model", () => {
+  assert.equal(isVolumetricModel([1.2, 1.1, 0]), false);
+  assert.equal(isVolumetricModel([1.2, 1.1, 0.015]), false);
+  assert.equal(isVolumetricModel([1.2, 1.1, 0.4]), true);
 });
 
 test("tour lifecycle pauses, resumes, steps backwards and exits without stale timers", () => {
