@@ -136,7 +136,6 @@ export function BeachScene({
 
     const productHandle = createProductModel(scene, renderer, {
       mode: productMode,
-      productName,
       model3dUrl,
       imageUrl: productImageUrl,
       isMobile: initialMobile,
@@ -197,7 +196,7 @@ export function BeachScene({
       sandHandle.uniforms.uCameraPos.value.copy(cameraCtrl.camera.position);
 
       shorelineHandle.uniforms.uTime.value = simSeconds;
-      productHandle.tick(simSeconds, dtSec, cameraCtrl.camera.position);
+      productHandle.tick(simSeconds, cameraCtrl.camera.position);
 
       try {
         renderer.render(scene, cameraCtrl.camera);
@@ -224,7 +223,6 @@ export function BeachScene({
     controlsRef.current = {
       setCameraPreset(preset: CoastalCameraPreset) {
         cameraCtrl.setPreset(preset);
-        productHandle.resetRotation();
         renderSingleFrame(performance.now());
         scheduleLoop();
       },
@@ -274,11 +272,9 @@ export function BeachScene({
       if (isDragging && interactiveDrag) {
         const dx = ((event.clientX - lastDragX) / Math.max(rect.width, 1)) * 2.1;
         const dy = -((event.clientY - lastDragY) / Math.max(rect.height, 1)) * 1.2;
-        const rawDeltaYaw = ((event.clientX - lastDragX) / Math.max(rect.width, 1)) * Math.PI * 1.85;
         lastDragX = event.clientX;
         lastDragY = event.clientY;
         cameraCtrl.addDragOffset(dx, dy);
-        productHandle.addRotationImpulse(rawDeltaYaw);
       }
 
       const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -292,7 +288,6 @@ export function BeachScene({
     const onScroll = () => {
       const progress = Math.min(1, Math.max(0, window.scrollY / Math.max(window.innerHeight, 500)));
       cameraCtrl.setScrollProgress(progress);
-      productHandle.setScrollProgress(progress);
     };
 
     const onVisibilityChange = () => {
