@@ -1173,3 +1173,48 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
   display: grid;
   gap: 18px;
 }
+
+/* ============================================================================
+   QUOTES WORKSPACE — WHATSAPP DIRECT CUSTOMER SHARE & PRODUCT THUMBNAIL
+   ============================================================================ */
+.quote-row-model-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.quote-row-thumb {
+  width: 54px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.button-whatsapp-quote,
+.quote-whatsapp-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #16a34a !important;
+  color: #ffffff !important;
+  border-color: #15803d !important;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button-whatsapp-quote:hover,
+.quote-whatsapp-link:hover {
+  background: #15803d !important;
+}
+
+.quote-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

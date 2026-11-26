@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Image from "next/image";
 import { notFound } from "next/navigation";
 import {
@@ -10,6 +11,7 @@ import {
 import { CinematicHero } from "@/components/proposal/CinematicHero";
 import { ProductHighlights } from "@/components/proposal/ProductHighlights";
 import { ProductStorytelling } from "@/components/proposal/ProductStorytelling";
+import { ProposalWhatsappButton } from "@/components/proposal/ProposalWhatsappButton";
 import { TechnicalSpecifications } from "@/components/proposal/TechnicalSpecifications";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
 import { publicCatalogModels } from "@/lib/catalog/public-model";
@@ -46,13 +48,15 @@ export async function generateMetadata({
       robots: { index: false, follow: false },
     };
   }
-  const storedModel = (await catalogModels()).find((item) => item.id === quote.modelId);
-  const model = storedModel ? publicCatalogModels([{ ...storedModel, published: true }])[0] : undefined;
   const customer =
     quote.customerType === "store" ? quote.storeName || quote.customerName : quote.customerName;
   const price = quoteTotal(quote);
-  const ogImage =
-    (model && getProposalHeroCutoutUrl(model)) || "/catalog/scenery/cortez-coast.webp";
+
+  const reqHeaders = await headers();
+  const host = reqHeaders.get("x-forwarded-host") || reqHeaders.get("host") || "localhost:3000";
+  const proto = reqHeaders.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  const origin = `${proto}://${host}`;
+  const ogImageUrl = `${origin}/api/quotes/${token}/og-image`;
 
   return {
     // Root layout applies template "%s | קורטז" => renders as "הצעת מחיר אישית | קורטז" (no duplicate brand)
@@ -66,9 +70,10 @@ export async function generateMetadata({
       locale: "he_IL",
       images: [
         {
-          url: ogImage,
+          url: ogImageUrl,
           width: 1200,
           height: 630,
+          type: "image/png",
           alt: `${quote.modelName} — CORTEZ`,
         },
       ],
@@ -247,6 +252,23 @@ export default async function ProposalPage({ params }: { params: Promise<{ token
               </div>
               <AcceptQuote token={token} accepted={quote.status === "accepted"} />
             </div>
+
+            <ProposalWhatsappButton
+              quote={quote}
+              model={
+                model
+                  ? {
+                      id: model.id,
+                      name: model.name,
+                      device: model.device,
+                      summary: model.summary,
+                      specs: model.specs,
+                      imageUrl: model.imageUrl,
+                      exhibitUrl: primaryExhibitUrl,
+                    }
+                  : undefined
+              }
+            />
 
             <p className="proposal-note">
               {quote.customerType === "store"
