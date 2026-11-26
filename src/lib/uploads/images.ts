@@ -9,8 +9,13 @@ import { uuid, type Photo, type PhotoModule } from "../validation/models";
 export const maxPhotos = 10;
 export const maxImageBytes = 20 * 1024 * 1024;
 export const acceptedImageTypes = ["image/jpeg", "image/png", "image/webp"];
+const MAX_SAFE_INPUT_PIXELS = 100_000_000;
 const supportedSharpFormats = new Set(["jpeg", "png", "webp", "heif", "avif", "gif", "tiff"]);
 const heicBrands = new Set(["heic", "heix", "hevc", "hevx", "mif1", "msf1", "heif", "heim", "heis", "hevm", "hevs"]);
+
+// Bound libvips worker threads & internal memory cache to prevent serverless OOM spikes
+sharp.concurrency(2);
+sharp.cache({ memory: 50, files: 0, items: 50 });
 
 export function isHeicBuffer(bytes: Uint8Array): boolean {
   if (bytes.length < 16) return false;
@@ -36,7 +41,7 @@ async function decodeHeicToWebp(bytes: Buffer, fitFunctionResponse: boolean) {
   const rawBuffer = Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength);
   const rawOptions = {
     raw: { width: decoded.width, height: decoded.height, channels: 4 as const },
-    limitInputPixels: 250_000_000,
+    limitInputPixels: MAX_SAFE_INPUT_PIXELS,
   };
   const result = await sharp(rawBuffer, rawOptions)
     .resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: true })
@@ -81,7 +86,7 @@ export async function normalizePhoto(bytes: Buffer, type: string, fitFunctionRes
       return await decodeHeicToWebp(bytes, fitFunctionResponse);
     }
     // Allow high-MP mobile cameras (108MP/200MP) and ignore trailing vendor metadata (Samsung Motion Photo / XMP warnings).
-    const image = sharp(bytes, { limitInputPixels: 250_000_000, failOn: "none" });
+    const image = sharp(bytes, { limitInputPixels: MAX_SAFE_INPUT_PIXELS, failOn: "none" });
     const info = await image.metadata();
     if (!info.format || !supportedSharpFormats.has(info.format) || !info.width || !info.height) {
       throw new Error("Unsupported image format: " + String(info.format));

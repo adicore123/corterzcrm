@@ -1,16 +1,16 @@
 import { modelThumbUrl } from "@/components/record-cells";
 import { authorizedUser } from "@/lib/auth/page";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
-import { readCollection } from "@/lib/json-db/store";
 import { catalogModels } from "@/lib/json-db/queries";
+import { listQuotesForUser } from "@/lib/quotes/service";
 import { QuoteWorkspace } from "./quote-workspace";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "הצעות מחיר" };
 
 export default async function QuotesPage() {
-  await authorizedUser();
-  const [models, quotes] = await Promise.all([catalogModels(), readCollection("quotes")]);
+  const user = await authorizedUser();
+  const [models, quotes] = await Promise.all([catalogModels(), listQuotesForUser(user)]);
   return (
     <QuoteWorkspace
       models={models.map((model) => ({
@@ -23,7 +23,7 @@ export default async function QuotesPage() {
         imageUrl: modelThumbUrl(model) || model.imageUrl,
         exhibitUrl: getProposalHeroCutoutUrl(model),
       }))}
-      quotes={[...quotes].sort((a, b) => b.createdAt.localeCompare(a.createdAt))}
+      quotes={quotes}
     />
   );
 }

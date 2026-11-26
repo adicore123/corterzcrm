@@ -1,5 +1,7 @@
 import { quoteTotal } from "./pricing";
-import type { Quote } from "./schema";
+import type { PublicQuote, Quote } from "./schema";
+
+type ShareableQuote = Quote | PublicQuote;
 
 export interface QuoteWhatsappModelInfo {
   id: string;
@@ -34,7 +36,7 @@ export function normalizeWhatsappPhone(rawPhone: string): string {
  * Designed to be attached directly as the caption under the product image file.
  */
 export function buildFullQuoteWhatsappMessage(
-  quote: Quote,
+  quote: ShareableQuote,
   model: QuoteWhatsappModelInfo | undefined,
 ): string {
   const price = quoteTotal(quote);
@@ -90,7 +92,7 @@ export function buildFullQuoteWhatsappMessage(
 }
 
 export function buildQuoteWhatsappUrl(
-  quote: Quote,
+  quote: ShareableQuote,
   model: QuoteWhatsappModelInfo | undefined,
 ): string {
   const phone = normalizeWhatsappPhone(quote.customerPhone);
@@ -109,7 +111,7 @@ export function buildQuoteWhatsappUrl(
  *    with the full link-free proposal text.
  */
 export async function shareQuoteImageAndTextOnWhatsapp(
-  quote: Quote,
+  quote: ShareableQuote,
   model: QuoteWhatsappModelInfo | undefined,
 ): Promise<{ mode: "web-share" | "clipboard-wa" | "wa-only"; phone: string }> {
   const origin = typeof window === "undefined" ? "" : window.location.origin;

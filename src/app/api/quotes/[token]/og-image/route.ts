@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
+import { getClientIp } from "@/lib/api-guard";
+import { consumeRateLimit } from "@/lib/auth/rate-limit";
+import { AppError } from "@/lib/errors";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
@@ -80,9 +83,16 @@ async function loadOriginalCatalogImageBytes(model: CatalogModel): Promise<Buffe
  * for direct WhatsApp sharing (Web Share API file attachment & desktop ClipboardItem).
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  try {
+    await consumeRateLimit(`quote-og:${getClientIp(request)}`, 60, 60_000);
+  } catch (err) {
+    if (err instanceof AppError) {
+      return new NextResponse(err.message, { status: err.status });
+    }
+  }
   const { token } = await context.params;
   const quote = await quoteByToken(token);
   if (!quote) {

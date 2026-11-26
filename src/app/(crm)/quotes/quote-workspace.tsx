@@ -3,7 +3,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, MessageCircle, Plus } from "lucide-react";
-import type { Quote } from "@/lib/quotes/schema";
+import type { PublicQuote } from "@/lib/quotes/schema";
 import { quoteTotal } from "@/lib/quotes/pricing";
 import {
   shareQuoteImageAndTextOnWhatsapp,
@@ -22,7 +22,7 @@ const shekels = (agorot: number) => {
   }).format(agorot / 100);
 };
 
-export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quotes: Quote[] }) {
+export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quotes: PublicQuote[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [modelId, setModelId] = useState(models[0]?.id ?? "");
@@ -37,7 +37,7 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [shareHint, setShareHint] = useState("");
-  const [created, setCreated] = useState<Quote | null>(null);
+  const [created, setCreated] = useState<PublicQuote | null>(null);
 
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
 
@@ -105,12 +105,12 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
     }
   }
 
-  const shareUrl = (quote: Quote) =>
+  const shareUrl = (quote: PublicQuote) =>
     typeof window === "undefined"
       ? `/proposal/${quote.shareToken}`
       : `${window.location.origin}/proposal/${quote.shareToken}`;
 
-  async function handleSendWhatsappWithImage(quote: Quote) {
+  async function handleSendWhatsappWithImage(quote: PublicQuote) {
     setShareHint("");
     const model = modelsById.get(quote.modelId);
     try {

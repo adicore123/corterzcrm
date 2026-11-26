@@ -113,7 +113,7 @@ function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress, agentInviteCode = "cortez-agent" }: {
+export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress, agentInviteCode = "" }: {
   users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string; agentInviteCode?: string;
 }) {
   const router = useRouter();

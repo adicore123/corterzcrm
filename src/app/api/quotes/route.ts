@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getClientIp, safeApiErrorResponse, verifySameOrigin } from "@/lib/api-guard";
+import { consumeRateLimit } from "@/lib/auth/rate-limit";
 import { getUser, sessionCookie } from "@/lib/auth/session";
-import { createQuote } from "@/lib/quotes/service";
 import { AppError } from "@/lib/errors";
+import { createQuote, toPublicQuote } from "@/lib/quotes/service";
 
 export async function POST(request: NextRequest) {
   try {
-    const origin = request.headers.get("origin");
-    const expected = new URL(process.env.CORTEZ_ORIGIN || `${process.env.VERCEL === "1" ? "https:" : request.nextUrl.protocol}//${request.headers.get("host") ?? request.nextUrl.host}`).origin;
-    if (!origin || origin !== expected || request.headers.get("sec-fetch-site") === "cross-site") return NextResponse.json({ error: "מקור הבקשה אינו תקין." }, { status: 403 });
+    verifySameOrigin(request);
     const user = await getUser(request.cookies.get(sessionCookie)?.value);
-    if (!user) return NextResponse.json({ error: "יש להיכנס למערכת." }, { status: 401 });
+    if (!user) throw new AppError(401, "יש להיכנס למערכת.");
+    await consumeRateLimit(`quote-create:${user.id}:${getClientIp(request)}`, 40, 5 * 60_000);
     const quote = await createQuote(await request.json(), user);
-    return NextResponse.json(quote, { status: 201, headers: { "Cache-Control": "private, no-store" } });
-  } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "שגיאה בשמירת ההצעה" }, { status: error instanceof AppError ? error.status : 400 }); }
+    return NextResponse.json(toPublicQuote(quote), {
+      status: 201,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  } catch (error) {
+    return safeApiErrorResponse(error, "quotes:create");
+  }
 }

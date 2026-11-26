@@ -12,6 +12,7 @@ export const quoteSchema = z.object({
   tokenHash: z.string().regex(/^[a-f0-9]{64}$/),
   shareToken: z.string().regex(/^[a-f0-9]{48}$/),
   createdBy: z.uuid(),
+  customerId: z.uuid().optional(),
   customerName: z.string().trim().min(1).max(120),
   storeName: z.string().trim().max(120).optional(),
   customerType: z.enum(["private", "store"]),
@@ -25,9 +26,11 @@ export const quoteSchema = z.object({
   vatMode: z.enum(["included", "excluded"]),
   vatBasisPoints: z.number().int().min(0).max(10000),
   status: z.enum(["draft", "sent", "accepted", "cancelled"]),
+  expiresAt: z.iso.datetime().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   acceptedAt: z.iso.datetime().optional(),
 });
 
 export type Quote = z.infer<typeof quoteSchema>;
+export type PublicQuote = Omit<Quote, "tokenHash">;

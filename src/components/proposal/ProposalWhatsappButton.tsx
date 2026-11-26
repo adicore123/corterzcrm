@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { MessageCircle } from "lucide-react";
-import type { Quote } from "@/lib/quotes/schema";
+import type { PublicQuote, Quote } from "@/lib/quotes/schema";
 import {
   shareQuoteImageAndTextOnWhatsapp,
   type QuoteWhatsappModelInfo,
@@ -12,7 +12,7 @@ export function ProposalWhatsappButton({
   quote,
   model,
 }: {
-  quote: Quote;
+  quote: Quote | PublicQuote;
   model?: QuoteWhatsappModelInfo;
 }) {
   const [hint, setHint] = useState("");

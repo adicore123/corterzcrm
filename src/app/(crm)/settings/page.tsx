@@ -1,20 +1,26 @@
 import type { Metadata } from "next";
 import { ShieldCheck } from "lucide-react";
 import { authorizedUser } from "@/lib/auth/page";
-import { publicUser } from "@/lib/auth/session";
+import { ensureAgentInviteToken, publicUser } from "@/lib/auth/session";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { listBackups, readCollection } from "@/lib/json-db/store";
 import { roleLabel } from "@/lib/presentation";
-import { DEFAULT_AGENT_INVITE_CODE, DEFAULT_PICKUP_ADDRESS } from "@/lib/validation/models";
+import { DEFAULT_PICKUP_ADDRESS } from "@/lib/validation/models";
 import { AdminSettings, OwnPasswordControl } from "./settings-controls";
 
 export const metadata: Metadata = { title: "הגדרות" };
 
 export default async function SettingsPage() {
   const user = await authorizedUser();
-  const [users, backups, activity, systemSettings] = user.role === "admin"
-    ? await Promise.all([readCollection("users"), listBackups(), readCollection("activity"), readCollection("settings")])
-    : [[], [], [], {}];
+  const [users, backups, activity, systemSettings, inviteCode] = user.role === "admin"
+    ? await Promise.all([
+        readCollection("users"),
+        listBackups(),
+        readCollection("activity"),
+        readCollection("settings"),
+        ensureAgentInviteToken(),
+      ])
+    : [[], [], [], {}, ""];
   const recentActivity = [...activity].reverse().slice(0, 25);
 
   return <div className="page-stack">
@@ -33,6 +39,6 @@ export default async function SettingsPage() {
     {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups}
       activity={recentActivity} cloud={usesBlobStorage()} hasCustomDeletePassword={Boolean(systemSettings.deletePasswordHash)}
       pickupAddress={systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS}
-      agentInviteCode={systemSettings.agentInviteToken ?? DEFAULT_AGENT_INVITE_CODE} />}
+      agentInviteCode={inviteCode} />}
   </div>;
 }

@@ -39,32 +39,44 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
   const title = "model" in record ? record.model : record.name;
   const isModelRecord = module === "models" && !("phone" in record) && !("model" in record);
   const isFaultGuide = module === "faults" && "commonFaults" in record;
-  const [customers, repairs, standards, models, faults, systemSettings] = await Promise.all([
+  const [customers, repairs, standards, models, faults, quotes, systemSettings] = await Promise.all([
     "serial" in record || isModelRecord || isFaultGuide ? readCollection("customers") : [],
     "phone" in record || isModelRecord || isFaultGuide ? readCollection("repairs") : [],
     isModelRecord ? readCollection("standards") : [],
     catalogModels(),
     isModelRecord ? readCollection("faults") : [],
+    "phone" in record && !isAgent ? readCollection("quotes") : [],
     readCollection("settings"),
   ]);
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
+  const modelsById = new Map(models.map((item) => [item.id, item]));
   const customer = "serial" in record ? customers.find((item) => item.id === record.customerId) : undefined;
   const linkedModel = "model" in record
-    ? modelsMap.get(record.model.toLocaleLowerCase("he"))
+    ? ((record.modelId ? modelsById.get(record.modelId) : undefined) ?? modelsMap.get(record.model.toLocaleLowerCase("he")))
     : undefined;
   const modelFaultGuide = isModelRecord
-    ? faults.find((item) => item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
+    ? faults.find((item) => item.modelId === record.id || item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
     : undefined;
   const history = "phone" in record
     ? repairs.filter((repair) => repair.customerId === record.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
+  const normDigits = (p: string) => {
+    const d = p.replace(/\D/g, "");
+    return d.startsWith("972") ? "0" + d.slice(3) : d;
+  };
+  const customerQuotes = "phone" in record && !isAgent
+    ? quotes
+        .filter((q) => q.customerId === record.id || (normDigits(record.phone) && normDigits(q.customerPhone) === normDigits(record.phone)))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : [];
   const modelStandards = isModelRecord
-    ? standards.filter((item) => item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
+    ? standards.filter((item) => item.modelId === record.id || item.model.toLocaleLowerCase("he") === record.name.toLocaleLowerCase("he"))
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
   const targetModelLower = isModelRecord ? record.name.toLocaleLowerCase("he") : isFaultGuide ? record.model.toLocaleLowerCase("he") : "";
+  const targetModelId = isModelRecord ? record.id : isFaultGuide ? linkedModel?.id : undefined;
   const modelRepairs = targetModelLower
-    ? repairs.filter((item) => item.model.toLocaleLowerCase("he") === targetModelLower)
+    ? repairs.filter((item) => (targetModelId && item.modelId === targetModelId) || item.model.toLocaleLowerCase("he") === targetModelLower)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     : [];
   const customersMap = new Map("phone" in record ? [[record.id, record]] : customers.map((c) => [c.id, c]));
@@ -176,6 +188,31 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
           rows={history.map((item) => repairRow(item, customersMap, true, modelsMap, { readOnly: isAgent, pickupAddress }))} empty="אין תיקונים משויכים" showEmptyHeader />
       </section>
+      {!isAgent && customerQuotes.length > 0 && (
+        <section className="card detail-card">
+          <div className="section-heading">
+            <h2><span className="section-icon"><FileText size={18} /></span>הצעות מחיר ללקוח זה ({customerQuotes.length})</h2>
+            <Button asChild size="sm" variant="outline"><Link href="/quotes">לכל הצעות המחיר</Link></Button>
+          </div>
+          <ul className="settings-list">
+            {customerQuotes.map((q) => (
+              <li key={q.id}>
+                <div>
+                  <strong>{q.modelName} · {q.quantity} {q.quantity === 1 ? "יחידה" : "יחידות"}</strong>
+                  <span>{formatDate(q.createdAt, true)} · {q.status === "accepted" ? "אושרה" : q.status === "cancelled" ? "בוטלה" : "נשלחה"}</span>
+                </div>
+                {q.status !== "cancelled" && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={`/proposal/${q.shareToken}`} target="_blank" rel="noopener noreferrer">
+                      צפייה בהצעה <ExternalLink size={14} />
+                    </a>
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>}
     {isModelRecord && <>
       <section className="card detail-card">

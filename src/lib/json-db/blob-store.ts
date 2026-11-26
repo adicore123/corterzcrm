@@ -29,7 +29,11 @@ const privateAccess = { access: "private" as const };
 const jsonOptions = { ...privateAccess, contentType: "application/json", cacheControlMaxAge: 60 };
 
 export function usesBlobStorage() {
-  return process.env.VERCEL === "1" || ["blob", "mongo"].includes(process.env.CORTEZ_STORAGE_BACKEND || "");
+  if (process.env.VERCEL === "1" || process.env.CORTEZ_STORAGE_BACKEND === "blob") return true;
+  if (process.env.CORTEZ_STORAGE_BACKEND === "mongo") {
+    return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  }
+  return false;
 }
 
 function emptyState(): State {

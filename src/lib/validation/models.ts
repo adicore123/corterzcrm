@@ -32,6 +32,7 @@ export const standardsInput = z.object({
   number: required("מספר תיק", 120),
   device: z.enum(devices),
   model: required("שם דגם"),
+  modelId: uuid.optional(),
   status: z.enum(standardStatuses),
   tasks: z.array(taskSchema).max(100, { error: "ניתן להוסיף עד 100 משימות." })
     .refine((tasks) => new Set(tasks.map((task) => task.id)).size === tasks.length, "כל משימה צריכה להיות ייחודית."),
@@ -47,6 +48,7 @@ export const standardsInput = z.object({
 export const repairInput = z.object({
   device: z.enum(devices),
   model: required("שם דגם"),
+  modelId: uuid.optional(),
   serial: required("מספר סידורי"),
   customerId: uuid,
   fault: required("תיאור תקלה", 4000),
@@ -165,6 +167,7 @@ export const unlockVideoLinkSchema = z.object({
 export const faultGuideInput = z.object({
   device: z.enum(devices),
   model: required("שם דגם"),
+  modelId: uuid.optional(),
   summary: optional(1000),
   unlockInstructions: optional(4000),
   commonFaults: z.array(commonFaultSchema).max(50, { error: "ניתן להוסיף עד 50 תקלות נפוצות לדגם." }),

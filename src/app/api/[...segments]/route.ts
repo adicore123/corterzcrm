@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getClientIp } from "@/lib/api-guard";
+import { consumeRateLimit } from "@/lib/auth/rate-limit";
 import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, registerAgent, requireAdmin, requireDeletePassword, resetUserPassword, rotateAgentInviteToken, sessionCookie, setUserDisabled, updateBusinessSettings } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
@@ -142,6 +144,7 @@ export async function GET(request: NextRequest, { params }: Route) {
   try {
     const [resource, module, id, photo, ...extra] = (await params).segments;
     if (resource === "catalog-image" && !module) {
+      await consumeRateLimit(`catimg:${getClientIp(request)}`, 180, 60_000);
       const rawUrl = request.nextUrl.searchParams.get("url") ?? "";
       return await fetchCatalogImage(rawUrl);
     }
@@ -189,11 +192,12 @@ async function mutate(request: NextRequest, { params }: Route) {
     const { method } = request;
     const [resource, sub, id, ...extra] = (await params).segments;
     if (extra.length) throw new AppError(404, "הנתיב לא נמצא.");
+    const ip = getClientIp(request);
     if (method === "POST" && resource === "auth" && !id) {
       if (sub === "login") {
         const { value } = await parseBody(request);
         const input = z.object({ username: usernameSchema, password: z.string().min(1, "יש להזין סיסמה.").max(128, "הסיסמה ארוכה מדי.") }).parse(value);
-        const session = await login(input.username, input.password);
+        const session = await login(input.username, input.password, ip);
         const response = json({ ok: true });
         response.cookies.set(sessionCookie, session.token, {
           path: "/", httpOnly: true, secure: origin.startsWith("https:"), sameSite: "lax", expires: new Date(session.expires),
@@ -202,7 +206,7 @@ async function mutate(request: NextRequest, { params }: Route) {
       }
       if (sub === "register-agent") {
         const { value } = await parseBody(request);
-        const session = await registerAgent(value);
+        const session = await registerAgent(value, ip);
         const response = json({ ok: true }, 201);
         response.cookies.set(sessionCookie, session.token, {
           path: "/", httpOnly: true, secure: origin.startsWith("https:"), sameSite: "lax", expires: new Date(session.expires),
@@ -218,6 +222,7 @@ async function mutate(request: NextRequest, { params }: Route) {
     }
 
     const user = await requireUser(request);
+    const delPwdScope = `${user.id}:${ip}`;
     if (method === "POST" && resource === "auth" && sub === "verify-delete-password" && !id) {
       if (!canDeleteItems(user.role)) {
         throw new AppError(403, "לחשבון סוכן אין הרשאת מחיקה במערכת.");
@@ -226,7 +231,7 @@ async function mutate(request: NextRequest, { params }: Route) {
       const input = z.object({
         password: z.string().trim().min(1, "יש להזין סיסמת מחיקה.").max(64, "סיסמת המחיקה ארוכה מדי."),
       }).parse(value);
-      await requireDeletePassword(input.password);
+      await requireDeletePassword(input.password, delPwdScope);
       return json({ ok: true });
     }
     if (method === "POST" && resource === "auth" && sub === "password" && !id) {
@@ -238,6 +243,9 @@ async function mutate(request: NextRequest, { params }: Route) {
       return json(await changeOwnPassword(user.id, input.currentPassword, input.newPassword, request.cookies.get(sessionCookie)?.value));
     }
     if (resource === "uploads" && sub === "attachments" && !id && method === "POST" && usesBlobStorage()) {
+      if (!canEditModule(user.role, "faults")) {
+        throw new AppError(403, "לחשבון זה אין הרשאת העלאת קבצים במודול זה.");
+      }
       const { value } = await parseBody(request);
       const input = z.object({ id: uuid, kind: z.enum(["file", "video"]) }).parse(value);
       return json(await authorizeAttachmentUpload(input.id, input.kind), 201);
@@ -252,6 +260,9 @@ async function mutate(request: NextRequest, { params }: Route) {
       return json(await authorizeUpload(kind, user.id, input.id), 201);
     }
     if (resource === "files" && sub === "faults" && !id && method === "POST" && !usesBlobStorage()) {
+      if (!canEditModule(user.role, "faults")) {
+        throw new AppError(403, "לחשבון זה אין הרשאת העלאת קבצים במודול זה.");
+      }
       const type = request.headers.get("content-type") ?? "";
       if (!type.toLowerCase().startsWith("multipart/form-data;")) {
         throw new AppError(415, "פורמט הבקשה אינו נתמך.");
@@ -286,7 +297,7 @@ async function mutate(request: NextRequest, { params }: Route) {
           version: z.iso.datetime(),
           deletePassword: z.string().trim().min(1, "יש להזין סיסמת מחיקה.").max(64, "סיסמת המחיקה ארוכה מדי."),
         }).parse(value);
-        await requireDeletePassword(deletePassword);
+        await requireDeletePassword(deletePassword, delPwdScope);
         await deleteRecord(kind, key, version, user);
         return json({ ok: true });
       }
@@ -299,7 +310,7 @@ async function mutate(request: NextRequest, { params }: Route) {
           currentPassword: z.string().trim().min(1, "יש להזין את סיסמת המחיקה הנוכחית.").max(64),
           newPassword: deletePasswordSchema,
         }).parse(value);
-        return json(await changeDeletePassword(input.currentPassword, input.newPassword, user));
+        return json(await changeDeletePassword(input.currentPassword, input.newPassword, user, ip));
       }
       if (sub === "business" && method === "PATCH") {
         const { value } = await parseBody(request);
