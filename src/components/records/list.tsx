@@ -101,9 +101,12 @@ export async function RecordList({ module, filters, deleted, userRole = "admin" 
     </div>
     {deleted && <p className="success-message" role="status">הרשומה נמחקה.</p>}
     {module === "faults" ? (
-      <FaultsModuleHub records={records as FaultGuide[]} catalogModels={models} canEdit={canEdit}>
-        {listSection}
-      </FaultsModuleHub>
+      <FaultsModuleHub
+        records={records as FaultGuide[]}
+        catalogModels={models}
+        canEdit={canEdit}
+        initialQuery={filters.q}
+      />
     ) : (
       listSection
     )}

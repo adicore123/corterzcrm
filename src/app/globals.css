@@ -874,34 +874,64 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
    ============================================================================ */
 .faults-hub-wrapper {
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
-.faults-quick-actions-bar {
+.faults-top-hub-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #fff 0%, #f8fafc 100%);
+  gap: 14px;
+  padding: 12px 16px;
+  background: #ffffff;
   border: 1px solid var(--border);
-  border-inline-start: 4px solid var(--red);
 }
 
-.faults-quick-actions-copy {
-  display: grid;
-  gap: 3px;
+.faults-filter-row {
+  margin-bottom: 14px;
 }
 
-.faults-quick-actions-copy strong {
-  font-size: 1rem;
+.faults-model-pills-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fault-model-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
   color: var(--ink);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 680;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.faults-quick-actions-copy span {
-  font-size: 0.84rem;
-  color: var(--muted);
+.fault-model-pill:hover {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.fault-model-pill.is-active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
+
+.fault-jump-unlock-badge {
+  cursor: pointer;
+  border: 0;
+  font: inherit;
 }
 
 .faults-quick-actions-buttons {
