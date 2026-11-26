@@ -12,7 +12,7 @@ import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serv
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
 import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
-import { canDeleteItems, canEditModule, deletePasswordSchema, modules, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
+import { canDeleteItems, canEditModule, deletePasswordSchema, modules, ordersPhoneSchema, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -314,8 +314,11 @@ async function mutate(request: NextRequest, { params }: Route) {
       }
       if (sub === "business" && method === "PATCH") {
         const { value } = await parseBody(request);
-        const input = z.object({ pickupAddress: pickupAddressSchema }).parse(value);
-        return json(await updateBusinessSettings(input.pickupAddress, user));
+        const input = z.object({
+          pickupAddress: pickupAddressSchema,
+          ordersWhatsappPhone: ordersPhoneSchema.optional(),
+        }).parse(value);
+        return json(await updateBusinessSettings(input.pickupAddress, user, input.ordersWhatsappPhone));
       }
       if (sub === "agent-invite" && method === "PATCH") {
         return json(await rotateAgentInviteToken(user));

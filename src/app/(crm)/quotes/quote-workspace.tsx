@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, ExternalLink, MessageCircle, Plus } from "lucide-react";
+import { Copy, ExternalLink, MessageCircle, PackagePlus, Plus } from "lucide-react";
 import type { PublicQuote } from "@/lib/quotes/schema";
 import { quoteTotal } from "@/lib/quotes/pricing";
 import {
@@ -395,6 +396,9 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
                         >
                           <MessageCircle size={15} /> וואטסאפ (תמונה + הצעה)
                         </button>
+                        <Link href={`/orders?new=1&quoteId=${quote.id}`}>
+                          <PackagePlus size={14} style={{ display: "inline", verticalAlign: "-2px" }} /> הפוך להזמנה
+                        </Link>
                         <a href={shareUrl(quote)} target="_blank" rel="noopener noreferrer">
                           צפייה
                         </a>

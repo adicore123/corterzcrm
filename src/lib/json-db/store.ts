@@ -125,13 +125,15 @@ export async function writeCollection<K extends Collection>(key: K, value: Data<
   await atomicWrite(collectionPath(key), JSON.stringify(validated, null, 2) + "\n");
 }
 
-export async function reserveNumber(key: "standards" | "repairs") {
+export async function reserveNumber(key: "standards" | "repairs" | "orders") {
   const counters = await readCollection("counters");
-  counters[key] += 1;
-  await writeCollection("counters", counters);
-  const sequence = String(counters[key]).padStart(4, "0");
+  const next = (counters[key] ?? 0) + 1;
+  await writeCollection("counters", { ...counters, [key]: next });
+  const sequence = String(next).padStart(4, "0");
   const year = new Intl.DateTimeFormat("en", { year: "numeric", timeZone: "Asia/Jerusalem" }).format();
-  return key === "standards" ? "CT-" + year + "-" + sequence : "REP-" + sequence;
+  if (key === "standards") return "CT-" + year + "-" + sequence;
+  if (key === "orders") return "ORD-" + year + "-" + sequence;
+  return "REP-" + sequence;
 }
 
 export async function audit(actor: string, action: string, entity: string, entityId: string) {
@@ -163,6 +165,7 @@ export async function readBackup(id: string) {
         ] as const;
       } catch (error) {
         if (hasCode(error, "ENOENT") && key === "settings") return [key, initialSettings] as const;
+        if (hasCode(error, "ENOENT") && key === "orders") return [key, []] as const;
         throw error;
       }
     }));

@@ -11,6 +11,7 @@ export const stateSchema = z.object({
   standards: collections.standards.schema,
   repairs: collections.repairs.schema,
   quotes: collections.quotes.schema.default(() => []),
+  orders: collections.orders.schema.default(() => []),
   customers: collections.customers.schema,
   models: collections.models.schema.default(() => [...defaultCatalogModels]),
   faults: collections.faults.schema.default(() => []),
@@ -38,7 +39,7 @@ export function usesBlobStorage() {
 
 function emptyState(): State {
   return {
-    format: 1, standards: [], repairs: [], quotes: [], customers: [], models: [...defaultCatalogModels], faults: [], users: [], activity: [], sessions: [],
+    format: 1, standards: [], repairs: [], quotes: [], orders: [], customers: [], models: [...defaultCatalogModels], faults: [], users: [], activity: [], sessions: [],
     counters: { ...initialCounters }, settings: {},
   };
 }

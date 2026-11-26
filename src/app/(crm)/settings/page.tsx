@@ -4,6 +4,7 @@ import { authorizedUser } from "@/lib/auth/page";
 import { ensureAgentInviteToken, publicUser } from "@/lib/auth/session";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { listBackups, readCollection } from "@/lib/json-db/store";
+import { DEFAULT_MORAN_WHATSAPP_DISPLAY } from "@/lib/orders/schema";
 import { roleLabel } from "@/lib/presentation";
 import { DEFAULT_PICKUP_ADDRESS } from "@/lib/validation/models";
 import { AdminSettings, OwnPasswordControl } from "./settings-controls";
@@ -39,6 +40,7 @@ export default async function SettingsPage() {
     {user.role === "admin" && <AdminSettings users={users.map(publicUser)} self={user.id} backups={backups}
       activity={recentActivity} cloud={usesBlobStorage()} hasCustomDeletePassword={Boolean(systemSettings.deletePasswordHash)}
       pickupAddress={systemSettings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS}
+      ordersWhatsappPhone={systemSettings.ordersWhatsappPhone ?? DEFAULT_MORAN_WHATSAPP_DISPLAY}
       agentInviteCode={inviteCode} />}
   </div>;
 }

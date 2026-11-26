@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { activitySchema, catalogModelSchema, counterSchema, customerSchema, faultGuideSchema, repairSchema, sessionSchema, standardSchema, systemSettingsSchema, userSchema, type SystemSettings } from "../validation/models";
+import { orderSchema } from "../orders/schema";
 import { quoteSchema } from "../quotes/schema";
 
 export const collections = {
   standards: { file: "standard-cases.json", schema: z.array(standardSchema) },
   repairs: { file: "repairs.json", schema: z.array(repairSchema) },
   quotes: { file: "quotes.json", schema: z.array(quoteSchema) },
+  orders: { file: "orders.json", schema: z.array(orderSchema) },
   customers: { file: "customers.json", schema: z.array(customerSchema) },
   models: { file: "models.json", schema: z.array(catalogModelSchema) },
   faults: { file: "fault-guides.json", schema: z.array(faultGuideSchema) },

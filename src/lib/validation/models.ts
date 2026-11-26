@@ -199,10 +199,14 @@ export const deletePasswordSchema = z.string().trim().min(4, "סיסמת המח�
 export const DEFAULT_PICKUP_ADDRESS = "לישנסקי 27, ראשון לציון";
 export const DEFAULT_AGENT_INVITE_CODE = "cortez-agent";
 export const pickupAddressSchema = z.string().trim().min(3, "יש להזין כתובת איסוף.").max(240, "כתובת האיסוף ארוכה מדי.");
+export const ordersPhoneSchema = z.string().trim().max(32, "מספר הטלפון ארוך מדי.")
+  .refine((value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 7 && value.replace(/\D/g, "").length <= 15,
+    "יש להזין מספר טלפון תקין לקבלת הזמנות.");
 export const agentInviteTokenSchema = z.string().trim().regex(/^[a-zA-Z0-9_-]{6,64}$/, "קוד קישור ההרשמה אינו תקין.");
 export const systemSettingsSchema = z.object({
   deletePasswordHash: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/).optional(),
   pickupAddress: pickupAddressSchema.optional(),
+  ordersWhatsappPhone: ordersPhoneSchema.optional(),
   agentInviteToken: agentInviteTokenSchema.optional(),
   updatedAt: date.optional(),
 });
@@ -217,7 +221,11 @@ export const userSchema = userInput.omit({ password: true }).extend({
   ...record, passwordHash: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/), disabled: z.boolean(),
 });
 export const sessionSchema = z.object({ hash: z.string().regex(/^[a-f0-9]{64}$/), userId: uuid, expires: z.number().int().positive() });
-export const counterSchema = z.object({ standards: z.number().int().nonnegative(), repairs: z.number().int().nonnegative() });
+export const counterSchema = z.object({
+  standards: z.number().int().nonnegative(),
+  repairs: z.number().int().nonnegative(),
+  orders: z.number().int().nonnegative().optional(),
+});
 export const activitySchema = z.object({
   id: uuid, at: date, actor: uuid, action: z.string(), entity: z.string(), entityId: z.string(),
 });

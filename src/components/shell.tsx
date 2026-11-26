@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
 import {
-  Bike, CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PanelRightClose,
+  Bike, CalendarDays, ClipboardList, LayoutDashboard, LogOut, Menu, PackagePlus, PanelRightClose,
   PanelRightOpen, Settings, ShieldAlert, Sparkles, Users, Wrench, X, FileText,
 } from "lucide-react";
 import { labels, roleLabel } from "@/lib/presentation";
@@ -16,7 +16,7 @@ import { PwaInstallPrompt } from "./pwa-install-prompt";
 import { Button } from "./ui/button";
 
 const navigation = [
-  ["dashboard", LayoutDashboard], ["standards", ClipboardList], ["repairs", Wrench],
+  ["dashboard", LayoutDashboard], ["orders", PackagePlus], ["standards", ClipboardList], ["repairs", Wrench],
   ["customers", Users], ["models", Bike], ["faults", ShieldAlert], ["catalog", Sparkles], ["quotes", FileText], ["settings", Settings],
 ] as const;
 

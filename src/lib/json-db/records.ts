@@ -630,11 +630,12 @@ export async function deleteRecord(module: Module, id: string, version: string, 
       const record = existing(all, id);
       recordFields(record, version);
       const targetKey = normModelName(record.name);
-      const [standards, repairs, faults, quotes] = await Promise.all([
+      const [standards, repairs, faults, quotes, orders] = await Promise.all([
         readCollection("standards"),
         readCollection("repairs"),
         readCollection("faults"),
         readCollection("quotes"),
+        readCollection("orders"),
       ]);
       const matchesModel = (item: { model: string; modelId?: string }) =>
         item.modelId === id || normModelName(item.model) === targetKey;
@@ -645,10 +646,11 @@ export async function deleteRecord(module: Module, id: string, version: string, 
       if (
         faults.some(matchesModel)
         || quotes.some((q) => q.modelId === id && q.status !== "cancelled")
+        || orders.some((o) => o.status !== "בוטלה" && o.items.some((item) => item.modelId === id))
       ) {
         throw new AppError(
           409,
-          "לא ניתן למחוק דגם עם הצעות מחיר פעילות או מדריכי תקלות משויכים.",
+          "לא ניתן למחוק דגם עם הזמנות פעילות, הצעות מחיר פעילות או מדריכי תקלות משויכים.",
         );
       }
       await writeCollection(

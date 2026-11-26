@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, CircleCheck, ClipboardList, Plus, ShieldAlert, Sparkles, TriangleAlert, UserRoundPlus, Wrench } from "lucide-react";
+import { ArrowLeft, CircleCheck, ClipboardList, PackagePlus, Plus, ShieldAlert, Sparkles, TriangleAlert, UserRoundPlus, Wrench } from "lucide-react";
 import { authorizedUser } from "@/lib/auth/page";
 import { dashboard } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
@@ -40,9 +40,10 @@ export default async function DashboardPage() {
     <section className="card quick-card" aria-labelledby="quick-title">
       <h2 id="quick-title">פעולות מהירות</h2>
       <div className="quick-actions">
-        {!isAgent && <Button asChild><Link href="/standards/new"><Plus size={18} /> תיק מכון תקנים</Link></Button>}
-        {!isAgent && <Button asChild><Link href="/repairs/new"><Wrench size={17} /> תיקון חדש</Link></Button>}
-        <Button variant={isAgent ? "default" : "soft"} asChild><Link href="/faults"><ShieldAlert size={18} /> תקלות ופתיחות הגבלה</Link></Button>
+        <Button asChild><Link href="/orders?new=1"><PackagePlus size={18} /> הזמנה חדשה</Link></Button>
+        {!isAgent && <Button variant="soft" asChild><Link href="/standards/new"><Plus size={18} /> תיק מכון תקנים</Link></Button>}
+        {!isAgent && <Button variant="soft" asChild><Link href="/repairs/new"><Wrench size={17} /> תיקון חדש</Link></Button>}
+        <Button variant="soft" asChild><Link href="/faults"><ShieldAlert size={18} /> תקלות ופתיחות הגבלה</Link></Button>
         {isAgent && <Button variant="soft" asChild><Link href="/faults/new"><Plus size={18} /> מדריך חדש לדגם</Link></Button>}
         {isAgent && <Button variant="soft" asChild><Link href="/catalog"><Sparkles size={18} /> קטלוג סוכנים</Link></Button>}
         {!isAgent && <Button variant="soft" asChild><Link href="/customers/new"><UserRoundPlus size={18} /> לקוח חדש</Link></Button>}

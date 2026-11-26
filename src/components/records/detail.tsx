@@ -39,13 +39,14 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
   const title = "model" in record ? record.model : record.name;
   const isModelRecord = module === "models" && !("phone" in record) && !("model" in record);
   const isFaultGuide = module === "faults" && "commonFaults" in record;
-  const [customers, repairs, standards, models, faults, quotes, systemSettings] = await Promise.all([
+  const [customers, repairs, standards, models, faults, quotes, orders, systemSettings] = await Promise.all([
     "serial" in record || isModelRecord || isFaultGuide ? readCollection("customers") : [],
     "phone" in record || isModelRecord || isFaultGuide ? readCollection("repairs") : [],
     isModelRecord ? readCollection("standards") : [],
     catalogModels(),
     isModelRecord ? readCollection("faults") : [],
     "phone" in record && !isAgent ? readCollection("quotes") : [],
+    "phone" in record && !isAgent ? readCollection("orders") : [],
     readCollection("settings"),
   ]);
   const modelsMap = new Map(models.map((item) => [item.name.toLocaleLowerCase("he"), item]));
@@ -67,6 +68,11 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
   const customerQuotes = "phone" in record && !isAgent
     ? quotes
         .filter((q) => q.customerId === record.id || (normDigits(record.phone) && normDigits(q.customerPhone) === normDigits(record.phone)))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : [];
+  const customerOrders = "phone" in record && !isAgent
+    ? orders
+        .filter((o) => o.customerId === record.id || (normDigits(record.phone) && normDigits(o.customerPhone) === normDigits(record.phone)))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     : [];
   const modelStandards = isModelRecord
@@ -188,6 +194,27 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
           rows={history.map((item) => repairRow(item, customersMap, true, modelsMap, { readOnly: isAgent, pickupAddress }))} empty="אין תיקונים משויכים" showEmptyHeader />
       </section>
+      {!isAgent && customerOrders.length > 0 && (
+        <section className="card detail-card">
+          <div className="section-heading">
+            <h2><span className="section-icon"><ClipboardList size={18} /></span>הזמנות ללקוח זה ({customerOrders.length})</h2>
+            <Button asChild size="sm" variant="outline"><Link href="/orders">לכל ההזמנות</Link></Button>
+          </div>
+          <ul className="settings-list">
+            {customerOrders.map((o) => (
+              <li key={o.id}>
+                <div>
+                  <strong>
+                    <bdi dir="ltr">{o.number}</bdi> · {o.items.map((it) => `${it.modelName} (×${it.quantity})`).join(", ")}
+                  </strong>
+                  <span>סוכן: {o.createdByName} · {formatDate(o.createdAt, true)}</span>
+                </div>
+                <Status value={o.status} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {!isAgent && customerQuotes.length > 0 && (
         <section className="card detail-card">
           <div className="section-heading">

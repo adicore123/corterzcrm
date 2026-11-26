@@ -9,6 +9,7 @@ export const labels = {
   faults: "תקלות ופתיחות הגבלה",
   catalog: "קטלוג סוכנים",
   quotes: "הצעות מחיר",
+  orders: "הזמנות",
   settings: "הגדרות",
 };
 

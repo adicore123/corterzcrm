@@ -5,6 +5,7 @@ import { AppError } from "../errors";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import {
   deletePasswordSchema,
+  ordersPhoneSchema,
   passwordSchema,
   pickupAddressSchema,
   userInput,
@@ -106,9 +107,17 @@ export async function changeDeletePassword(
   });
 }
 
-export async function updateBusinessSettings(pickupAddress: string, actor: PublicUser) {
+export async function updateBusinessSettings(
+  pickupAddress: string,
+  actor: PublicUser,
+  ordersWhatsappPhone?: string,
+) {
   requireAdmin(actor);
   const validPickupAddress = pickupAddressSchema.parse(pickupAddress);
+  const validOrdersPhone =
+    ordersWhatsappPhone !== undefined && ordersWhatsappPhone.trim()
+      ? ordersPhoneSchema.parse(ordersWhatsappPhone)
+      : undefined;
   return serialized(async () => {
     const active = (await readCollection("users")).find(
       (item) => item.id === actor.id && !item.disabled && item.role === "admin",
@@ -118,6 +127,9 @@ export async function updateBusinessSettings(pickupAddress: string, actor: Publi
     await writeCollection("settings", {
       ...settings,
       pickupAddress: validPickupAddress,
+      ...(ordersWhatsappPhone !== undefined
+        ? { ordersWhatsappPhone: validOrdersPhone }
+        : {}),
       updatedAt: new Date().toISOString(),
     });
     await audit(actor.id, "business-settings-change", "settings", "business");

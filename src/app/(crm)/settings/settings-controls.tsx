@@ -11,7 +11,7 @@ import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { formatDate, roleLabel } from "@/lib/presentation";
 import { requestJson } from "@/lib/client-api";
-import { deletePasswordSchema, passwordSchema, pickupAddressSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
+import { deletePasswordSchema, ordersPhoneSchema, passwordSchema, pickupAddressSchema, roles, userInput, type Activity, type PublicUser } from "@/lib/validation/models";
 import { useUnsaved } from "@/components/records/use-editor";
 
 const resetPasswordSchema = z.object({ password: passwordSchema });
@@ -27,7 +27,10 @@ const ownPasswordSchema = z.object({
   currentPassword: z.string().min(1, "יש להזין את הסיסמה הנוכחית.").max(128, "הסיסמה ארוכה מדי."),
   newPassword: passwordSchema,
 });
-const businessSettingsSchema = z.object({ pickupAddress: pickupAddressSchema });
+const businessSettingsSchema = z.object({
+  pickupAddress: pickupAddressSchema,
+  ordersWhatsappPhone: ordersPhoneSchema,
+});
 
 const actionLabels: Record<string, string> = {
   create: "יצירה",
@@ -49,6 +52,8 @@ const actionLabels: Record<string, string> = {
 const entityLabels: Record<string, string> = {
   standards: "תיק תקינה",
   repairs: "תיקון",
+  quotes: "הצעת מחיר",
+  orders: "הזמנת סוכן",
   customers: "לקוח",
   models: "דגם",
   faults: "תקלות ופתיחות הגבלה",
@@ -113,8 +118,8 @@ function backupTimestamp(id: string) {
   return id.slice(0, 10) + "T" + id.slice(11, 19).replace(/-/g, ":") + "." + id.slice(20, 23) + "Z";
 }
 
-export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress, agentInviteCode = "" }: {
-  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string; agentInviteCode?: string;
+export function AdminSettings({ users, self, backups, activity = [], cloud, hasCustomDeletePassword = false, pickupAddress, ordersWhatsappPhone = "+972 52-611-1443", agentInviteCode = "" }: {
+  users: PublicUser[]; self: string; backups: string[]; activity?: Activity[]; cloud: boolean; hasCustomDeletePassword?: boolean; pickupAddress: string; ordersWhatsappPhone?: string; agentInviteCode?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -140,7 +145,7 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
     resolver: zodResolver(changeDeletePwdSchema), defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
   });
   const businessForm = useForm<z.infer<typeof businessSettingsSchema>>({
-    resolver: zodResolver(businessSettingsSchema), defaultValues: { pickupAddress },
+    resolver: zodResolver(businessSettingsSchema), defaultValues: { pickupAddress, ordersWhatsappPhone },
   });
   const unsaved = useUnsaved(
     (open && isDirty)
@@ -235,9 +240,12 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
         <Field label="כתובת לאיסוף" error={businessForm.formState.errors.pickupAddress?.message}>
           {(props) => <input {...props} {...businessForm.register("pickupAddress")} required maxLength={240} autoComplete="street-address" />}
         </Field>
+        <Field label="טלפון וואטסאפ לקבלת הזמנות סוכנים (מורן)" hint="הזמנות חדשות מהסוכנים יישלחו ישירות למספר זה" error={businessForm.formState.errors.ordersWhatsappPhone?.message}>
+          {(props) => <input {...props} {...businessForm.register("ordersWhatsappPhone")} required dir="ltr" maxLength={32} autoComplete="tel" />}
+        </Field>
         {businessError && <p className="error-message" role="alert">{businessError}</p>}
         <Button type="submit" disabled={businessForm.formState.isSubmitting || !businessForm.formState.isDirty}>
-          {businessForm.formState.isSubmitting ? "שומר…" : "שמירת כתובת"}
+          {businessForm.formState.isSubmitting ? "שומר…" : "שמירת הגדרות העסק"}
         </Button>
       </form>
     </section>
