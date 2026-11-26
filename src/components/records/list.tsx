@@ -3,10 +3,11 @@ import { Bike, ClipboardList, ListFilter, Plus, Search, ShieldAlert, Users, Wren
 import { Button } from "@/components/ui/button";
 import { customerRow, faultGuideRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
+import { FaultsModuleHub } from "./faults-hub";
 import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
-import { canEditModule, DEFAULT_PICKUP_ADDRESS, delayStatuses, devices, repairStatuses, standardStatuses, type Module, type Role } from "@/lib/validation/models";
+import { canEditModule, DEFAULT_PICKUP_ADDRESS, delayStatuses, devices, repairStatuses, standardStatuses, type FaultGuide, type Module, type Role } from "@/lib/validation/models";
 
 const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike, faults: ShieldAlert };
 
@@ -55,12 +56,7 @@ export async function RecordList({ module, filters, deleted, userRole = "admin" 
   const filtered = Boolean(filters.q || filters.status || filters.delay || filters.sort);
   const href = "/" + module;
 
-  return <div className="page-stack">
-    <div className="page-title title-with-action">
-      <div><h1>{labels[module]}</h1><p>{copy.description}</p></div>
-      {canEdit && <Button asChild><Link href={href + "/new"}><Plus size={18} /> {copy.create}</Link></Button>}
-    </div>
-    {deleted && <p className="success-message" role="status">הרשומה נמחקה.</p>}
+  const listSection = (
     <section className="card list-card" aria-label={labels[module]}>
       <form method="get" action={href} className="filters" aria-label="חיפוש וסינון">
         <div className="search-field">
@@ -96,5 +92,20 @@ export async function RecordList({ module, filters, deleted, userRole = "admin" 
       <div className="list-toolbar"><span>{rows.length === 1 ? "רשומה אחת" : rows.length + " רשומות"}</span></div>
       <RecordTable rows={rows} columns={columns} icon={icons[module]} empty={filtered ? "לא נמצאו תוצאות" : copy.empty} showEmptyHeader />
     </section>
+  );
+
+  return <div className="page-stack">
+    <div className="page-title title-with-action">
+      <div><h1>{labels[module]}</h1><p>{copy.description}</p></div>
+      {canEdit && <Button asChild><Link href={href + "/new"}><Plus size={18} /> {copy.create}</Link></Button>}
+    </div>
+    {deleted && <p className="success-message" role="status">הרשומה נמחקה.</p>}
+    {module === "faults" ? (
+      <FaultsModuleHub records={records as FaultGuide[]} catalogModels={models} canEdit={canEdit}>
+        {listSection}
+      </FaultsModuleHub>
+    ) : (
+      listSection
+    )}
   </div>;
 }

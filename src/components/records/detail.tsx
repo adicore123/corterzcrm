@@ -18,7 +18,7 @@ import { RecordTable } from "@/components/record-table";
 import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
 import { DeleteButton } from "./delete-button";
-import { FaultCommonList } from "./fault-quick-add";
+import { FaultCommonList, FaultGuideDetailTabs, QuickUnlockModalButton } from "./fault-quick-add";
 import { PhotoGallery } from "./photos";
 import { PrintButton, QuickStatus } from "./quick-status";
 import { TaskChecklist } from "./task-checklist";
@@ -242,28 +242,18 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
     {isFaultGuide && (() => {
       const uploadedVideos = record.attachments.filter((item) => item.kind === "video");
       const uploadedFiles = record.attachments.filter((item) => item.kind === "file");
-      return <>
-        <section className="card detail-card">
-          <h2><span className="section-icon"><ShieldAlert size={18} /></span>סקירת הדגם</h2>
-          {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
-            <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
-          </div>}
-          <Details rows={[
-            ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model],
-            ["סוג מכשיר", record.device],
-            ["תקלות נפוצות מתועדות", record.commonFaults.length],
-            ["קבצים מצורפים", uploadedFiles.length],
-            ["סרטוני פתיחת הגבלה", uploadedVideos.length + record.videoLinks.length],
-            ["תיקוני מעבדה לדגם", modelRepairs.length],
-            ...dates,
-          ]} />
-          {record.summary && <div className="detail-notes"><h3>תקציר טכני</h3><p>{record.summary}</p></div>}
-        </section>
+      const hasUnlock = Boolean(
+        record.unlockInstructions.trim().length > 0
+          || uploadedVideos.length > 0
+          || record.videoLinks.length > 0,
+      );
 
+      const unlockSection = (
         <section className="card detail-card">
-          <h2><span className="section-icon"><Unlock size={18} /></span>פתיחת הגבלה — הוראות וסרטונים</h2>
+          <div className="section-heading">
+            <h2><span className="section-icon"><Unlock size={18} /></span>פתיחת הגבלה — הוראות וסרטונים</h2>
+            {canEdit && <QuickUnlockModalButton key={record.updatedAt} record={record} />}
+          </div>
           {record.unlockInstructions ? (
             <div className="detail-notes unlock-instructions-box"><h3>הוראות ביצוע</h3><p>{record.unlockInstructions}</p></div>
           ) : (
@@ -303,54 +293,88 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
             })}
           </div>}
         </section>
+      );
 
-        <FaultCommonList key={record.updatedAt} record={record} />
+      const faultsSection = <FaultCommonList key={record.updatedAt} record={record} />;
 
-        <section className="card detail-card">
-          <h2><span className="section-icon"><FileText size={18} /></span>קבצים ומסמכים טכניים ({uploadedFiles.length})</h2>
-          {uploadedFiles.length === 0 ? (
-            <p className="muted">אין קבצים מצורפים לדגם זה. ניתן להעלות PDF, Word, Excel או סכמות דרך ״עריכה״.</p>
-          ) : (
-            <div className="attachment-list">
-              {uploadedFiles.map((file) => {
-                const fileUrl = "/api/files/faults/" + record.id + "/" + file.id;
-                const viewable = file.type === "application/pdf" || file.type.startsWith("image/") || file.type === "text/plain";
-                return <div className="attachment-row" key={file.id}>
-                  <div className="attachment-meta">
-                    <FileText size={18} aria-hidden />
-                    <div><strong>{file.name}</strong><small>{formatBytes(file.bytes)}</small></div>
-                  </div>
-                  <div className="attachment-actions no-print">
-                    {viewable && <Button asChild size="sm" variant="outline">
-                      <a href={fileUrl} target="_blank" rel="noopener noreferrer"><Eye size={15} /> צפייה</a>
-                    </Button>}
-                    <Button asChild size="sm" variant="outline">
-                      <a href={fileUrl + "?download=1"}><Download size={15} /> הורדה</a>
-                    </Button>
-                  </div>
-                </div>;
-              })}
+      const filesAndPhotosSection = (
+        <>
+          <section className="card detail-card">
+            <h2><span className="section-icon"><FileText size={18} /></span>קבצים ומסמכים טכניים ({uploadedFiles.length})</h2>
+            {uploadedFiles.length === 0 ? (
+              <p className="muted">אין קבצים מצורפים לדגם זה. ניתן להעלות PDF, Word, Excel או סכמות דרך ״עריכה״.</p>
+            ) : (
+              <div className="attachment-list">
+                {uploadedFiles.map((file) => {
+                  const fileUrl = "/api/files/faults/" + record.id + "/" + file.id;
+                  const viewable = file.type === "application/pdf" || file.type.startsWith("image/") || file.type === "text/plain";
+                  return <div className="attachment-row" key={file.id}>
+                    <div className="attachment-meta">
+                      <FileText size={18} aria-hidden />
+                      <div><strong>{file.name}</strong><small>{formatBytes(file.bytes)}</small></div>
+                    </div>
+                    <div className="attachment-actions no-print">
+                      {viewable && <Button asChild size="sm" variant="outline">
+                        <a href={fileUrl} target="_blank" rel="noopener noreferrer"><Eye size={15} /> צפייה</a>
+                      </Button>}
+                      <Button asChild size="sm" variant="outline">
+                        <a href={fileUrl + "?download=1"}><Download size={15} /> הורדה</a>
+                      </Button>
+                    </div>
+                  </div>;
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="card detail-card">
+            <h2><span className="section-icon"><Images size={18} /></span>תמונות אבחון וחיווט</h2>
+            <PhotoGallery module="faults" id={record.id} photos={record.photos} />
+            {record.notes && <div className="detail-notes"><h3>הערות פנימיות לצוות</h3><p>{record.notes}</p></div>}
+          </section>
+
+          <section className="card data-card">
+            <div className="section-heading">
+              <h2>תקלות שדווחו בפועל בתיקונים של {record.model} ({modelRepairs.length})</h2>
+              <Button asChild size="sm" variant="outline">
+                <Link href={linkedModel ? "/repairs/new?model=" + linkedModel.id : "/repairs/new"}><Plus size={16} /> פתיחת תיקון לדגם</Link>
+              </Button>
             </div>
-          )}
-        </section>
+            <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
+              rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap))}
+              empty="אין תיקונים רשומים לדגם זה במעבדה" showEmptyHeader />
+          </section>
+        </>
+      );
 
+      return <>
         <section className="card detail-card">
-          <h2><span className="section-icon"><Images size={18} /></span>תמונות אבחון וחיווט</h2>
-          <PhotoGallery module="faults" id={record.id} photos={record.photos} />
-          {record.notes && <div className="detail-notes"><h3>הערות פנימיות לצוות</h3><p>{record.notes}</p></div>}
+          <h2><span className="section-icon"><ShieldAlert size={18} /></span>סקירת הדגם</h2>
+          {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+            <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
+          </div>}
+          <Details rows={[
+            ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model],
+            ["סוג מכשיר", record.device],
+            ["תקלות נפוצות מתועדות", record.commonFaults.length],
+            ["קבצים מצורפים", uploadedFiles.length],
+            ["סרטוני פתיחת הגבלה", uploadedVideos.length + record.videoLinks.length],
+            ["תיקוני מעבדה לדגם", modelRepairs.length],
+            ...dates,
+          ]} />
+          {record.summary && <div className="detail-notes"><h3>תקציר טכני</h3><p>{record.summary}</p></div>}
         </section>
 
-        <section className="card data-card">
-          <div className="section-heading">
-            <h2>תקלות שדווחו בפועל בתיקונים של {record.model} ({modelRepairs.length})</h2>
-            <Button asChild size="sm" variant="outline">
-              <Link href={linkedModel ? "/repairs/new?model=" + linkedModel.id : "/repairs/new"}><Plus size={16} /> פתיחת תיקון לדגם</Link>
-            </Button>
-          </div>
-          <RecordTable icon={Wrench} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
-            rows={modelRepairs.map((item) => repairRow(item, customersMap, true, modelsMap))}
-            empty="אין תיקונים רשומים לדגם זה במעבדה" showEmptyHeader />
-        </section>
+        <FaultGuideDetailTabs
+          hasUnlock={hasUnlock}
+          commonFaultsCount={record.commonFaults.length}
+          filesCount={uploadedFiles.length + record.photos.length}
+          unlockSection={unlockSection}
+          faultsSection={faultsSection}
+          filesAndPhotosSection={filesAndPhotosSection}
+        />
       </>;
     })()}
   </div>;

@@ -1,12 +1,209 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Plus, Save, Search } from "lucide-react";
+import { AlertTriangle, FileText, Layers, Plus, Save, Search, Unlock } from "lucide-react";
 import { newRequestId, requestJson } from "@/lib/client-api";
 import { faultSeverities, type CommonFault, type FaultGuide, type FaultSeverity } from "@/lib/validation/models";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
+
+export function QuickUnlockModalButton({ record }: { record: FaultGuide }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [instructions, setInstructions] = useState(record.unlockInstructions);
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const hasExisting = Boolean(
+    record.unlockInstructions.trim()
+      || record.videoLinks.length > 0
+      || record.attachments.some((a) => a.kind === "video"),
+  );
+
+  async function submitQuickUnlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanInstructions = instructions.trim();
+    const cleanVideoUrl = videoUrl.trim();
+    const cleanVideoTitle = videoTitle.trim() || `פתיחת הגבלה — ${record.model}`;
+
+    if (!cleanInstructions && !cleanVideoUrl) {
+      setError("יש להזין הוראות פתיחת הגבלה או קישור לסרטון.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    const nextVideoLinks = cleanVideoUrl
+      ? [...record.videoLinks, { id: newRequestId(), title: cleanVideoTitle, url: cleanVideoUrl }]
+      : record.videoLinks;
+
+    try {
+      await requestJson<FaultGuide>("/api/records/faults/" + record.id, "PUT", {
+        device: record.device,
+        model: record.model,
+        summary: record.summary,
+        unlockInstructions: cleanInstructions,
+        commonFaults: record.commonFaults,
+        videoLinks: nextVideoLinks,
+        notes: record.notes,
+        version: record.updatedAt,
+        keptPhotos: record.photos.map((photo) => photo.id),
+        keptAttachments: record.attachments.map((att) => att.id),
+      });
+      setVideoTitle("");
+      setVideoUrl("");
+      setOpen(false);
+      router.refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (next) setInstructions(record.unlockInstructions);
+        setOpen(next);
+      }}
+      title={hasExisting ? `עדכון פתיחת הגבלה — ${record.model}` : `הוספת פתיחת הגבלה — ${record.model}`}
+      description={`הוראות וסרטוני פתיחת ההגבלה יישמרו תחת הדגם ${record.model} ויופיעו בחוצץ פתיחת הגבלה.`}
+      trigger={
+        <Button size="sm" variant="outline">
+          <Plus size={16} /> {hasExisting ? "עדכון / הוספת פתיחת הגבלה" : "הוספת פתיחת הגבלה"}
+        </Button>
+      }
+    >
+      <form className="dialog-form" onSubmit={submitQuickUnlock} noValidate>
+        <div className="fields-grid">
+          <label className="field field-wide">
+            <span>הוראות פתיחת הגבלה שלב אחר שלב</span>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={4}
+              maxLength={4000}
+              placeholder="לדוגמה: הדלקת הצג → לחיצה ממושכת על + ו־- → כניסה להגדרת P08 → שינוי ערך…"
+            />
+          </label>
+          <label className="field">
+            <span>כותרת סרטון הדרכה (אופציונלי)</span>
+            <input
+              value={videoTitle}
+              onChange={(e) => setVideoTitle(e.target.value)}
+              maxLength={120}
+              placeholder="למשל הדרכת פתיחת הגבלה בצג"
+            />
+          </label>
+          <label className="field">
+            <span>קישור לסרטון (YouTube / Drive / Vimeo)</span>
+            <input
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+              dir="ltr"
+              maxLength={1000}
+              placeholder="https://youtu.be/..."
+            />
+          </label>
+        </div>
+        {error && (
+          <p role="alert" className="error-message">
+            {error}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <Button type="submit" disabled={saving}>
+            <Save size={16} /> {saving ? "שומר…" : "שמירת פתיחת הגבלה"}
+          </Button>
+          <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>
+            ביטול
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function FaultGuideDetailTabs({
+  hasUnlock,
+  commonFaultsCount,
+  filesCount,
+  unlockSection,
+  faultsSection,
+  filesAndPhotosSection,
+}: {
+  hasUnlock: boolean;
+  commonFaultsCount: number;
+  filesCount: number;
+  unlockSection: ReactNode;
+  faultsSection: ReactNode;
+  filesAndPhotosSection: ReactNode;
+}) {
+  const [tab, setTab] = useState<"all" | "faults" | "unlock" | "files">("all");
+
+  return (
+    <div className="fault-detail-tabs-shell">
+      <div className="faults-module-tabs" role="tablist" aria-label="חוצצי מדריך הדגם">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "all"}
+          className={"faults-tab-btn" + (tab === "all" ? " is-active" : "")}
+          onClick={() => setTab("all")}
+        >
+          <Layers size={16} aria-hidden />
+          <span>תצוגה מלאה</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "faults"}
+          className={"faults-tab-btn" + (tab === "faults" ? " is-active" : "")}
+          onClick={() => setTab("faults")}
+        >
+          <AlertTriangle size={16} aria-hidden />
+          <span>תקלות נפוצות</span>
+          <span className="faults-tab-count">{commonFaultsCount}</span>
+        </button>
+
+        {hasUnlock && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "unlock"}
+            className={"faults-tab-btn is-unlock-tab" + (tab === "unlock" ? " is-active" : "")}
+            onClick={() => setTab("unlock")}
+          >
+            <Unlock size={16} aria-hidden />
+            <span>פתיחת הגבלה</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "files"}
+          className={"faults-tab-btn" + (tab === "files" ? " is-active" : "")}
+          onClick={() => setTab("files")}
+        >
+          <FileText size={16} aria-hidden />
+          <span>קבצים ותמונות</span>
+          <span className="faults-tab-count">{filesCount}</span>
+        </button>
+      </div>
+
+      {(tab === "all" || tab === "unlock") && unlockSection}
+      {(tab === "all" || tab === "faults") && faultsSection}
+      {(tab === "all" || tab === "files") && filesAndPhotosSection}
+    </div>
+  );
+}
 
 export function FaultCommonList({ record }: { record: FaultGuide }) {
   const router = useRouter();
