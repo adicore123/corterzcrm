@@ -2,12 +2,11 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, ExternalLink, Image as ImageIcon, MessageCircle, Plus } from "lucide-react";
+import { Copy, ExternalLink, MessageCircle, Plus } from "lucide-react";
 import type { Quote } from "@/lib/quotes/schema";
 import { quoteTotal } from "@/lib/quotes/pricing";
 import {
-  buildFullQuoteWhatsappMessage,
-  buildQuoteWhatsappUrl,
+  shareQuoteImageAndTextOnWhatsapp,
   type QuoteWhatsappModelInfo,
 } from "@/lib/quotes/whatsapp";
 
@@ -37,6 +36,7 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
   const [vatMode, setVatMode] = useState<"included" | "excluded">("included");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [shareHint, setShareHint] = useState("");
   const [created, setCreated] = useState<Quote | null>(null);
 
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
@@ -105,46 +105,24 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
     }
   }
 
-  const getOrigin = () => (typeof window === "undefined" ? "" : window.location.origin);
-  const shareUrl = (quote: Quote) => `${getOrigin()}/proposal/${quote.shareToken}`;
+  const shareUrl = (quote: Quote) =>
+    typeof window === "undefined"
+      ? `/proposal/${quote.shareToken}`
+      : `${window.location.origin}/proposal/${quote.shareToken}`;
 
-  const whatsappUrl = (quote: Quote) => {
+  async function handleSendWhatsappWithImage(quote: Quote) {
+    setShareHint("");
     const model = modelsById.get(quote.modelId);
-    return buildQuoteWhatsappUrl(quote, model, getOrigin());
-  };
-
-  /**
-   * Shares the actual product image file + full proposal text via Web Share API on mobile devices,
-   * or falls back to opening the direct WhatsApp chat to quote.customerPhone.
-   */
-  async function shareWithProductImage(quote: Quote) {
-    const origin = getOrigin();
-    const model = modelsById.get(quote.modelId);
-    const fullText = buildFullQuoteWhatsappMessage(quote, model, origin);
-    const ogImgUrl = `${origin}/api/quotes/${quote.shareToken}/og-image`;
-
     try {
-      if (typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
-        const res = await fetch(ogImgUrl);
-        if (res.ok) {
-          const blob = await res.blob();
-          const file = new File([blob], `cortez-${quote.modelName.replace(/\s+/g, "-")}.png`, {
-            type: "image/png",
-          });
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: `הצעת מחיר קורטז — ${quote.modelName}`,
-              text: fullText,
-              files: [file],
-            });
-            return;
-          }
-        }
+      const result = await shareQuoteImageAndTextOnWhatsapp(quote, model);
+      if (result.mode === "web-share") {
+        setShareHint(`קובץ התמונה והמלל הועברו לוואטסאפ (מספר הלקוח ${result.phone} הועתק ללוח לחיפוש מהיר).`);
+      } else if (result.mode === "clipboard-wa") {
+        setShareHint(`נפתח הצ׳אט עם ${result.phone} ותמונת המוצר הועתקה ללוח — לחצו Ctrl+V בצ׳אט כדי להדביק את התמונה.`);
       }
     } catch {
-      // Fall back to direct WhatsApp link
+      // User cancelled share sheet
     }
-    window.open(whatsappUrl(quote), "_blank", "noopener,noreferrer");
   }
 
   async function cancel(id: string) {
@@ -159,7 +137,7 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
       <div className="page-title title-with-action">
         <div>
           <h1>הצעות מחיר</h1>
-          <p>הצעות אישיות עם תצוגת מוצר, תמונת הכלי ושליחת מפרט ומחיר מלא בוואטסאפ ללקוח</p>
+          <p>הצעות אישיות עם שליחת תמונת המוצר ומלל ההצעה המלא בוואטסאפ (ללא קישור)</p>
         </div>
         <button
           className="button"
@@ -172,27 +150,25 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
         </button>
       </div>
 
+      {shareHint && (
+        <p className="success-message" role="status">
+          {shareHint}
+        </p>
+      )}
+
       {created && (
         <div className="card quote-created" role="status">
           <strong>ההצעה מוכנה לשיתוף</strong>
+          <button
+            type="button"
+            className="button button-whatsapp-quote"
+            onClick={() => handleSendWhatsappWithImage(created)}
+          >
+            <MessageCircle size={16} /> שליחת תמונה + הצעה בוואטסאפ ({created.customerPhone})
+          </button>
           <a href={shareUrl(created)} target="_blank" rel="noopener noreferrer">
             פתיחת הצעה <ExternalLink size={16} />
           </a>
-          <a
-            href={whatsappUrl(created)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="button button-whatsapp-quote"
-          >
-            <MessageCircle size={16} /> שליחה בוואטסאפ ({created.customerPhone})
-          </a>
-          <button
-            type="button"
-            className="button button-outline"
-            onClick={() => shareWithProductImage(created)}
-          >
-            <ImageIcon size={16} /> שיתוף עם תמונת המוצר
-          </button>
           <button
             type="button"
             className="button"
@@ -411,25 +387,17 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
                   <div className="quote-row-actions">
                     {quote.status !== "cancelled" && (
                       <>
+                        <button
+                          type="button"
+                          className="quote-whatsapp-link"
+                          onClick={() => handleSendWhatsappWithImage(quote)}
+                          title={`שליחת תמונת המוצר וכל מלל ההצעה ללא קישור אל ${quote.customerPhone}`}
+                        >
+                          <MessageCircle size={15} /> וואטסאפ (תמונה + הצעה)
+                        </button>
                         <a href={shareUrl(quote)} target="_blank" rel="noopener noreferrer">
                           צפייה
                         </a>
-                        <a
-                          href={whatsappUrl(quote)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="quote-whatsapp-link"
-                          title={`שליחת ההצעה המלאה ותמונת המוצר בוואטסאפ אל ${quote.customerPhone}`}
-                        >
-                          <MessageCircle size={15} /> וואטסאפ ללקוח
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => shareWithProductImage(quote)}
-                          title="שיתוף תמונת המוצר וכל פרטי ההצעה"
-                        >
-                          <ImageIcon size={15} /> שיתוף עם תמונה
-                        </button>
                         <button
                           type="button"
                           onClick={() => navigator.clipboard.writeText(shareUrl(quote))}

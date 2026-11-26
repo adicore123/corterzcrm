@@ -1,10 +1,10 @@
 "use client";
 
-import { Image as ImageIcon, MessageCircle } from "lucide-react";
+import { useState } from "react";
+import { MessageCircle } from "lucide-react";
 import type { Quote } from "@/lib/quotes/schema";
 import {
-  buildFullQuoteWhatsappMessage,
-  buildQuoteWhatsappUrl,
+  shareQuoteImageAndTextOnWhatsapp,
   type QuoteWhatsappModelInfo,
 } from "@/lib/quotes/whatsapp";
 
@@ -15,40 +15,20 @@ export function ProposalWhatsappButton({
   quote: Quote;
   model?: QuoteWhatsappModelInfo;
 }) {
-  const getOrigin = () => (typeof window === "undefined" ? "" : window.location.origin);
+  const [hint, setHint] = useState("");
 
-  function openWhatsappToCustomer() {
-    const url = buildQuoteWhatsappUrl(quote, model, getOrigin());
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
-  async function shareProposalWithImage() {
-    const origin = getOrigin();
-    const fullText = buildFullQuoteWhatsappMessage(quote, model, origin);
-    const ogImgUrl = `${origin}/api/quotes/${quote.shareToken}/og-image`;
-
+  async function handleShare() {
+    setHint("");
     try {
-      if (typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
-        const res = await fetch(ogImgUrl);
-        if (res.ok) {
-          const blob = await res.blob();
-          const file = new File([blob], `cortez-${quote.modelName.replace(/\s+/g, "-")}.png`, {
-            type: "image/png",
-          });
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: `הצעת מחיר קורטז — ${quote.modelName}`,
-              text: fullText,
-              files: [file],
-            });
-            return;
-          }
-        }
+      const result = await shareQuoteImageAndTextOnWhatsapp(quote, model);
+      if (result.mode === "web-share") {
+        setHint(`תמונת המוצר ומלל ההצעה הועברו לוואטסאפ (המספר ${result.phone} הועתק לחיפוש מהיר).`);
+      } else if (result.mode === "clipboard-wa") {
+        setHint(`נפתח הצ׳אט עם ${result.phone} ותמונת המוצר הועתקה ללוח — לחצו Ctrl+V בצ׳אט להדבקת התמונה.`);
       }
     } catch {
-      // Fallback to direct WhatsApp chat
+      // User dismissed share dialog
     }
-    openWhatsappToCustomer();
   }
 
   return (
@@ -56,19 +36,12 @@ export function ProposalWhatsappButton({
       <button
         type="button"
         className="proposal-whatsapp-btn"
-        onClick={openWhatsappToCustomer}
+        onClick={handleShare}
       >
         <MessageCircle size={18} aria-hidden />
-        <span>שליחת ההצעה בוואטסאפ ללקוח (<bdi dir="ltr">{quote.customerPhone}</bdi>)</span>
+        <span>שליחת תמונת המוצר + ההצעה בוואטסאפ (<bdi dir="ltr">{quote.customerPhone}</bdi>)</span>
       </button>
-      <button
-        type="button"
-        className="proposal-whatsapp-image-btn"
-        onClick={shareProposalWithImage}
-      >
-        <ImageIcon size={16} aria-hidden />
-        <span>שיתוף ההצעה המלאה + תמונת המוצר</span>
-      </button>
+      {hint && <small className="proposal-whatsapp-hint">{hint}</small>}
     </div>
   );
 }
