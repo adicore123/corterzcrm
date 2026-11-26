@@ -352,7 +352,7 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
           <div className="quote-list">
             {quotes.map((quote) => {
               const model = modelsById.get(quote.modelId);
-              const thumbUrl = model?.exhibitUrl || model?.imageUrl;
+              const thumbUrl = model?.imageUrl || model?.exhibitUrl;
               return (
                 <article key={quote.id} className="quote-list-row">
                   <div className="quote-row-model-info">

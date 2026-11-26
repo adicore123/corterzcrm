@@ -1,3 +1,4 @@
+import { modelThumbUrl } from "@/components/record-cells";
 import { authorizedUser } from "@/lib/auth/page";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
 import { readCollection } from "@/lib/json-db/store";
@@ -19,7 +20,7 @@ export default async function QuotesPage() {
         summary: model.summary,
         specs: model.specs,
         msrp: model.msrp ?? null,
-        imageUrl: model.imageUrl,
+        imageUrl: modelThumbUrl(model) || model.imageUrl,
         exhibitUrl: getProposalHeroCutoutUrl(model),
       }))}
       quotes={[...quotes].sort((a, b) => b.createdAt.localeCompare(a.createdAt))}

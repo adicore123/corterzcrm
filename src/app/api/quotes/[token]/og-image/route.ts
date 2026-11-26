@@ -3,14 +3,81 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { getProposalHeroCutoutUrl } from "@/lib/catalog/coastal-assets";
+import { usesBlobStorage } from "@/lib/json-db/blob-store";
+import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import { catalogModels } from "@/lib/json-db/queries";
 import { quoteByToken } from "@/lib/quotes/service";
+import { readBlobPhoto } from "@/lib/uploads/blob-images";
+import { readPhoto } from "@/lib/uploads/images";
+import { readMongoPhoto } from "@/lib/uploads/mongo-images";
+import type { CatalogModel } from "@/lib/validation/models";
 
 export const dynamic = "force-dynamic";
 
+async function loadOriginalCatalogImageBytes(model: CatalogModel): Promise<Buffer | null> {
+  // 1. Prefer custom CRM-uploaded model photo if present
+  if (model.photos.length > 0) {
+    const firstPhoto = model.photos[0];
+    try {
+      const data = usesMongoStorage()
+        ? await readMongoPhoto("models", firstPhoto.id)
+        : usesBlobStorage()
+          ? await readBlobPhoto("models", firstPhoto.id)
+          : new Uint8Array(await readPhoto("models", firstPhoto.id));
+      const arrayBuf = await new Response(data).arrayBuffer();
+      if (arrayBuf.byteLength > 0) {
+        return Buffer.from(arrayBuf);
+      }
+    } catch {
+      // Fall through to official catalog imageUrl
+    }
+  }
+
+  // 2. Original catalog image (model.imageUrl from cortez.co.il or local path)
+  const primaryUrl = model.imageUrl?.trim() || model.galleryUrls?.[0]?.trim();
+  if (primaryUrl) {
+    if (primaryUrl.startsWith("https://") || primaryUrl.startsWith("http://")) {
+      try {
+        const res = await fetch(primaryUrl, {
+          signal: AbortSignal.timeout(8000),
+          headers: { Accept: "image/*" },
+        });
+        if (res.ok) {
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (buf.length > 0) {
+            return buf;
+          }
+        }
+      } catch {
+        // Fall through to local catalog exhibit
+      }
+    } else if (primaryUrl.startsWith("/")) {
+      try {
+        const diskPath = path.join(process.cwd(), "public", primaryUrl.replace(/^\//, ""));
+        return await readFile(diskPath);
+      } catch {
+        // Fall through to local catalog exhibit
+      }
+    }
+  }
+
+  // 3. Offline / fallback to local catalog studio exhibit image
+  const exhibitPath = getProposalHeroCutoutUrl(model);
+  if (exhibitPath && exhibitPath.startsWith("/")) {
+    try {
+      const diskPath = path.join(process.cwd(), "public", exhibitPath.replace(/^\//, ""));
+      return await readFile(diskPath);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 /**
- * Generates a 1200x630 PNG OpenGraph / WhatsApp preview image for a proposal link,
- * compositing the exact product cutout photo onto a warm Mediterranean coastal studio card.
+ * Serves the authentic original catalog image of the quoted model as a high-resolution PNG
+ * for direct WhatsApp sharing (Web Share API file attachment & desktop ClipboardItem).
  */
 export async function GET(
   _request: Request,
@@ -23,50 +90,32 @@ export async function GET(
   }
 
   const models = await catalogModels();
-  const model = models.find((m) => m.id === quote.modelId);
-  const cutoutPath = model ? getProposalHeroCutoutUrl(model) : undefined;
+  const model =
+    models.find((m) => m.id === quote.modelId)
+    ?? models.find((m) => m.name.toLocaleLowerCase("he") === quote.modelName.toLocaleLowerCase("he"));
 
-  // Create a 1200x630 Mediterranean coastal gradient backdrop via SVG
-  const backdropSvg = `
-    <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#87C9E8" />
-          <stop offset="52%" stop-color="#E6F4F7" />
-          <stop offset="68%" stop-color="#38B8B4" />
-          <stop offset="76%" stop-color="#BFEAE4" />
-          <stop offset="100%" stop-color="#E9D5AE" />
-        </linearGradient>
-        <radialGradient id="sun" cx="25%" cy="28%" r="28%">
-          <stop offset="0%" stop-color="#FFFDF0" stop-opacity="0.95" />
-          <stop offset="45%" stop-color="#FFD97D" stop-opacity="0.55" />
-          <stop offset="100%" stop-color="#FFD97D" stop-opacity="0" />
-        </radialGradient>
-      </defs>
-      <rect width="1200" height="630" fill="url(#sky)" />
-      <rect width="1200" height="630" fill="url(#sun)" />
-      <ellipse cx="600" cy="545" rx="340" ry="26" fill="#0B2433" fill-opacity="0.18" />
-    </svg>
-  `;
+  if (!model) {
+    return new NextResponse("Model not found", { status: 404 });
+  }
 
   try {
-    let baseImage = sharp(Buffer.from(backdropSvg)).resize(1200, 630);
-
-    if (cutoutPath && cutoutPath.startsWith("/")) {
-      const diskPath = path.join(process.cwd(), "public", cutoutPath.replace(/^\//, ""));
-      try {
-        const rawBytes = await readFile(diskPath);
-        const productLayer = await sharp(rawBytes)
-          .resize(860, 520, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-          .png()
-          .toBuffer();
-        baseImage = baseImage.composite([{ input: productLayer, top: 45, left: 170 }]);
-      } catch {
-        // Fallback to coastal backdrop if local file is missing
-      }
+    const rawBytes = await loadOriginalCatalogImageBytes(model);
+    if (!rawBytes) {
+      return new NextResponse("Image not found", { status: 404 });
     }
 
-    const pngBuffer = await baseImage.png({ quality: 90 }).toBuffer();
+    const pngBuffer = await sharp(rawBytes)
+      .rotate()
+      .resize({
+        width: 1200,
+        height: 1200,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .flatten({ background: "#FFFFFF" })
+      .png({ quality: 95, compressionLevel: 8 })
+      .toBuffer();
+
     return new NextResponse(new Uint8Array(pngBuffer), {
       status: 200,
       headers: {
