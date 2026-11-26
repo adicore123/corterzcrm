@@ -877,15 +877,92 @@ progress::-moz-progress-bar { background: var(--primary); border-radius: 8px; }
   gap: 16px;
 }
 
-.faults-top-hub-bar {
+.faults-general-tabs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.faults-giant-tab {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: 14px;
-  padding: 12px 16px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 2px solid var(--border);
   background: #ffffff;
-  border: 1px solid var(--border);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.faults-giant-tab:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+}
+
+.faults-giant-tab.is-faults.is-active {
+  border-color: var(--red);
+  background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+  box-shadow: 0 10px 26px rgba(191, 22, 25, 0.10);
+}
+
+.faults-giant-tab.is-unlocks.is-active {
+  border-color: #16a34a;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+  box-shadow: 0 10px 26px rgba(22, 163, 74, 0.12);
+}
+
+.faults-giant-tab-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: #f1f5f9;
+  color: var(--ink);
+}
+
+.faults-giant-tab.is-faults.is-active .faults-giant-tab-icon {
+  background: var(--red);
+  color: #ffffff;
+}
+
+.faults-giant-tab.is-unlocks.is-active .faults-giant-tab-icon {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.faults-giant-tab-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.faults-giant-tab-copy strong {
+  font-size: 1.08rem;
+  font-weight: 800;
+}
+
+.faults-giant-tab-copy span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.faults-active-tab-header {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+@media (max-width: 680px) {
+  .faults-general-tabs-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .faults-filter-row {

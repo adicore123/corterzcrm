@@ -130,14 +130,13 @@ export function QuickUnlockModalButton({ record }: { record: FaultGuide }) {
 }
 
 export function FaultGuideDetailTabs({
-  hasUnlock,
   commonFaultsCount,
   filesCount,
   unlockSection,
   faultsSection,
   filesAndPhotosSection,
 }: {
-  hasUnlock: boolean;
+  hasUnlock?: boolean;
   commonFaultsCount: number;
   filesCount: number;
   unlockSection: ReactNode;
@@ -152,38 +151,25 @@ export function FaultGuideDetailTabs({
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "all"}
-          className={"faults-tab-btn" + (tab === "all" ? " is-active" : "")}
-          onClick={() => setTab("all")}
-        >
-          <Layers size={16} aria-hidden />
-          <span>תצוגה מלאה</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
           aria-selected={tab === "faults"}
           className={"faults-tab-btn" + (tab === "faults" ? " is-active" : "")}
           onClick={() => setTab("faults")}
         >
           <AlertTriangle size={16} aria-hidden />
-          <span>תקלות נפוצות</span>
+          <span>חוצץ תקלות נפוצות</span>
           <span className="faults-tab-count">{commonFaultsCount}</span>
         </button>
 
-        {hasUnlock && (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === "unlock"}
-            className={"faults-tab-btn is-unlock-tab" + (tab === "unlock" ? " is-active" : "")}
-            onClick={() => setTab("unlock")}
-          >
-            <Unlock size={16} aria-hidden />
-            <span>פתיחת הגבלה</span>
-          </button>
-        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "unlock"}
+          className={"faults-tab-btn is-unlock-tab" + (tab === "unlock" ? " is-active" : "")}
+          onClick={() => setTab("unlock")}
+        >
+          <Unlock size={16} aria-hidden />
+          <span>חוצץ פתיחת הגבלה</span>
+        </button>
 
         <button
           type="button"
@@ -195,6 +181,17 @@ export function FaultGuideDetailTabs({
           <FileText size={16} aria-hidden />
           <span>קבצים ותמונות</span>
           <span className="faults-tab-count">{filesCount}</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "all"}
+          className={"faults-tab-btn" + (tab === "all" ? " is-active" : "")}
+          onClick={() => setTab("all")}
+        >
+          <Layers size={16} aria-hidden />
+          <span>הצג הכל</span>
         </button>
       </div>
 

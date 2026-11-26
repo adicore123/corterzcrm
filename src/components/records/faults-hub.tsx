@@ -46,11 +46,12 @@ export function FaultsModuleHub({
   initialQuery?: string;
 }) {
   const router = useRouter();
-  // Clean 2-tab layout: "faults" (תקלות נפוצות) and "unlocks" (פתיחות הגבלה)
+  // Two prominent general tabs: "faults" (חוצץ כללי: תקלות נפוצות) and "unlocks" (חוצץ כללי: פתיחות הגבלה)
   const [activeTab, setActiveTab] = useState<"faults" | "unlocks">("faults");
   const [selectedModelFilter, setSelectedModelFilter] = useState<string>("");
   const [selectedDeviceFilter, setSelectedDeviceFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>(initialQuery);
+  const [onlyWithUnlock, setOnlyWithUnlock] = useState<boolean>(false);
 
   // Quick Modal 1: Add Common Fault & Assign to Model
   const [faultModalOpen, setFaultModalOpen] = useState(false);
@@ -74,7 +75,7 @@ export function FaultsModuleHub({
   const [unlockSaving, setUnlockSaving] = useState(false);
   const [unlockError, setUnlockError] = useState("");
 
-  // Combined model options (catalog models + existing fault guides)
+  // Combined model options (all catalog models + existing fault guides)
   const modelOptions = useMemo(() => {
     const map = new Map<string, { name: string; device: Device; existingGuide?: FaultGuide }>();
     for (const c of catalogModels) {
@@ -128,10 +129,16 @@ export function FaultsModuleHub({
     return withFaults.length > 0 ? withFaults : filteredRecords;
   }, [filteredRecords]);
 
-  const unlockTabModels = useMemo(
-    () => filteredRecords.filter((g) => hasModelUnlock(g)),
-    [filteredRecords],
-  );
+  // For the general "פתיחות הגבלה" tab: show models with unlocks first, or all filtered models
+  const unlockTabModels = useMemo(() => {
+    const withUnlocks = filteredRecords.filter((g) => hasModelUnlock(g));
+    if (onlyWithUnlock) return withUnlocks;
+    if (withUnlocks.length > 0 && !selectedModelFilter && !searchQuery) {
+      const withoutUnlocks = filteredRecords.filter((g) => !hasModelUnlock(g));
+      return [...withUnlocks, ...withoutUnlocks];
+    }
+    return filteredRecords;
+  }, [filteredRecords, onlyWithUnlock, selectedModelFilter, searchQuery]);
 
   const totalCommonFaultsCount = useMemo(
     () => records.reduce((acc, g) => acc + g.commonFaults.length, 0),
@@ -142,11 +149,19 @@ export function FaultsModuleHub({
     [records],
   );
 
-  // Models available in current tab for quick filter dropdown
-  const availableModelsInTab = useMemo(() => {
-    const source = activeTab === "unlocks" ? records.filter((g) => hasModelUnlock(g)) : records;
-    return Array.from(new Set(source.map((g) => g.model))).sort((a, b) => a.localeCompare(b, "he"));
-  }, [activeTab, records]);
+  // All model names available for instant filtering in both general tabs
+  const allFilterableModelNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const g of records) names.add(g.model);
+    for (const m of catalogModels) names.add(m.name);
+    return Array.from(names).sort((a, b) => a.localeCompare(b, "he"));
+  }, [records, catalogModels]);
+
+  // Models that already have guides (for quick pills)
+  const guideModelNames = useMemo(
+    () => Array.from(new Set(records.map((g) => g.model))).sort((a, b) => a.localeCompare(b, "he")),
+    [records],
+  );
 
   function openFaultModalForModel(presetModel?: string) {
     const target = presetModel || selectedModelFilter || modelOptions[0]?.name || "";
@@ -242,6 +257,7 @@ export function FaultsModuleHub({
         });
       }
       setFaultModalOpen(false);
+      setActiveTab("faults");
       router.refresh();
     } catch (err) {
       setFaultError((err as Error).message);
@@ -311,48 +327,96 @@ export function FaultsModuleHub({
 
   return (
     <div className="faults-hub-wrapper">
-      {/* Top Bar: 2 General Tabs (תקלות נפוצות | פתיחות הגבלה) + Quick Add Buttons */}
-      <div className="faults-top-hub-bar card">
-        <div className="faults-module-tabs" role="tablist" aria-label="חוצצי תקלות ופתיחות הגבלה">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "faults"}
-            className={"faults-tab-btn" + (activeTab === "faults" ? " is-active" : "")}
-            onClick={() => setActiveTab("faults")}
-          >
-            <AlertTriangle size={18} aria-hidden />
-            <span>תקלות נפוצות</span>
-            <span className="faults-tab-count">{totalCommonFaultsCount}</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "unlocks"}
-            className={"faults-tab-btn is-unlock-tab" + (activeTab === "unlocks" ? " is-active" : "")}
-            onClick={() => setActiveTab("unlocks")}
-          >
-            <Unlock size={18} aria-hidden />
-            <span>פתיחות הגבלה</span>
-            <span className="faults-tab-count">{totalUnlocksCount}</span>
-          </button>
-        </div>
-
-        {canEdit && (
-          <div className="faults-quick-actions-buttons">
-            <Button type="button" variant="outline" onClick={() => openFaultModalForModel()}>
-              <Plus size={16} /> הוסף תקלה נפוצה חדשה
-            </Button>
-            <Button type="button" onClick={() => openUnlockModalForModel()}>
-              <Unlock size={16} /> הוסף פתיחת הגבלה חדשה
-            </Button>
+      {/* Two Large Equal-Width General Module Tabs: 1) חוצץ תקלות נפוצות  2) חוצץ פתיחות הגבלה */}
+      <div className="faults-general-tabs-grid" role="tablist" aria-label="חוצצים ראשיים — תקלות נפוצות ופתיחות הגבלה">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "faults"}
+          className={"faults-giant-tab is-faults" + (activeTab === "faults" ? " is-active" : "")}
+          onClick={() => setActiveTab("faults")}
+        >
+          <span className="faults-giant-tab-icon">
+            <AlertTriangle size={22} aria-hidden />
+          </span>
+          <div className="faults-giant-tab-copy">
+            <strong>חוצץ תקלות נפוצות</strong>
+            <span>קודי שגיאה, תסמינים ופתרונות לכל הדגמים</span>
           </div>
-        )}
+          <span className="faults-tab-count">{totalCommonFaultsCount}</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "unlocks"}
+          className={"faults-giant-tab is-unlocks" + (activeTab === "unlocks" ? " is-active" : "")}
+          onClick={() => setActiveTab("unlocks")}
+        >
+          <span className="faults-giant-tab-icon">
+            <Unlock size={22} aria-hidden />
+          </span>
+          <div className="faults-giant-tab-copy">
+            <strong>חוצץ פתיחות הגבלה</strong>
+            <span>הוראות פתיחת הגבלה וסרטוני הדרכה לפי דגם</span>
+          </div>
+          <span className="faults-tab-count">{totalUnlocksCount}</span>
+        </button>
       </div>
 
-      {/* Unified Filter Bar by Model, Device Type, and Search */}
+      {/* Main Content Card for Active General Tab */}
       <section className="card detail-card">
+        {/* Section Header + Dedicated Add Button for Active Tab */}
+        <div className="section-heading faults-active-tab-header">
+          <div>
+            <h2>
+              <span className="section-icon">
+                {activeTab === "unlocks" ? <Unlock size={18} /> : <AlertTriangle size={18} />}
+              </span>
+              {activeTab === "unlocks"
+                ? `מאגר פתיחות הגבלה לפי דגם (${totalUnlocksCount})`
+                : `מאגר תקלות נפוצות לפי דגם (${totalCommonFaultsCount})`}
+            </h2>
+            <p className="muted">
+              {activeTab === "unlocks"
+                ? "בחרו או סננו דגם כדי לצפות בהוראות ובסרטוני פתיחת ההגבלה שלו, או הוסיפו פתיחת הגבלה חדשה."
+                : "בחרו או סננו דגם כדי לצפות בתקלות הנפוצות ובפתרונות שלו, או הוסיפו תקלה נפוצה חדשה."}
+            </p>
+          </div>
+
+          {canEdit && (
+            <div className="faults-quick-actions-buttons">
+              {activeTab === "unlocks" ? (
+                <Button type="button" onClick={() => openUnlockModalForModel()}>
+                  <Plus size={16} /> הוסף פתיחת הגבלה חדשה
+                </Button>
+              ) : (
+                <Button type="button" onClick={() => openFaultModalForModel()}>
+                  <Plus size={16} /> הוסף תקלה נפוצה חדשה
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  activeTab === "unlocks" ? openFaultModalForModel() : openUnlockModalForModel()
+                }
+              >
+                {activeTab === "unlocks" ? (
+                  <>
+                    <AlertTriangle size={15} /> הוסף תקלה נפוצה
+                  </>
+                ) : (
+                  <>
+                    <Unlock size={15} /> הוסף פתיחת הגבלה
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Unified Filter Bar by Model, Device Type, and Search */}
         <div className="filters faults-filter-row" aria-label="סינון לפי דגם וחיפוש">
           <div className="search-field">
             <Search size={18} aria-hidden />
@@ -363,8 +427,8 @@ export function FaultsModuleHub({
               aria-label="חיפוש לפי דגם, קוד תקלה או הוראות"
               placeholder={
                 activeTab === "unlocks"
-                  ? "חיפוש דגם או הוראות פתיחת הגבלה…"
-                  : "חיפוש דגם, קוד תקלה (למשל E07) או פתרון…"
+                  ? "חיפוש שם דגם או הוראות פתיחת הגבלה…"
+                  : "חיפוש שם דגם, קוד תקלה (למשל E07) או פתרון…"
               }
             />
           </div>
@@ -374,8 +438,8 @@ export function FaultsModuleHub({
             value={selectedModelFilter}
             onChange={(e) => setSelectedModelFilter(e.target.value)}
           >
-            <option value="">כל הדגמים ({availableModelsInTab.length})</option>
-            {availableModelsInTab.map((modelName) => (
+            <option value="">סינון לפי דגם — כל הדגמים</option>
+            {allFilterableModelNames.map((modelName) => (
               <option key={modelName} value={modelName}>
                 {modelName}
               </option>
@@ -395,7 +459,17 @@ export function FaultsModuleHub({
             ))}
           </select>
 
-          {(selectedModelFilter || selectedDeviceFilter || searchQuery) && (
+          {activeTab === "unlocks" && (
+            <Button
+              type="button"
+              variant={onlyWithUnlock ? "default" : "outline"}
+              onClick={() => setOnlyWithUnlock((prev) => !prev)}
+            >
+              <Unlock size={15} /> {onlyWithUnlock ? "מציג רק עם פתיחת הגבלה" : "סנן לכלים עם פתיחת הגבלה"}
+            </Button>
+          )}
+
+          {(selectedModelFilter || selectedDeviceFilter || searchQuery || onlyWithUnlock) && (
             <Button
               type="button"
               variant="ghost"
@@ -403,6 +477,7 @@ export function FaultsModuleHub({
                 setSelectedModelFilter("");
                 setSelectedDeviceFilter("");
                 setSearchQuery("");
+                setOnlyWithUnlock(false);
               }}
             >
               ניקוי סינון
@@ -411,38 +486,55 @@ export function FaultsModuleHub({
         </div>
 
         {/* Quick Model Filter Pills */}
-        {availableModelsInTab.length > 1 && (
-          <div className="faults-model-pills-bar" role="group" aria-label="בחירה מהירה של דגם">
+        {guideModelNames.length > 0 && (
+          <div className="faults-model-pills-bar" role="group" aria-label="סינון מהיר לפי דגם">
             <button
               type="button"
               className={"fault-model-pill" + (selectedModelFilter === "" ? " is-active" : "")}
               onClick={() => setSelectedModelFilter("")}
             >
-              כל הדגמים
+              כל הדגמים ({records.length})
             </button>
-            {availableModelsInTab.map((modelName) => (
-              <button
-                key={modelName}
-                type="button"
-                className={"fault-model-pill" + (selectedModelFilter === modelName ? " is-active" : "")}
-                onClick={() =>
-                  setSelectedModelFilter((prev) => (prev === modelName ? "" : modelName))
-                }
-              >
-                {modelName}
-              </button>
-            ))}
+            {guideModelNames.map((modelName) => {
+              const guide = guidesByModel.get(modelName.toLocaleLowerCase("he"));
+              const hasUnlock = guide ? hasModelUnlock(guide) : false;
+              return (
+                <button
+                  key={modelName}
+                  type="button"
+                  className={
+                    "fault-model-pill"
+                    + (selectedModelFilter === modelName ? " is-active" : "")
+                    + (hasUnlock ? " has-unlock-dot" : "")
+                  }
+                  onClick={() =>
+                    setSelectedModelFilter((prev) => (prev === modelName ? "" : modelName))
+                  }
+                >
+                  <span>{modelName}</span>
+                  {hasUnlock && <Unlock size={12} aria-hidden />}
+                </button>
+              );
+            })}
           </div>
         )}
 
-        {/* TAB 1 CONTENT: Common Faults ("תקלות נפוצות") */}
+        {/* TAB 1 CONTENT: Common Faults ("חוצץ תקלות נפוצות") */}
         {activeTab === "faults" && (
           <div className="faults-tab-content">
             {faultTabModels.length === 0 ? (
               <div className="fault-empty-state">
-                <p className="muted">לא נמצאו תקלות נפוצות התואמות לסינון.</p>
+                <p className="muted">
+                  {selectedModelFilter
+                    ? `טרם הוזנו תקלות נפוצות עבור ${selectedModelFilter}.`
+                    : "לא נמצאו תקלות נפוצות התואמות לסינון."}
+                </p>
                 {canEdit && (
-                  <Button type="button" variant="outline" onClick={() => openFaultModalForModel()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => openFaultModalForModel(selectedModelFilter)}
+                  >
                     <Plus size={16} /> הוספת תקלה נפוצה חדשה ושיוך לדגם
                   </Button>
                 )}
@@ -469,7 +561,7 @@ export function FaultsModuleHub({
                                 setActiveTab("unlocks");
                               }}
                             >
-                              <Unlock size={13} aria-hidden /> יש פתיחת הגבלה לדגם
+                              <Unlock size={13} aria-hidden /> מעבר לפתיחת הגבלה של הדגם
                             </button>
                           )}
                           {uploadedFiles.length > 0 && (
@@ -490,7 +582,9 @@ export function FaultsModuleHub({
                             </Button>
                           )}
                           <Button asChild size="sm" variant="ghost">
-                            <Link href={"/faults/" + guide.id}>לכרטיס הדגם ({formatDate(guide.updatedAt)}) ←</Link>
+                            <Link href={"/faults/" + guide.id}>
+                              לכרטיס הדגם ({formatDate(guide.updatedAt)}) ←
+                            </Link>
                           </Button>
                         </div>
                       </div>
@@ -555,7 +649,7 @@ export function FaultsModuleHub({
           </div>
         )}
 
-        {/* TAB 2 CONTENT: Unlock Instructions ("פתיחות הגבלה") */}
+        {/* TAB 2 CONTENT: Unlock Instructions ("חוצץ פתיחות הגבלה") */}
         {activeTab === "unlocks" && (
           <div className="faults-tab-content">
             {unlockTabModels.length === 0 ? (
@@ -568,10 +662,10 @@ export function FaultsModuleHub({
                 {canEdit && (
                   <Button
                     type="button"
-                    variant="outline"
                     onClick={() => openUnlockModalForModel(selectedModelFilter)}
                   >
-                    <Plus size={16} /> הוספת פתיחת הגבלה חדשה ושיוך לדגם
+                    <Plus size={16} /> הוסף פתיחת הגבלה חדשה עבור{" "}
+                    {selectedModelFilter || "דגם"}
                   </Button>
                 )}
               </div>
@@ -579,13 +673,18 @@ export function FaultsModuleHub({
               <div className="unlocks-by-model-stack">
                 {unlockTabModels.map((guide) => {
                   const uploadedVideos = guide.attachments.filter((a) => a.kind === "video");
+                  const hasUnlock = hasModelUnlock(guide);
                   return (
                     <article key={guide.id} className="unlock-model-showcase-card">
                       <div className="faults-model-group-head">
                         <div>
-                          <span className="status status-green">
-                            <Unlock size={13} aria-hidden /> פתיחת הגבלה
-                          </span>
+                          {hasUnlock ? (
+                            <span className="status status-green">
+                              <Unlock size={13} aria-hidden /> יש פתיחת הגבלה
+                            </span>
+                          ) : (
+                            <span className="status status-neutral">ללא פתיחת הגבלה מתועדת</span>
+                          )}
                           <span className="status status-neutral">{guide.device}</span>
                           <h3>
                             <Link href={"/faults/" + guide.id}>{guide.model}</Link>
@@ -596,10 +695,13 @@ export function FaultsModuleHub({
                             <Button
                               type="button"
                               size="sm"
-                              variant="outline"
+                              variant={hasUnlock ? "outline" : "default"}
                               onClick={() => openUnlockModalForModel(guide.model)}
                             >
-                              <Unlock size={14} /> עדכון / הוספת סרטון ל־{guide.model}
+                              <Unlock size={14} />{" "}
+                              {hasUnlock
+                                ? `עדכון / הוספת סרטון ל־${guide.model}`
+                                : `הוספת פתיחת הגבלה ל־${guide.model}`}
                             </Button>
                           )}
                           <Button asChild size="sm" variant="ghost">
@@ -608,12 +710,16 @@ export function FaultsModuleHub({
                         </div>
                       </div>
 
-                      {guide.unlockInstructions && (
+                      {guide.unlockInstructions ? (
                         <div className="detail-notes unlock-instructions-box">
                           <h4>הוראות ביצוע שלב אחר שלב</h4>
                           <p>{guide.unlockInstructions}</p>
                         </div>
-                      )}
+                      ) : !hasUnlock ? (
+                        <div className="fault-empty-inline">
+                          <p className="muted">טרם הוזנו הוראות פתיחת הגבלה לדגם זה.</p>
+                        </div>
+                      ) : null}
 
                       {(uploadedVideos.length > 0 || guide.videoLinks.length > 0) && (
                         <div className="unlock-videos-grid">
