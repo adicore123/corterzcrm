@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidPhoneInput, sanitizePhoneInput } from "../phone";
 import { devices, uuid } from "../validation/models";
 
 export const orderStatuses = [
@@ -28,22 +29,43 @@ export const orderItemSchema = z.object({
 
 export type OrderItem = z.infer<typeof orderItemSchema>;
 
+export const orderInlineCustomerInputSchema = z
+  .object({
+    requestId: uuid.optional(),
+    customerType: z.enum(["private", "store"]),
+    name: z.string().trim().min(1, "יש להזין שם לקוח או איש קשר.").max(120),
+    store: z.string().trim().max(120).optional().default(""),
+    phone: z
+      .string()
+      .transform(sanitizePhoneInput)
+      .refine((v) => v.length <= 32, "מספר הטלפון ארוך מדי.")
+      .refine(isValidPhoneInput, "יש להזין מספר טלפון תקין."),
+  })
+  .superRefine((val, ctx) => {
+    if (val.customerType === "store" && !val.store.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["store"],
+        message: "יש להזין את שם החנות.",
+      });
+    }
+  });
+
+export type OrderInlineCustomerInput = z.infer<typeof orderInlineCustomerInputSchema>;
+
 export const orderCreateInputSchema = z
   .object({
-    customerType: z.enum(["private", "store"]),
-    customerName: z.string().trim().min(1, "יש להזין שם לקוח או איש קשר.").max(120),
+    customerId: uuid.optional(),
+    customerType: z.enum(["private", "store"]).optional(),
+    customerName: z.string().trim().max(120).optional(),
     storeName: z.string().trim().max(120).optional(),
     customerPhone: z
       .string()
-      .trim()
-      .max(32, "מספר הטלפון ארוך מדי.")
-      .refine(
-        (val) =>
-          /^\+?[\d\s()-]+$/.test(val)
-          && val.replace(/\D/g, "").length >= 7
-          && val.replace(/\D/g, "").length <= 15,
-        "יש להזין מספר טלפון תקין.",
-      ),
+      .transform(sanitizePhoneInput)
+      .refine((val) => !val || (val.length <= 32 && isValidPhoneInput(val)), {
+        message: "יש להזין מספר טלפון תקין.",
+      })
+      .optional(),
     fulfillmentType: z.enum(["pickup", "delivery"]),
     deliveryAddress: z.string().trim().max(300).optional(),
     priority: z.enum(["normal", "urgent"]).default("normal"),
@@ -62,12 +84,28 @@ export const orderCreateInputSchema = z
     sourceQuoteId: uuid.optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.customerType === "store" && !val.storeName?.trim()) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["storeName"],
-        message: "יש להזין את שם החנות.",
-      });
+    if (!val.customerId) {
+      if (!val.customerName?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["customerName"],
+          message: "יש לבחור לקוח מהמאגר או להזין שם לקוח.",
+        });
+      }
+      if (!val.customerPhone?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["customerPhone"],
+          message: "יש לבחור לקוח מהמאגר או להזין טלפון לקוח.",
+        });
+      }
+      if (val.customerType === "store" && !val.storeName?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["storeName"],
+          message: "יש להזין את שם החנות.",
+        });
+      }
     }
     if (val.fulfillmentType === "delivery" && !val.deliveryAddress?.trim()) {
       ctx.addIssue({

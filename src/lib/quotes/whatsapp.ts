@@ -1,3 +1,9 @@
+import {
+  isMobileClient,
+  launchWhatsappUrl,
+  openPendingDesktopTab,
+  toWhatsappDigits,
+} from "../phone";
 import { quoteTotal } from "./pricing";
 import type { PublicQuote, Quote } from "./schema";
 
@@ -24,16 +30,11 @@ const formatShekels = (agorot: number) => {
 };
 
 export function normalizeWhatsappPhone(rawPhone: string): string {
-  const digits = rawPhone.replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.startsWith("972")) return digits;
-  if (digits.startsWith("0")) return "972" + digits.slice(1);
-  return "972" + digits;
+  return toWhatsappDigits(rawPhone);
 }
 
 /**
  * Builds the complete, detailed WhatsApp caption for a price quote WITHOUT any URLs/links.
- * Designed to be attached directly as the caption under the product image file.
  */
 export function buildFullQuoteWhatsappMessage(
   quote: ShareableQuote,
@@ -46,7 +47,7 @@ export function buildFullQuoteWhatsappMessage(
       : quote.customerName;
 
   const lines: string[] = [
-    `*הצעת מחיר אישית — CORTEZ* 🌊⚡`,
+    `*הצעת מחיר אישית — CORTEZ*`,
     `שלום *${customerDisplay}*,`,
     `הכנו עבורך הצעת מחיר מפורטת מבית קורטז:`,
     ``,
@@ -62,7 +63,7 @@ export function buildFullQuoteWhatsappMessage(
     (s) => s.value.trim() && !(s.label.includes("מנוע") && s.value.trim() === "מנוע עוצמתי"),
   );
   if (cleanSpecs.length > 0) {
-    lines.push(``, `⚙️ *מפרט עיקרי של הכלי:*`);
+    lines.push(``, `*מפרט עיקרי של הכלי:*`);
     for (const spec of cleanSpecs.slice(0, 6)) {
       lines.push(`• ${spec.label}: ${spec.value}`);
     }
@@ -101,22 +102,24 @@ export function buildQuoteWhatsappUrl(
 }
 
 /**
- * Option 2 Share Flow:
- * 1. Fetches the actual PNG product image for the quote (/api/quotes/[token]/og-image).
- * 2. On mobile devices (Web Share API Level 2), shares the actual PNG image file + full link-free
- *    proposal text as caption directly to WhatsApp (and copies the customer's phone number to clipboard
- *    for instant search in WhatsApp).
- * 3. On desktop browsers where file sharing is unavailable, copies the PNG product image to the
- *    system clipboard (for Ctrl+V paste) and opens the direct WhatsApp chat to quote.customerPhone
- *    with the full link-free proposal text.
+ * Bulletproof Quote Share Flow:
+ * 1. On Desktop: opens a pending tab synchronously during the click (preventing popup blockers),
+ *    fetches the authentic catalog PNG image to copy to clipboard for Ctrl+V, and navigates directly
+ *    to `https://wa.me/<customerPhone>?text=...` (avoiding broken Windows OS share popups).
+ * 2. On Mobile: attempts native Web Share API with the PNG file + full link-free text (without
+ *    consuming user activation beforehand); if the user gesture expired or Web Share fails for
+ *    any reason other than user dismissal (`AbortError`), falls back immediately to `wa.me`!
  */
 export async function shareQuoteImageAndTextOnWhatsapp(
   quote: ShareableQuote,
   model: QuoteWhatsappModelInfo | undefined,
-): Promise<{ mode: "web-share" | "clipboard-wa" | "wa-only"; phone: string }> {
+): Promise<{ mode: "web-share" | "clipboard-wa" | "wa-only" | "cancelled"; phone: string }> {
+  const mobile = isMobileClient();
+  const pendingTab = mobile ? null : openPendingDesktopTab();
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const fullText = buildFullQuoteWhatsappMessage(quote, model);
   const ogImgUrl = `${origin}/api/quotes/${quote.shareToken}/og-image`;
+  const waUrl = buildQuoteWhatsappUrl(quote, model);
 
   let imageBlob: Blob | null = null;
   try {
@@ -128,28 +131,47 @@ export async function shareQuoteImageAndTextOnWhatsapp(
     imageBlob = null;
   }
 
-  // Mobile Web Share API with real PNG file + link-free caption
-  if (imageBlob && typeof navigator !== "undefined" && navigator.share && navigator.canShare) {
+  if (
+    mobile
+    && imageBlob
+    && typeof navigator !== "undefined"
+    && typeof navigator.share === "function"
+    && typeof navigator.canShare === "function"
+  ) {
     const safeName = quote.modelName.replace(/[^a-zA-Z0-9_-]+/g, "-") || "model";
     const file = new File([imageBlob], `cortez-${safeName}.png`, { type: "image/png" });
-    if (navigator.canShare({ files: [file] })) {
+    let canShareFiles = false;
+    try {
+      canShareFiles = navigator.canShare({ files: [file] });
+    } catch {
+      canShareFiles = false;
+    }
+
+    if (canShareFiles) {
       try {
-        await navigator.clipboard?.writeText(quote.customerPhone);
-      } catch {
-        // Ignore clipboard permission errors before share
+        await navigator.share({
+          files: [file],
+          text: fullText,
+        });
+        try {
+          await navigator.clipboard?.writeText(quote.customerPhone);
+        } catch {
+          // Optional post-share convenience copy
+        }
+        return { mode: "web-share", phone: quote.customerPhone };
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") {
+          return { mode: "cancelled", phone: quote.customerPhone };
+        }
+        // Gesture expired or WebView rejected share -> fall through to direct wa.me launch!
       }
-      await navigator.share({
-        files: [file],
-        text: fullText,
-      });
-      return { mode: "web-share", phone: quote.customerPhone };
     }
   }
 
-  // Desktop fallback: copy PNG image to clipboard for Ctrl+V and open direct WhatsApp chat to customerPhone
   let copiedImage = false;
   if (
-    imageBlob
+    !mobile
+    && imageBlob
     && typeof navigator !== "undefined"
     && navigator.clipboard
     && "write" in navigator.clipboard
@@ -163,6 +185,6 @@ export async function shareQuoteImageAndTextOnWhatsapp(
     }
   }
 
-  window.open(buildQuoteWhatsappUrl(quote, model), "_blank", "noopener,noreferrer");
+  launchWhatsappUrl(waUrl, pendingTab);
   return { mode: copiedImage ? "clipboard-wa" : "wa-only", phone: quote.customerPhone };
 }

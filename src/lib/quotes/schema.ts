@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidPhoneInput, sanitizePhoneInput } from "../phone";
 
 const money = z.number().int().nonnegative().max(100_000_000_000);
 const discount = z.discriminatedUnion("type", [
@@ -16,7 +17,11 @@ export const quoteSchema = z.object({
   customerName: z.string().trim().min(1).max(120),
   storeName: z.string().trim().max(120).optional(),
   customerType: z.enum(["private", "store"]),
-  customerPhone: z.string().trim().min(7).max(32),
+  customerPhone: z
+    .string()
+    .transform(sanitizePhoneInput)
+    .refine((v) => v.length <= 32, "מספר הטלפון ארוך מדי.")
+    .refine(isValidPhoneInput, "יש להזין מספר טלפון תקין."),
   modelId: z.uuid(),
   modelName: z.string().trim().min(1).max(120),
   quantity: z.number().int().min(1).max(100000),

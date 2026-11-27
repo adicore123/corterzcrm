@@ -1,3 +1,4 @@
+import { toWhatsappDigits } from "../phone";
 import { formatDate } from "../presentation";
 import {
   DEFAULT_MORAN_WHATSAPP_DISPLAY,
@@ -16,12 +17,7 @@ const formatShekels = (agorot: number) => {
 };
 
 export function normalizeOrderWhatsappPhone(rawPhone?: string): string {
-  if (!rawPhone?.trim()) return DEFAULT_MORAN_WHATSAPP_NUMBER;
-  const digits = rawPhone.replace(/\D/g, "");
-  if (!digits) return DEFAULT_MORAN_WHATSAPP_NUMBER;
-  if (digits.startsWith("972")) return digits;
-  if (digits.startsWith("0")) return "972" + digits.slice(1);
-  return "972" + digits;
+  return toWhatsappDigits(rawPhone, DEFAULT_MORAN_WHATSAPP_NUMBER);
 }
 
 export function formatMoranOrderWhatsappText(

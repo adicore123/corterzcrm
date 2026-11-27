@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidPhoneInput, sanitizePhoneInput } from "../phone";
 
 export const devices = ["קורקינט חשמלי", "אופניים חשמליים"] as const;
 export const standardStatuses = ["חדש", "בטיפול", "הסתיים"] as const;
@@ -60,9 +61,9 @@ const customerFieldsSchema = z.object({
   customerType: z.enum(["private", "store"]).optional(),
   name: required("שם לקוח"),
   store: optional(120),
-  phone: z.string().trim().max(32, { error: "מספר הטלפון ארוך מדי." })
-    .refine((value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 7 && value.replace(/\D/g, "").length <= 15,
-      "יש להזין מספר טלפון תקין."),
+  phone: z.string().transform(sanitizePhoneInput)
+    .refine((value) => value.length <= 32, { error: "מספר הטלפון ארוך מדי." })
+    .refine(isValidPhoneInput, "יש להזין מספר טלפון תקין."),
 });
 type CustomerFields = z.infer<typeof customerFieldsSchema>;
 type NormalizedCustomer<T extends CustomerFields> = Omit<T, "customerType"> & { customerType?: "private" | "store" };
@@ -182,7 +183,10 @@ export const standardSchema = standardsInput.safeExtend({
 export const repairSchema = repairInput.extend({
   ...record, number: z.string().regex(/^REP-\d{4,}$/), photos: z.array(photoSchema).max(10),
 });
-export const customerSchema = customerFieldsSchema.extend(record).transform(normalizeCustomerType);
+export const customerSchema = customerFieldsSchema.extend({
+  ...record,
+  createdBy: uuid.optional(),
+}).transform(normalizeCustomerType);
 export const catalogModelSchema = modelInput.extend({
   ...record, photos: z.array(photoSchema).max(10),
 });
@@ -199,9 +203,9 @@ export const deletePasswordSchema = z.string().trim().min(4, "סיסמת המח�
 export const DEFAULT_PICKUP_ADDRESS = "לישנסקי 27, ראשון לציון";
 export const DEFAULT_AGENT_INVITE_CODE = "cortez-agent";
 export const pickupAddressSchema = z.string().trim().min(3, "יש להזין כתובת איסוף.").max(240, "כתובת האיסוף ארוכה מדי.");
-export const ordersPhoneSchema = z.string().trim().max(32, "מספר הטלפון ארוך מדי.")
-  .refine((value) => /^\+?[\d\s()-]+$/.test(value) && value.replace(/\D/g, "").length >= 7 && value.replace(/\D/g, "").length <= 15,
-    "יש להזין מספר טלפון תקין לקבלת הזמנות.");
+export const ordersPhoneSchema = z.string().transform(sanitizePhoneInput)
+  .refine((value) => value.length <= 32, "מספר הטלפון ארוך מדי.")
+  .refine(isValidPhoneInput, "יש להזין מספר טלפון תקין לקבלת הזמנות.");
 export const agentInviteTokenSchema = z.string().trim().regex(/^[a-zA-Z0-9_-]{6,64}$/, "קוד קישור ההרשמה אינו תקין.");
 export const systemSettingsSchema = z.object({
   deletePasswordHash: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/).optional(),

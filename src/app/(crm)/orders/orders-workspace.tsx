@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bike,
@@ -11,20 +11,26 @@ import {
   PackagePlus,
   Phone,
   Plus,
+  Save,
   Search,
+  Store,
   Trash2,
   Truck,
+  UserRound,
+  UserRoundPlus,
   X,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeletePasswordDialog } from "@/components/ui/delete-password-dialog";
+import { Modal } from "@/components/ui/dialog";
 import { Status } from "@/components/ui/status";
-import { requestJson } from "@/lib/client-api";
+import { newRequestId, requestJson } from "@/lib/client-api";
 import { orderStatuses, type Order, type OrderStatus } from "@/lib/orders/schema";
 import { buildMoranOrderWhatsappUrl } from "@/lib/orders/whatsapp";
+import { launchWhatsappUrl, openPendingDesktopTab } from "@/lib/phone";
 import { formatDate, phoneHref } from "@/lib/presentation";
-import type { Device, Role } from "@/lib/validation/models";
+import type { Customer, Device, Role } from "@/lib/validation/models";
 
 export type OrderCatalogModelOption = {
   id: string;
@@ -37,11 +43,20 @@ export type OrderCatalogModelOption = {
   comingSoon?: boolean;
 };
 
+export type OrderCustomerOption = {
+  id: string;
+  name: string;
+  store: string;
+  phone: string;
+  customerType: "private" | "store";
+};
+
 export type OrderQuotePrefill = {
   quoteId: string;
   modelId: string;
   quantity: number;
   agreedUnitPriceShekels?: number;
+  customerId?: string;
   customerType: "private" | "store";
   customerName: string;
   storeName?: string;
@@ -85,6 +100,7 @@ function makeDraftRow(defaultModelId = "", overrides?: Partial<DraftLineItem>): 
 
 export function OrdersWorkspace({
   models,
+  initialCustomers,
   orders,
   userRole,
   moranPhone,
@@ -93,6 +109,7 @@ export function OrdersWorkspace({
   initialPrefill,
 }: {
   models: OrderCatalogModelOption[];
+  initialCustomers: OrderCustomerOption[];
   orders: Order[];
   userRole: Role;
   moranPhone: string;
@@ -106,13 +123,34 @@ export function OrdersWorkspace({
 
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
 
+  // Customer directory state (synced with newly added inline customers)
+  const [customers, setCustomers] = useState<OrderCustomerOption[]>(initialCustomers);
+  const customersById = useMemo(
+    () => new Map(customers.map((c) => [c.id, c])),
+    [customers],
+  );
+
   const [openForm, setOpenForm] = useState(initialOpenNew);
-  const [customerType, setCustomerType] = useState<"private" | "store">(
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(
+    initialPrefill?.customerId ?? "",
+  );
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(!initialPrefill?.customerId);
+
+  // Inline "+ לקוח חדש" modal state
+  const [newCustOpen, setNewCustOpen] = useState(
+    Boolean(initialPrefill && !initialPrefill.customerId),
+  );
+  const [newCustType, setNewCustType] = useState<"private" | "store">(
     initialPrefill?.customerType ?? "store",
   );
-  const [customerName, setCustomerName] = useState(initialPrefill?.customerName ?? "");
-  const [storeName, setStoreName] = useState(initialPrefill?.storeName ?? "");
-  const [customerPhone, setCustomerPhone] = useState(initialPrefill?.customerPhone ?? "");
+  const [newCustName, setNewCustName] = useState(initialPrefill?.customerName ?? "");
+  const [newCustStore, setNewCustStore] = useState(initialPrefill?.storeName ?? "");
+  const [newCustPhone, setNewCustPhone] = useState(initialPrefill?.customerPhone ?? "");
+  const [newCustBusy, setNewCustBusy] = useState(false);
+  const [newCustError, setNewCustError] = useState("");
+  const newCustRequestId = useRef("");
+
   const [fulfillmentType, setFulfillmentType] = useState<"pickup" | "delivery">("delivery");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [priority, setPriority] = useState<"normal" | "urgent">("normal");
@@ -139,6 +177,29 @@ export function OrdersWorkspace({
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  const selectedCustomer = selectedCustomerId
+    ? customersById.get(selectedCustomerId)
+    : undefined;
+
+  const matchingCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLocaleLowerCase("he");
+    const qDigits = q.replace(/\D/g, "");
+    if (!q) return customers;
+    return customers.filter((c) => {
+      if (
+        c.name.toLocaleLowerCase("he").includes(q)
+        || c.store.toLocaleLowerCase("he").includes(q)
+        || c.phone.toLocaleLowerCase("he").includes(q)
+      ) {
+        return true;
+      }
+      if (qDigits.length >= 3 && c.phone.replace(/\D/g, "").includes(qDigits)) {
+        return true;
+      }
+      return false;
+    });
+  }, [customers, customerSearch]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { all: orders.length };
@@ -172,16 +233,81 @@ export function OrdersWorkspace({
   }, [orders, statusFilter, search]);
 
   function resetNewOrderForm() {
-    setCustomerType("store");
-    setCustomerName("");
-    setStoreName("");
-    setCustomerPhone("");
+    setSelectedCustomerId("");
+    setCustomerSearch("");
+    setCustomerPickerOpen(true);
     setFulfillmentType("delivery");
     setDeliveryAddress("");
     setPriority("normal");
     setNotes("");
     setItems([makeDraftRow("")]);
     setFormError("");
+  }
+
+  function openNewCustomerModal() {
+    setNewCustType("store");
+    setNewCustName(customerSearch.trim() && !/\d/.test(customerSearch) ? customerSearch.trim() : "");
+    setNewCustStore("");
+    setNewCustPhone(/\d{3,}/.test(customerSearch) ? customerSearch.trim() : "");
+    setNewCustError("");
+    newCustRequestId.current = "";
+    setNewCustOpen(true);
+  }
+
+  async function handleSaveInlineCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setNewCustError("");
+
+    if (!newCustName.trim()) {
+      setNewCustError("יש להזין שם לקוח או איש קשר.");
+      return;
+    }
+    if (newCustType === "store" && !newCustStore.trim()) {
+      setNewCustError("יש להזין את שם החנות.");
+      return;
+    }
+    if (!newCustPhone.trim()) {
+      setNewCustError("יש להזין מספר טלפון.");
+      return;
+    }
+
+    if (!newCustRequestId.current) newCustRequestId.current = newRequestId();
+    setNewCustBusy(true);
+    try {
+      const saved = await requestJson<Customer>("/api/orders/customers", "POST", {
+        requestId: newCustRequestId.current,
+        customerType: newCustType,
+        name: newCustName.trim(),
+        store: newCustType === "store" ? newCustStore.trim() : "",
+        phone: newCustPhone.trim(),
+      });
+      const inferredType =
+        saved.customerType
+        ?? (saved.store && saved.store.trim() && saved.store.trim() !== "פרטי"
+          ? "store"
+          : "private");
+      const option: OrderCustomerOption = {
+        id: saved.id,
+        name: saved.name,
+        store: inferredType === "store" ? saved.store : "",
+        phone: saved.phone,
+        customerType: inferredType,
+      };
+      setCustomers((prev) => {
+        const without = prev.filter((item) => item.id !== option.id);
+        return [option, ...without];
+      });
+      setSelectedCustomerId(option.id);
+      setCustomerPickerOpen(false);
+      setNewCustOpen(false);
+      newCustRequestId.current = "";
+      router.refresh();
+    } catch (caught) {
+      setNewCustError((caught as Error).message);
+    } finally {
+      setNewCustBusy(false);
+    }
   }
 
   function updateItem(rowKey: string, patch: Partial<DraftLineItem>) {
@@ -212,11 +338,18 @@ export function OrdersWorkspace({
       }
     }
 
+    if (!selectedCustomerId) {
+      setFormError("יש לבחור לקוח ממאגר הלקוחות או להוסיף לקוח חדש באמצעות הכפתור '+ לקוח חדש'.");
+      return;
+    }
+
+    if (fulfillmentType === "delivery" && !deliveryAddress.trim()) {
+      setFormError("יש להזין עיר וכתובת מלאה למשלוח.");
+      return;
+    }
+
     const payload = {
-      customerType,
-      customerName: customerName.trim(),
-      storeName: customerType === "store" ? storeName.trim() : undefined,
-      customerPhone: customerPhone.trim(),
+      customerId: selectedCustomerId,
       fulfillmentType,
       deliveryAddress: fulfillmentType === "delivery" ? deliveryAddress.trim() : undefined,
       priority,
@@ -235,18 +368,25 @@ export function OrdersWorkspace({
       }),
     };
 
+    // Synchronously reserve desktop tab during user gesture so popup blockers never block WhatsApp
+    const pendingTab = openPendingDesktopTab();
     setSubmitting(true);
     try {
       const saved = await requestJson<Order>("/api/orders", "POST", payload);
+      const waUrl = buildMoranOrderWhatsappUrl(saved, moranPhone, pickupAddress);
       setCreatedOrder(saved);
       setOpenForm(false);
       resetNewOrderForm();
       router.refresh();
-
-      // Immediately launch WhatsApp to Moran with the text-only formatted order
-      const waUrl = buildMoranOrderWhatsappUrl(saved, moranPhone, pickupAddress);
-      window.open(waUrl, "_blank", "noopener,noreferrer");
+      launchWhatsappUrl(waUrl, pendingTab);
     } catch (caught) {
+      if (pendingTab && !pendingTab.closed) {
+        try {
+          pendingTab.close();
+        } catch {
+          // Ignore
+        }
+      }
       setFormError((caught as Error).message);
     } finally {
       setSubmitting(false);
@@ -298,16 +438,16 @@ export function OrdersWorkspace({
               <Check size={18} aria-hidden /> הזמנה {createdOrder.number} נשמרה במערכת!
             </strong>
             <p className="muted">
-              נפתח חלון הוואטסאפ אל מורן (<bdi dir="ltr">{moranPhone}</bdi>) עם כל מלל ההזמנה. אם החלון נחסם בדפדפן, לחצו כאן לשליחה:
+              נפתחה הודעת הוואטסאפ אל מורן (<bdi dir="ltr">{moranPhone}</bdi>). לשליחה חוזרת לחצו:
             </p>
           </div>
           <a
             href={buildMoranOrderWhatsappUrl(createdOrder, moranPhone, pickupAddress)}
             target="_blank"
             rel="noopener noreferrer"
-            className="button button-whatsapp-quote"
+            className="button button-whatsapp-quote order-wa-cta"
           >
-            <MessageCircle size={17} /> שליחת ההזמנה למורן בוואטסאפ
+            <MessageCircle size={17} /> שליחה למורן בוואטסאפ
           </a>
         </section>
       )}
@@ -331,7 +471,7 @@ export function OrdersWorkspace({
             </Button>
           </div>
 
-          <form onSubmit={handleSubmitOrder} className="order-form-stack">
+          <form onSubmit={handleSubmitOrder} className="order-form-stack" noValidate>
             {/* STEP 1 — MODEL SEARCH & ITEMS */}
             <div className="order-form-section">
               <h3>1. בחירת דגם מהקטלוג</h3>
@@ -621,59 +761,128 @@ export function OrdersWorkspace({
               </div>
             </div>
 
-            {/* STEP 2 — CUSTOMER & DELIVERY DETAILS */}
+            {/* STEP 2 — CUSTOMER FROM CUSTOMERS MODULE + INLINE NEW CUSTOMER */}
             <div className="order-form-section">
-              <h3>2. פרטי הלקוח ואספקה</h3>
-              <div className="quote-form">
-                <label>
-                  סוג לקוח
-                  <select
-                    value={customerType}
-                    onChange={(e) => setCustomerType(e.target.value as "private" | "store")}
-                  >
-                    <option value="store">חנות / עסק</option>
-                    <option value="private">לקוח פרטי</option>
-                  </select>
-                </label>
+              <div className="order-section-title-row">
+                <h3>2. לקוח ממאגר הלקוחות ואופן אספקה</h3>
+                <Button
+                  type="button"
+                  variant="soft"
+                  size="sm"
+                  onClick={openNewCustomerModal}
+                >
+                  <UserRoundPlus size={16} /> לקוח חדש
+                </Button>
+              </div>
 
-                <label>
-                  שם לקוח / איש קשר
-                  <input
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    required
-                    maxLength={120}
-                    placeholder="שם מלא של הלקוח או איש הקשר"
-                  />
-                </label>
+              {selectedCustomer && !customerPickerOpen ? (
+                <div className="order-selected-model-card order-selected-customer-card">
+                  <div className="order-selected-model-main">
+                    <span className="order-customer-avatar" aria-hidden>
+                      {selectedCustomer.customerType === "store" ? (
+                        <Store size={20} />
+                      ) : (
+                        <UserRound size={20} />
+                      )}
+                    </span>
+                    <div>
+                      <strong>
+                        {selectedCustomer.name}
+                        {selectedCustomer.customerType === "store" && selectedCustomer.store
+                          ? ` · ${selectedCustomer.store}`
+                          : ""}
+                      </strong>
+                      <span>
+                        {selectedCustomer.customerType === "store" ? "חנות / עסק" : "לקוח פרטי"}{" "}
+                        · <bdi dir="ltr">{selectedCustomer.phone}</bdi>
+                      </span>
+                    </div>
+                  </div>
+                  <div className="order-customer-card-actions">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCustomerPickerOpen(true)}
+                    >
+                      החלפת לקוח
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={openNewCustomerModal}
+                    >
+                      <UserRoundPlus size={15} /> לקוח חדש
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="order-customer-picker">
+                  <div className="order-customer-search-row">
+                    <div className="search-field">
+                      <Search size={17} aria-hidden />
+                      <input
+                        type="search"
+                        value={customerSearch}
+                        onChange={(e) => setCustomerSearch(e.target.value)}
+                        placeholder="חפשו לקוח לפי שם, חנות או מספר טלפון..."
+                        aria-label="חיפוש לקוח במאגר"
+                      />
+                    </div>
+                  </div>
 
-                {customerType === "store" && (
-                  <label>
-                    שם החנות
-                    <input
-                      value={storeName}
-                      onChange={(e) => setStoreName(e.target.value)}
-                      required
-                      maxLength={120}
-                      placeholder="למשל: אופני המרכז"
-                    />
-                  </label>
-                )}
+                  {matchingCustomers.length > 0 ? (
+                    <div className="order-customer-results" role="listbox" aria-label="תוצאות לקוחות">
+                      {matchingCustomers.slice(0, 10).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className={
+                            "order-model-option"
+                            + (selectedCustomerId === c.id ? " is-selected" : "")
+                          }
+                          onClick={() => {
+                            setSelectedCustomerId(c.id);
+                            setCustomerPickerOpen(false);
+                          }}
+                        >
+                          <span className="order-model-option-fallback" aria-hidden>
+                            {c.customerType === "store" ? (
+                              <Store size={17} />
+                            ) : (
+                              <UserRound size={17} />
+                            )}
+                          </span>
+                          <div className="order-model-option-text">
+                            <strong>
+                              {c.name}
+                              {c.customerType === "store" && c.store ? ` · ${c.store}` : ""}
+                            </strong>
+                            <small>
+                              {c.customerType === "store" ? "חנות" : "לקוח פרטי"} ·{" "}
+                              <bdi dir="ltr">{c.phone}</bdi>
+                            </small>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="order-customer-empty">
+                      <p className="muted">
+                        {customers.length === 0
+                          ? "עדיין אין לקוחות במאגר. הוסיפו לקוח ראשון בלחיצה:"
+                          : "לא נמצא לקוח תואם במאגר. ניתן להוסיף לקוח חדש כעת:"}
+                      </p>
+                      <Button type="button" variant="outline" size="sm" onClick={openNewCustomerModal}>
+                        <UserRoundPlus size={16} /> הוספת לקוח חדש למאגר
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
-                <label>
-                  טלפון הלקוח
-                  <input
-                    type="tel"
-                    dir="ltr"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    required
-                    minLength={7}
-                    maxLength={32}
-                    placeholder="050-0000000"
-                  />
-                </label>
-
+              <div className="quote-form" style={{ marginTop: "6px" }}>
                 <label>
                   אופן אספקה
                   <select
@@ -700,19 +909,19 @@ export function OrdersWorkspace({
               </div>
 
               {fulfillmentType === "delivery" && (
-                <label className="order-field" style={{ marginTop: "10px" }}>
+                <label className="order-field" style={{ marginTop: "8px" }}>
                   <span>עיר וכתובת מלאה למשלוח</span>
                   <input
                     value={deliveryAddress}
                     onChange={(e) => setDeliveryAddress(e.target.value)}
                     required
                     maxLength={300}
-                    placeholder="רחוב, מספר בית, עיר וקומה/הנחיות לשליח"
+                    placeholder="רחוב, מספר בית, עיר והנחיות לשליח"
                   />
                 </label>
               )}
 
-              <label className="order-field" style={{ marginTop: "10px" }}>
+              <label className="order-field" style={{ marginTop: "8px" }}>
                 <span>הערות למורן (לא חובה)</span>
                 <textarea
                   rows={2}
@@ -730,16 +939,18 @@ export function OrdersWorkspace({
               </p>
             )}
 
-            <div className="dialog-actions">
+            <div className="dialog-actions order-submit-actions">
               <button
                 type="submit"
-                className="button button-whatsapp-quote"
+                className="button button-whatsapp-quote order-wa-cta"
                 disabled={submitting}
               >
-                <MessageCircle size={17} />
-                {submitting
-                  ? "שומר ושולח…"
-                  : `שמירת הזמנה ושליחה למורן בוואטסאפ (${moranPhone})`}
+                <MessageCircle size={18} />
+                <span>
+                  {submitting
+                    ? "שומר ושולח…"
+                    : "שמירת הזמנה ושליחה למורן בוואטסאפ"}
+                </span>
               </button>
               <Button type="button" variant="outline" onClick={() => setOpenForm(false)}>
                 ביטול
@@ -748,6 +959,90 @@ export function OrdersWorkspace({
           </form>
         </section>
       )}
+
+      {/* INLINE MODAL — ADD NEW CUSTOMER DIRECTLY INTO CUSTOMERS MODULE */}
+      <Modal
+        open={newCustOpen}
+        onOpenChange={(next) => {
+          if (!newCustBusy) setNewCustOpen(next);
+        }}
+        title="לקוח חדש"
+        description="הלקוח יישמר אוטומטית במודול לקוחות וישויך להזמנה הנוכחית."
+      >
+        <form className="dialog-form" onSubmit={handleSaveInlineCustomer} noValidate>
+          <label className="field">
+            <span>סוג לקוח</span>
+            <select
+              aria-label="סוג לקוח"
+              value={newCustType}
+              onChange={(e) => setNewCustType(e.target.value as "private" | "store")}
+            >
+              <option value="store">חנות / עסק</option>
+              <option value="private">לקוח פרטי</option>
+            </select>
+          </label>
+
+          <label className="field">
+            <span>שם לקוח / איש קשר</span>
+            <input
+              aria-label="שם לקוח"
+              value={newCustName}
+              onChange={(e) => setNewCustName(e.target.value)}
+              required
+              maxLength={120}
+              placeholder="שם מלא"
+            />
+          </label>
+
+          {newCustType === "store" && (
+            <label className="field">
+              <span>שם החנות</span>
+              <input
+                aria-label="שם החנות"
+                value={newCustStore}
+                onChange={(e) => setNewCustStore(e.target.value)}
+                required
+                maxLength={120}
+                placeholder="למשל: אופני המרכז"
+              />
+            </label>
+          )}
+
+          <label className="field">
+            <span>מספר טלפון</span>
+            <input
+              aria-label="מספר טלפון"
+              type="tel"
+              dir="ltr"
+              value={newCustPhone}
+              onChange={(e) => setNewCustPhone(e.target.value)}
+              required
+              maxLength={32}
+              placeholder="050-0000000"
+            />
+          </label>
+
+          {newCustError && (
+            <p role="alert" className="error-message">
+              {newCustError}
+            </p>
+          )}
+
+          <div className="dialog-actions">
+            <Button type="submit" disabled={newCustBusy}>
+              <Save size={16} /> {newCustBusy ? "שומר…" : "שמירת לקוח ושיוך להזמנה"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={newCustBusy}
+              onClick={() => setNewCustOpen(false)}
+            >
+              ביטול
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* ORDERS LIST & STATUS TRACKING */}
       <section className="card detail-card" aria-label="רשימת הזמנות">

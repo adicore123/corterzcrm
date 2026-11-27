@@ -11,26 +11,79 @@ import {
   serialized,
   writeCollection,
 } from "../json-db/store";
-import { uuid, type PublicUser } from "../validation/models";
+import { toCanonicalCustomerDigits } from "../phone";
+import { customerSchema, uuid, type Customer, type PublicUser } from "../validation/models";
 import {
   orderCreateInputSchema,
+  orderInlineCustomerInputSchema,
   orderSchema,
   orderStatuses,
   type Order,
   type OrderItem,
 } from "./schema";
 
-function normalizePhoneDigits(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("972")) return "0" + digits.slice(3);
-  return digits;
-}
-
 export async function listOrdersForUser(actor: PublicUser): Promise<Order[]> {
   const all = await readCollection("orders");
   const visible =
     actor.role === "agent" ? all.filter((order) => order.createdBy === actor.id) : all;
   return [...visible].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listOrderCustomers(): Promise<Customer[]> {
+  const all = await readCollection("customers");
+  return [...all].sort((a, b) => a.name.localeCompare(b.name, "he"));
+}
+
+/**
+ * Creates a new customer directly from the Orders module (permitted for agents, employees, and admins),
+ * deduplicating cleanly if a customer with the same canonical phone already exists.
+ */
+export async function createCustomerFromOrderForm(
+  raw: unknown,
+  actor: PublicUser,
+): Promise<Customer> {
+  const input = orderInlineCustomerInputSchema.parse(raw);
+
+  return serialized(async () => {
+    const active = (await readCollection("users")).find(
+      (user) => user.id === actor.id && !user.disabled,
+    );
+    if (!active) throw new AppError(401, "יש להיכנס למערכת.");
+
+    const customers = await readCollection("customers");
+    if (input.requestId) {
+      const idempotent = customers.find((c) => c.id === input.requestId);
+      if (idempotent) return idempotent;
+    }
+
+    const phoneKey = toCanonicalCustomerDigits(input.phone);
+    if (phoneKey) {
+      const existingByPhone = customers.find(
+        (c) => toCanonicalCustomerDigits(c.phone) === phoneKey,
+      );
+      if (existingByPhone) {
+        return existingByPhone;
+      }
+    }
+
+    const now = new Date().toISOString();
+    const record: Customer = stripUndefined(
+      customerSchema.parse({
+        id: input.requestId ?? randomUUID(),
+        customerType: input.customerType,
+        name: input.name.trim(),
+        store: input.customerType === "store" ? input.store.trim() : "",
+        phone: input.phone,
+        createdBy: active.id,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+
+    await writeCollection("customers", [...customers, record]);
+    await audit(active.id, "create", "customers", record.id);
+    return record;
+  });
 }
 
 export async function createOrder(raw: unknown, actor: PublicUser): Promise<Order> {
@@ -42,7 +95,10 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
     );
     if (!active) throw new AppError(401, "יש להיכנס למערכת.");
 
-    const models = await catalogModels();
+    const [models, customers] = await Promise.all([
+      catalogModels(),
+      readCollection("customers"),
+    ]);
     const modelsById = new Map(models.map((m) => [m.id, m]));
 
     const resolvedItems: OrderItem[] = input.items.map((rawItem) => {
@@ -67,11 +123,39 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
       });
     });
 
-    const targetDigits = normalizePhoneDigits(input.customerPhone);
-    const customers = await readCollection("customers");
-    const matchedCustomer = targetDigits
-      ? customers.find((c) => normalizePhoneDigits(c.phone) === targetDigits)
-      : undefined;
+    let resolvedCustomerId: string | undefined;
+    let resolvedCustomerType: "private" | "store";
+    let resolvedCustomerName: string;
+    let resolvedStoreName: string | undefined;
+    let resolvedCustomerPhone: string;
+
+    if (input.customerId) {
+      const customerRecord = customers.find((c) => c.id === input.customerId);
+      if (!customerRecord) {
+        throw new AppError(404, "הלקוח שנבחר לא נמצא במאגר הלקוחות.");
+      }
+      resolvedCustomerId = customerRecord.id;
+      const inferredType =
+        customerRecord.customerType
+        ?? (customerRecord.store && customerRecord.store.trim() && customerRecord.store.trim() !== "פרטי"
+          ? "store"
+          : "private");
+      resolvedCustomerType = inferredType;
+      resolvedCustomerName = customerRecord.name;
+      resolvedStoreName = inferredType === "store" ? customerRecord.store || undefined : undefined;
+      resolvedCustomerPhone = customerRecord.phone;
+    } else {
+      const targetDigits = toCanonicalCustomerDigits(input.customerPhone);
+      const matchedCustomer = targetDigits
+        ? customers.find((c) => toCanonicalCustomerDigits(c.phone) === targetDigits)
+        : undefined;
+      resolvedCustomerId = matchedCustomer?.id;
+      resolvedCustomerType = input.customerType ?? "private";
+      resolvedCustomerName = input.customerName!.trim();
+      resolvedStoreName =
+        resolvedCustomerType === "store" ? input.storeName?.trim() : undefined;
+      resolvedCustomerPhone = input.customerPhone!;
+    }
 
     const now = new Date().toISOString();
     const number = await reserveNumber("orders");
@@ -82,11 +166,11 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
         number,
         createdBy: active.id,
         createdByName: active.name,
-        customerId: matchedCustomer?.id,
-        customerType: input.customerType,
-        customerName: input.customerName,
-        storeName: input.customerType === "store" ? input.storeName?.trim() : undefined,
-        customerPhone: input.customerPhone,
+        customerId: resolvedCustomerId,
+        customerType: resolvedCustomerType,
+        customerName: resolvedCustomerName,
+        storeName: resolvedStoreName,
+        customerPhone: resolvedCustomerPhone,
         fulfillmentType: input.fulfillmentType,
         deliveryAddress:
           input.fulfillmentType === "delivery" ? input.deliveryAddress?.trim() : undefined,

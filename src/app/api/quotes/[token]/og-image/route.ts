@@ -11,7 +11,7 @@ import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import { catalogModels } from "@/lib/json-db/queries";
 import { quoteByToken } from "@/lib/quotes/service";
 import { readBlobPhoto } from "@/lib/uploads/blob-images";
-import { readPhoto } from "@/lib/uploads/images";
+import { isHeicBuffer, normalizePhoto, readPhoto } from "@/lib/uploads/images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
 import type { CatalogModel } from "@/lib/validation/models";
 
@@ -114,7 +114,11 @@ export async function GET(
       return new NextResponse("Image not found", { status: 404 });
     }
 
-    const pngBuffer = await sharp(rawBytes)
+    const decodedInput = isHeicBuffer(rawBytes)
+      ? await normalizePhoto(rawBytes, "image/heic", true)
+      : rawBytes;
+
+    const pngBuffer = await sharp(decodedInput, { failOn: "none" })
       .rotate()
       .resize({
         width: 1200,

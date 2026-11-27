@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getClientIp } from "@/lib/api-guard";
+import { getClientIp, verifySameOrigin } from "@/lib/api-guard";
 import { consumeRateLimit } from "@/lib/auth/rate-limit";
 import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, logout, registerAgent, requireAdmin, requireDeletePassword, resetUserPassword, rotateAgentInviteToken, sessionCookie, setUserDisabled, updateBusinessSettings } from "@/lib/auth/session";
 import { AppError } from "@/lib/errors";
@@ -38,14 +38,7 @@ function errorResponse(error: unknown) {
 }
 
 function verifyOrigin(request: NextRequest) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host") ?? request.nextUrl.host;
-  const protocol = process.env.VERCEL === "1" ? "https:" : request.nextUrl.protocol;
-  const expected = new URL(process.env.CORTEZ_ORIGIN || protocol + "//" + host).origin;
-  if (!origin || origin !== expected || request.headers.get("sec-fetch-site") === "cross-site") {
-    throw new AppError(403, "מקור הבקשה אינו מורשה.");
-  }
-  return expected;
+  return verifySameOrigin(request);
 }
 
 async function requireUser(request: NextRequest) {

@@ -4,10 +4,16 @@ import { getCoastalAsset } from "@/lib/catalog/coastal-assets";
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { DEFAULT_MORAN_WHATSAPP_DISPLAY } from "@/lib/orders/schema";
-import { listOrdersForUser } from "@/lib/orders/service";
+import { listOrderCustomers, listOrdersForUser } from "@/lib/orders/service";
+import { toCanonicalCustomerDigits } from "@/lib/phone";
 import { listQuotesForUser } from "@/lib/quotes/service";
 import { DEFAULT_PICKUP_ADDRESS } from "@/lib/validation/models";
-import { OrdersWorkspace, type OrderCatalogModelOption, type OrderQuotePrefill } from "./orders-workspace";
+import {
+  OrdersWorkspace,
+  type OrderCatalogModelOption,
+  type OrderCustomerOption,
+  type OrderQuotePrefill,
+} from "./orders-workspace";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "הזמנות" };
@@ -22,9 +28,10 @@ export default async function OrdersPage({
   const openNew = query.new === "1";
   const quoteId = typeof query.quoteId === "string" ? query.quoteId : undefined;
 
-  const [models, orders, settings, visibleQuotes] = await Promise.all([
+  const [models, orders, customers, settings, visibleQuotes] = await Promise.all([
     catalogModels(),
     listOrdersForUser(user),
+    listOrderCustomers(),
     readCollection("settings"),
     quoteId ? listQuotesForUser(user) : Promise.resolve([]),
   ]);
@@ -47,15 +54,38 @@ export default async function OrdersPage({
     };
   });
 
+  const customerOptions: OrderCustomerOption[] = customers.map((c) => {
+    const inferredType =
+      c.customerType
+      ?? (c.store && c.store.trim() && c.store.trim() !== "פרטי" ? "store" : "private");
+    return {
+      id: c.id,
+      name: c.name,
+      store: inferredType === "store" ? c.store : "",
+      phone: c.phone,
+      customerType: inferredType,
+    };
+  });
+
   let prefill: OrderQuotePrefill | undefined;
   if (quoteId) {
     const matchedQuote = visibleQuotes.find((q) => q.id === quoteId);
     if (matchedQuote) {
+      const qDigits = toCanonicalCustomerDigits(matchedQuote.customerPhone);
+      const matchedCustomer =
+        (matchedQuote.customerId
+          ? customerOptions.find((c) => c.id === matchedQuote.customerId)
+          : undefined)
+        ?? (qDigits
+          ? customerOptions.find((c) => toCanonicalCustomerDigits(c.phone) === qDigits)
+          : undefined);
+
       prefill = {
         quoteId: matchedQuote.id,
         modelId: matchedQuote.modelId,
         quantity: matchedQuote.quantity,
         agreedUnitPriceShekels: Number((matchedQuote.unitPriceAgorot / 100).toFixed(2)),
+        customerId: matchedCustomer?.id,
         customerType: matchedQuote.customerType,
         customerName: matchedQuote.customerName,
         storeName: matchedQuote.storeName,
@@ -67,6 +97,7 @@ export default async function OrdersPage({
   return (
     <OrdersWorkspace
       models={modelOptions}
+      initialCustomers={customerOptions}
       orders={orders}
       userRole={user.role}
       moranPhone={settings.ordersWhatsappPhone ?? DEFAULT_MORAN_WHATSAPP_DISPLAY}

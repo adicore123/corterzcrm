@@ -15,14 +15,53 @@ export function getClientIp(request: NextRequest | Request): string {
 }
 
 export function verifySameOrigin(request: NextRequest): string {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host") ?? request.nextUrl.host;
-  const protocol = process.env.VERCEL === "1" ? "https:" : request.nextUrl.protocol;
-  const expected = new URL(process.env.CORTEZ_ORIGIN || `${protocol}//${host}`).origin;
-  if (!origin || origin !== expected || request.headers.get("sec-fetch-site") === "cross-site") {
+  const originHeader = request.headers.get("origin");
+  if (!originHeader || request.headers.get("sec-fetch-site") === "cross-site") {
     throw new AppError(403, "מקור הבקשה אינו מורשה.");
   }
-  return expected;
+
+  let actualOrigin: string;
+  try {
+    actualOrigin = new URL(originHeader).origin;
+  } catch {
+    throw new AppError(403, "מקור הבקשה אינו מורשה.");
+  }
+
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const protocol =
+    process.env.VERCEL === "1"
+      ? "https:"
+      : forwardedProto
+        ? `${forwardedProto.replace(/:$/, "")}:`
+        : request.nextUrl.protocol;
+
+  const allowedOrigins = new Set<string>();
+  if (process.env.CORTEZ_ORIGIN) {
+    try {
+      allowedOrigins.add(new URL(process.env.CORTEZ_ORIGIN).origin);
+    } catch {
+      // Ignore malformed env value
+    }
+  }
+
+  const candidates = [
+    request.headers.get("x-forwarded-host")?.split(",")[0]?.trim(),
+    request.headers.get("host")?.trim(),
+    request.nextUrl.host,
+  ];
+  for (const host of candidates) {
+    if (!host) continue;
+    try {
+      allowedOrigins.add(new URL(`${protocol}//${host}`).origin);
+    } catch {
+      // Ignore malformed host header
+    }
+  }
+
+  if (!allowedOrigins.has(actualOrigin)) {
+    throw new AppError(403, "מקור הבקשה אינו מורשה.");
+  }
+  return actualOrigin;
 }
 
 export function safeApiErrorResponse(

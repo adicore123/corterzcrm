@@ -1,3 +1,4 @@
+import { sanitizePhoneInput, toWhatsappDigits } from "./phone";
 import type { Module } from "./validation/models";
 
 export const labels = {
@@ -31,12 +32,11 @@ export function formatDate(value: string, includeTime = false) {
 export const roleLabel = { admin: "מנהל מערכת", employee: "עובד", agent: "סוכן" } as const;
 
 export function phoneHref(phone: string) {
-  return "tel:" + phone.replace(/[^+0-9]/g, "");
+  return "tel:" + sanitizePhoneInput(phone).replace(/[^+0-9]/g, "");
 }
 
 export function whatsappHref(phone: string, message?: string) {
-  const digits = phone.replace(/\D/g, "");
-  const intl = digits.startsWith("0") ? "972" + digits.slice(1) : digits;
+  const intl = toWhatsappDigits(phone);
   const base = "https://wa.me/" + intl;
   return message ? base + "?text=" + encodeURIComponent(message) : base;
 }
