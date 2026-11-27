@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "no
 import { promisify } from "node:util";
 import { z } from "zod";
 import { AppError } from "../errors";
+import { usesMongoStorage } from "../json-db/mongo-client";
+import { readMongoDocById } from "../json-db/mongo-store";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import {
   deletePasswordSchema,
@@ -272,17 +274,86 @@ export async function login(username: string, password: string, clientIp = "loca
   });
 }
 
-export async function getUser(token?: string) {
+const SESSION_CACHE_TTL_MS = 10_000;
+const SESSION_CACHE_MAX = 500;
+
+type CachedSessionEntry = {
+  user: PublicUser;
+  userId: string;
+  sessionExpires: number;
+  cachedUntil: number;
+  storageKey: string;
+};
+
+const sessionCacheGlobal = globalThis as typeof globalThis & {
+  cortezSessionCache?: Map<string, CachedSessionEntry>;
+};
+const sessionCache = (sessionCacheGlobal.cortezSessionCache ??= new Map());
+
+function storageScopeKey(): string {
+  return `${process.env.CORTEZ_STORAGE_BACKEND ?? ""}|${process.env.CORTEZ_STORAGE_DIR ?? ""}|${process.env.MONGODB_DB ?? ""}|${process.env.VERCEL_BLOB_API_URL ?? ""}`;
+}
+
+export function invalidateSessionCache(opts?: { tokenHash?: string; userId?: string; clearAll?: boolean }) {
+  if (!opts || opts.clearAll) {
+    sessionCache.clear();
+    return;
+  }
+  if (opts.tokenHash) {
+    sessionCache.delete(opts.tokenHash);
+  }
+  if (opts.userId) {
+    for (const [k, entry] of sessionCache) {
+      if (entry.userId === opts.userId) {
+        sessionCache.delete(k);
+      }
+    }
+  }
+}
+
+export async function getUser(token?: string): Promise<PublicUser | null> {
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
   const hash = tokenHash(token);
   const now = Date.now();
-  const sessions = await readCollection("sessions");
-  const session = sessions.find((item) => item.hash === hash && item.expires > now);
-  if (!session) return null;
-  const user = (await readCollection("users")).find(
-    (item) => item.id === session.userId && !item.disabled,
-  );
-  if (!user) return null;
+  const scopeKey = storageScopeKey();
+
+  const cached = sessionCache.get(hash);
+  if (cached && cached.storageKey === scopeKey && cached.cachedUntil > now && cached.sessionExpires > now) {
+    return cached.user;
+  }
+
+  let session: { hash: string; userId: string; expires: number } | undefined;
+  let user: User | undefined;
+
+  if (usesMongoStorage()) {
+    const sDoc = await readMongoDocById("sessions", hash);
+    if (!sDoc || sDoc.expires <= now) {
+      sessionCache.delete(hash);
+      return null;
+    }
+    session = sDoc;
+    const uDoc = await readMongoDocById("users", session.userId);
+    if (!uDoc || uDoc.disabled) {
+      sessionCache.delete(hash);
+      return null;
+    }
+    user = uDoc;
+  } else {
+    const [sessions, users] = await Promise.all([
+      readCollection("sessions"),
+      readCollection("users"),
+    ]);
+    session = sessions.find((item) => item.hash === hash && item.expires > now);
+    if (!session) {
+      sessionCache.delete(hash);
+      return null;
+    }
+    user = users.find((item) => item.id === session!.userId && !item.disabled);
+    if (!user) {
+      sessionCache.delete(hash);
+      return null;
+    }
+  }
 
   // Sliding session renewal when less than half of session TTL remains
   if (session.expires - now < slidingThresholdMs) {
@@ -300,14 +371,27 @@ export async function getUser(token?: string) {
     }).catch(() => undefined);
   }
 
-  return publicUser(user);
+  const pub = publicUser(user);
+  if (sessionCache.size >= SESSION_CACHE_MAX) {
+    const oldestKey = sessionCache.keys().next().value;
+    if (oldestKey) sessionCache.delete(oldestKey);
+  }
+  sessionCache.set(hash, {
+    user: pub,
+    userId: pub.id,
+    sessionExpires: session.expires,
+    cachedUntil: now + SESSION_CACHE_TTL_MS,
+    storageKey: scopeKey,
+  });
+  return pub;
 }
 
 export async function logout(token?: string) {
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return;
+  const hash = tokenHash(token);
+  invalidateSessionCache({ tokenHash: hash });
   return serialized(async () => {
     const sessions = await readCollection("sessions");
-    const hash = tokenHash(token);
     const session = sessions.find((item) => item.hash === hash);
     if (!session) return;
     await writeCollection(
@@ -365,6 +449,7 @@ export async function setUserDisabled(id: string, disabled: boolean, actor: Publ
       "users",
       users.map((item) => (item.id === id ? updated : item)),
     );
+    invalidateSessionCache({ userId: id });
     await audit(actor.id, disabled ? "disable" : "enable", "users", id);
     return publicUser(updated);
   });
@@ -391,6 +476,9 @@ export async function resetUserPassword(id: string, password: string, actor: Pub
       "users",
       users.map((item) => (item.id === id ? updated : item)),
     );
+    if (id !== actor.id) {
+      invalidateSessionCache({ userId: id });
+    }
     await audit(actor.id, "password-reset", "users", id);
     return publicUser(updated);
   });
@@ -425,6 +513,7 @@ export async function changeOwnPassword(
       "users",
       users.map((item) => (item.id === userId ? updated : item)),
     );
+    invalidateSessionCache({ userId });
     await audit(userId, "password-change", "users", userId);
     return publicUser(updated);
   });

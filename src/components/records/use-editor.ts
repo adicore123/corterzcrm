@@ -2,20 +2,64 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { newRequestId, requestJson, uploadBlobRecord, uploadFaultAttachments, uploadRecord } from "@/lib/client-api";
-import type { Attachment, Module, Photo } from "@/lib/validation/models";
+import {
+  newRequestId,
+  requestJson,
+  stageBlobPhotosBatch,
+  stageFaultAttachmentsBatch,
+  uploadBlobRecord,
+  uploadFaultAttachments,
+  uploadRecord,
+  type StagedAttachmentPayload,
+  type StagedPhotoResult,
+} from "@/lib/client-api";
+import { mapConcurrent } from "@/lib/utils";
+import type { Attachment, Module, Photo, PhotoModule } from "@/lib/validation/models";
 
-type PendingPhoto = { file: File; preview: string; needsServerDecode?: boolean };
-type PendingAttachment = { id: string; file: File; kind: "file" | "video"; preview?: string };
+export type PendingPhoto = {
+  id: string;
+  file: File;
+  preview: string;
+  needsServerDecode?: boolean;
+  uploadStatus?: "idle" | "uploading" | "uploaded";
+  stagedPromise?: Promise<StagedPhotoResult>;
+};
+
+export type PendingAttachment = {
+  id: string;
+  file: File;
+  kind: "file" | "video";
+  preview?: string;
+  uploadStatus?: "idle" | "uploading" | "uploaded";
+  uploadProgress?: number;
+  stagedPromise?: Promise<StagedAttachmentPayload>;
+};
+
 const unsavedMessage = "יש שינויים שלא נשמרו. לצאת מהטופס?";
 const supportedImages = ["image/jpeg", "image/png", "image/webp"];
 const maxUploadBytes = 20 * 1024 * 1024;
-const compressThresholdBytes = 1.5 * 1024 * 1024;
-const clientHeicMaxBytes = 1.8 * 1024 * 1024;
-const heicBrands = new Set(["heic", "heix", "hevc", "hevx", "mif1", "msf1", "heif", "heim", "heis", "hevm", "hevs"]);
+const compressThresholdBytes = 220 * 1024;
+const clientHeicMaxBytes = 10 * 1024 * 1024;
+const heicBrands = new Set([
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "mif1",
+  "msf1",
+  "heif",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+]);
 
 function inferMimeType(file: File, fromCamera: boolean): string {
-  const raw = (file.type || "").split(";")[0].trim().toLowerCase().replace("image/jpg", "image/jpeg");
+  const raw = (file.type || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase()
+    .replace("image/jpg", "image/jpeg");
   if (raw && raw !== "application/octet-stream") return raw;
   const name = (file.name || "").toLowerCase();
   if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
@@ -51,12 +95,19 @@ type DecodedImage = {
 
 async function decodeClientImage(file: Blob): Promise<DecodedImage> {
   try {
-    // Use resizeWidth on large mobile shots (e.g. 108MP) to avoid 400MB+ bitmap RAM spikes.
-    const bitmap = file.size > 2.5 * 1024 * 1024
-      ? await createImageBitmap(file, { imageOrientation: "from-image", resizeWidth: 2200, resizeQuality: "high" })
-          .catch(() => createImageBitmap(file, { imageOrientation: "from-image" }))
-          .catch(() => createImageBitmap(file))
-      : await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() => createImageBitmap(file));
+    // Use resizeWidth on large mobile shots (e.g. 48MP/108MP) to avoid 400MB+ bitmap RAM spikes.
+    const bitmap =
+      file.size > 1.8 * 1024 * 1024
+        ? await createImageBitmap(file, {
+            imageOrientation: "from-image",
+            resizeWidth: 1920,
+            resizeQuality: "high",
+          })
+            .catch(() => createImageBitmap(file, { imageOrientation: "from-image" }))
+            .catch(() => createImageBitmap(file))
+        : await createImageBitmap(file, { imageOrientation: "from-image" }).catch(() =>
+            createImageBitmap(file),
+          );
     return {
       width: bitmap.width,
       height: bitmap.height,
@@ -96,7 +147,7 @@ async function compressDecodedBlob(source: Blob, originalName: string): Promise<
   const decoded = await decodeClientImage(source);
   const canvas = document.createElement("canvas");
   try {
-    const scale = Math.min(1, 2200 / Math.max(decoded.width, decoded.height, 1));
+    const scale = Math.min(1, 1920 / Math.max(decoded.width, decoded.height, 1));
     const width = Math.max(1, Math.round(decoded.width * scale));
     const height = Math.max(1, Math.round(decoded.height * scale));
     canvas.width = width;
@@ -104,9 +155,9 @@ async function compressDecodedBlob(source: Blob, originalName: string): Promise<
     const context = canvas.getContext("2d");
     if (!context) throw new Error("No 2d context");
     decoded.draw(context, width, height);
-    let blob = await canvasToBlob(canvas, "image/webp", 0.85);
+    let blob = await canvasToBlob(canvas, "image/webp", 0.82);
     if (!blob || blob.type !== "image/webp" || blob.size > 4_000_000) {
-      blob = await canvasToBlob(canvas, "image/jpeg", 0.85);
+      blob = await canvasToBlob(canvas, "image/jpeg", 0.82);
     }
     if (blob && blob.size > 4_000_000) {
       blob = await canvasToBlob(canvas, "image/jpeg", 0.72);
@@ -132,7 +183,7 @@ async function prepareClientImage(file: File, fromCamera = false): Promise<Prepa
     if (file.size <= clientHeicMaxBytes) {
       try {
         const { heicTo } = await import("heic-to/next");
-        const converted = await heicTo({ blob: file, type: "image/jpeg", quality: 0.88 });
+        const converted = await heicTo({ blob: file, type: "image/jpeg", quality: 0.86 });
         const compressed = await compressDecodedBlob(converted, file.name || "photo.heic");
         return { file: compressed };
       } catch {
@@ -164,7 +215,11 @@ async function prepareClientImage(file: File, fromCamera = false): Promise<Prepa
     if (file.size <= maxUploadBytes) {
       const buffer = await file.arrayBuffer().catch(() => null);
       if (!buffer) return null;
-      return { file: new File([buffer], file.name || "photo.jpg", { type: inferred || "application/octet-stream" }) };
+      return {
+        file: new File([buffer], file.name || "photo.jpg", {
+          type: inferred || "application/octet-stream",
+        }),
+      };
     }
     return null;
   }
@@ -217,10 +272,27 @@ export function useUnsaved(dirty: boolean, ignore: { current: boolean }) {
       });
     }
     function click(event: MouseEvent) {
-      if (ignore.current || event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      if (
+        ignore.current
+        || event.defaultPrevented
+        || event.metaKey
+        || event.ctrlKey
+        || event.shiftKey
+        || event.altKey
+        || event.button !== 0
+      ) {
+        return;
+      }
       const target = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!(target instanceof HTMLAnchorElement) || target.target === "_blank" || target.hasAttribute("download")
-        || target.protocol === "tel:" || target.href === window.location.href) return;
+      if (
+        !(target instanceof HTMLAnchorElement)
+        || target.target === "_blank"
+        || target.hasAttribute("download")
+        || target.protocol === "tel:"
+        || target.href === window.location.href
+      ) {
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       askLeave(() => {
@@ -229,9 +301,17 @@ export function useUnsaved(dirty: boolean, ignore: { current: boolean }) {
       });
     }
     function navigate(event: Event) {
-      const navigationEvent = event as Event & { navigationType?: string; destination?: { url: string } };
-      if (!ignore.current && event.cancelable && navigationEvent.navigationType === "traverse"
-        && navigationEvent.destination?.url && navigationEvent.destination.url !== window.location.href) {
+      const navigationEvent = event as Event & {
+        navigationType?: string;
+        destination?: { url: string };
+      };
+      if (
+        !ignore.current
+        && event.cancelable
+        && navigationEvent.navigationType === "traverse"
+        && navigationEvent.destination?.url
+        && navigationEvent.destination.url !== window.location.href
+      ) {
         const destinationUrl = navigationEvent.destination.url;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -257,16 +337,23 @@ export function useUnsaved(dirty: boolean, ignore: { current: boolean }) {
   return { promptOpen, confirmLeave, cancelLeave, requestClose, message: unsavedMessage };
 }
 
-export function usePhotoDraft(initial: Photo[]) {
+export function usePhotoDraft(
+  initial: Photo[],
+  options?: { module?: PhotoModule; cloud?: boolean },
+) {
   const [kept, setKept] = useState(initial);
   const [pending, setPending] = useState<PendingPhoto[]>([]);
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
   const processingCount = useRef(0);
   const objectUrls = useRef(new Set<string>());
+
   useEffect(() => {
     const urls = objectUrls.current;
-    return () => { for (const url of urls) URL.revokeObjectURL(url); urls.clear(); };
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
   }, []);
 
   async function add(files: File[], fromCamera = false) {
@@ -275,19 +362,80 @@ export function usePhotoDraft(initial: Photo[]) {
     setProcessing(true);
     try {
       const room = 10 - kept.length - pending.length;
-      const processed: PreparedPhoto[] = [];
-      for (const file of files) {
-        const next = await prepareClientImage(file, fromCamera);
-        if (next) processed.push(next);
+      const results = await mapConcurrent(files, 3, (file) =>
+        prepareClientImage(file, fromCamera),
+      );
+      const processed = results.filter((item): item is PreparedPhoto => item !== null);
+
+      if (processed.length < files.length) {
+        setError("לא ניתן היה לעבד אחת מהתמונות. יש לבחור תמונה עד 20 מ״ב.");
+      } else if (processed.length > room) {
+        setError("ניתן לצרף עד 10 תמונות לרשומה.");
       }
-      if (processed.length < files.length) setError("לא ניתן היה לעבד אחת מהתמונות. יש לבחור תמונה עד 20 מ״ב.");
-      else if (processed.length > room) setError("ניתן לצרף עד 10 תמונות לרשומה.");
-      const added = processed.slice(0, room).map((item) => {
+
+      const canEagerStage = Boolean(options?.cloud && options.module);
+      const added: PendingPhoto[] = processed.slice(0, Math.max(0, room)).map((item) => {
         const preview = URL.createObjectURL(item.file);
         objectUrls.current.add(preview);
-        return { file: item.file, preview, needsServerDecode: item.needsServerDecode };
+        return {
+          id: newRequestId(),
+          file: item.file,
+          preview,
+          needsServerDecode: item.needsServerDecode,
+          uploadStatus: canEagerStage ? "uploading" : "idle",
+        };
       });
-      setPending((items) => [...items, ...added]);
+
+      if (!added.length) return;
+
+      if (canEagerStage && options?.module) {
+        const resolvers = new Map<
+          string,
+          { resolve: (val: StagedPhotoResult) => void; reject: (err: unknown) => void }
+        >();
+        for (const item of added) {
+          item.stagedPromise = new Promise<StagedPhotoResult>((resolve, reject) => {
+            resolvers.set(item.id, { resolve, reject });
+          });
+        }
+
+        setPending((items) => [...items, ...added]);
+
+        // Eagerly stage photos in the background while the user fills out the rest of the form!
+        void stageBlobPhotosBatch(
+          options.module,
+          added.map((it) => ({ id: it.id, file: it.file })),
+          undefined,
+          (id, res) => {
+            resolvers.get(id)?.resolve(res);
+            resolvers.delete(id);
+            setPending((items) =>
+              items.map((it) =>
+                it.id === id
+                  ? { ...it, uploadStatus: "uploaded", stagedPromise: Promise.resolve(res) }
+                  : it,
+              ),
+            );
+          },
+        ).catch((err) => {
+          // Reset unresolved items to idle so clicking Save retries cleanly without stale rejection
+          for (const [, r] of resolvers) {
+            r.reject(err);
+          }
+          setPending((items) =>
+            items.map((it) =>
+              resolvers.has(it.id)
+                ? { ...it, uploadStatus: "idle", stagedPromise: undefined }
+                : it,
+            ),
+          );
+          for (const item of added) {
+            item.stagedPromise?.catch(() => undefined);
+          }
+        });
+      } else {
+        setPending((items) => [...items, ...added]);
+      }
     } finally {
       processingCount.current -= 1;
       if (processingCount.current <= 0) {
@@ -296,17 +444,29 @@ export function usePhotoDraft(initial: Photo[]) {
       }
     }
   }
+
   function removePreview(preview: string) {
     URL.revokeObjectURL(preview);
     objectUrls.current.delete(preview);
     setPending((items) => items.filter((item) => item.preview !== preview));
     setError("");
   }
+
   function removeSaved(id: string) {
     setKept((items) => items.filter((item) => item.id !== id));
     setError("");
   }
-  return { kept, pending, error, processing, add, removePreview, removeSaved, dirty: pending.length > 0 || kept.length !== initial.length };
+
+  return {
+    kept,
+    pending,
+    error,
+    processing,
+    add,
+    removePreview,
+    removeSaved,
+    dirty: pending.length > 0 || kept.length !== initial.length,
+  };
 }
 
 export type PhotoDraft = ReturnType<typeof usePhotoDraft>;
@@ -314,7 +474,7 @@ export type PhotoDraft = ReturnType<typeof usePhotoDraft>;
 const maxFileAttachmentBytes = 25 * 1024 * 1024;
 const maxVideoAttachmentBytes = 100 * 1024 * 1024;
 
-export function useAttachmentDraft(initial: Attachment[]) {
+export function useAttachmentDraft(initial: Attachment[], options?: { cloud?: boolean }) {
   const [kept, setKept] = useState(initial);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   const [error, setError] = useState("");
@@ -322,7 +482,10 @@ export function useAttachmentDraft(initial: Attachment[]) {
 
   useEffect(() => {
     const urls = objectUrls.current;
-    return () => { for (const url of urls) URL.revokeObjectURL(url); urls.clear(); };
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
   }, []);
 
   function add(files: File[], kind: "file" | "video") {
@@ -335,18 +498,87 @@ export function useAttachmentDraft(initial: Attachment[]) {
       valid.push(file);
     }
     if (valid.length < files.length) {
-      setError(kind === "video"
-        ? "אחד הסרטונים גדול מדי (עד 100 מ״ב לסרטון)."
-        : "אחד הקבצים גדול מדי (עד 25 מ״ב לקובץ).");
+      setError(
+        kind === "video"
+          ? "אחד הסרטונים גדול מדי (עד 100 מ״ב לסרטון)."
+          : "אחד הקבצים גדול מדי (עד 25 מ״ב לקובץ).",
+      );
     } else if (valid.length > room) {
       setError("ניתן לצרף עד 15 קבצים וסרטונים למדריך.");
     }
-    const added = valid.slice(0, Math.max(0, room)).map((file) => {
+
+    const canEagerUpload = options?.cloud !== undefined;
+    const added: PendingAttachment[] = valid.slice(0, Math.max(0, room)).map((file) => {
       const preview = kind === "video" ? URL.createObjectURL(file) : undefined;
       if (preview) objectUrls.current.add(preview);
-      return { id: newRequestId(), file, kind, preview };
+      return {
+        id: newRequestId(),
+        file,
+        kind,
+        preview,
+        uploadStatus: canEagerUpload ? "uploading" : "idle",
+        uploadProgress: 0,
+      };
     });
-    setPending((items) => [...items, ...added]);
+
+    if (!added.length) return;
+
+    if (canEagerUpload) {
+      const resolvers = new Map<
+        string,
+        { resolve: (val: StagedAttachmentPayload) => void; reject: (err: unknown) => void }
+      >();
+      for (const item of added) {
+        item.stagedPromise = new Promise<StagedAttachmentPayload>((resolve, reject) => {
+          resolvers.set(item.id, { resolve, reject });
+        });
+      }
+
+      setPending((items) => [...items, ...added]);
+
+      void stageFaultAttachmentsBatch(
+        added.map((it) => ({ id: it.id, file: it.file, kind: it.kind })),
+        Boolean(options?.cloud),
+        undefined,
+        (id, pct) => {
+          setPending((items) =>
+            items.map((it) => (it.id === id ? { ...it, uploadProgress: pct } : it)),
+          );
+        },
+        (id, res) => {
+          resolvers.get(id)?.resolve(res);
+          resolvers.delete(id);
+          setPending((items) =>
+            items.map((it) =>
+              it.id === id
+                ? {
+                    ...it,
+                    uploadStatus: "uploaded",
+                    uploadProgress: 100,
+                    stagedPromise: Promise.resolve(res),
+                  }
+                : it,
+            ),
+          );
+        },
+      ).catch((err) => {
+        for (const [, r] of resolvers) {
+          r.reject(err);
+        }
+        setPending((items) =>
+          items.map((it) =>
+            resolvers.has(it.id)
+              ? { ...it, uploadStatus: "idle", uploadProgress: 0, stagedPromise: undefined }
+              : it,
+          ),
+        );
+        for (const item of added) {
+          item.stagedPromise?.catch(() => undefined);
+        }
+      });
+    } else {
+      setPending((items) => [...items, ...added]);
+    }
   }
 
   function removePending(id: string) {
@@ -367,7 +599,12 @@ export function useAttachmentDraft(initial: Attachment[]) {
   }
 
   return {
-    kept, pending, error, add, removePending, removeSaved,
+    kept,
+    pending,
+    error,
+    add,
+    removePending,
+    removeSaved,
     dirty: pending.length > 0 || kept.length !== initial.length,
   };
 }
@@ -405,16 +642,23 @@ export function useEditor(
     if (!id && !requestId.current) requestId.current = newRequestId();
     const method = id ? "PUT" : "POST";
     try {
-      const photoFiles = photos?.pending.map((item) => item.file) ?? [];
+      const pendingPhotos = photos?.pending ?? [];
       const attachmentFiles = attachments?.pending ?? [];
-      if (photoFiles.length || attachmentFiles.length) setProgress(0);
+      if (pendingPhotos.length || attachmentFiles.length) setProgress(0);
+
       const stagedAttachments = attachmentFiles.length
         ? await uploadFaultAttachments(
-            attachmentFiles.map(({ file, kind }) => ({ file, kind })),
+            attachmentFiles.map(({ id: attId, file, kind, stagedPromise }) => ({
+              id: attId,
+              file,
+              kind,
+              stagedPromise,
+            })),
             cloud,
-            (pct) => setProgress(photoFiles.length ? Math.round(pct * 0.65) : pct),
+            (pct) => setProgress(pendingPhotos.length ? Math.round(pct * 0.65) : pct),
           )
         : undefined;
+
       const payload = {
         ...values,
         version: record?.updatedAt,
@@ -424,17 +668,39 @@ export function useEditor(
         ...(attachments ? { keptAttachments: attachments.kept.map((item) => item.id) } : {}),
         ...(stagedAttachments?.length ? { stagedAttachments } : {}),
       };
-      const photoProgress = (pct: number) => setProgress(
-        attachmentFiles.length ? Math.min(100, 65 + Math.round(pct * 0.35)) : pct,
-      );
+
+      const photoProgress = (pct: number) =>
+        setProgress(attachmentFiles.length ? Math.min(100, 65 + Math.round(pct * 0.35)) : pct);
+
       let saved: { id: string };
-      if (photoFiles.length === 0) saved = await requestJson(endpoint, method, payload);
-      else if (cloud && module !== "customers") saved = await uploadBlobRecord(module, endpoint, method, payload, photoFiles, photoProgress);
-      else saved = await uploadRecord(endpoint, method, payload, photoFiles, photoProgress);
+      if (pendingPhotos.length === 0) {
+        saved = await requestJson(endpoint, method, payload);
+      } else if (cloud && module !== "customers") {
+        saved = await uploadBlobRecord(
+          module,
+          endpoint,
+          method,
+          payload,
+          pendingPhotos.map((p) => ({
+            id: p.id,
+            file: p.file,
+            stagedPromise: p.stagedPromise,
+          })),
+          photoProgress,
+        );
+      } else {
+        saved = await uploadRecord(
+          endpoint,
+          method,
+          payload,
+          pendingPhotos.map((p) => p.file),
+          photoProgress,
+        );
+      }
+
       bypass.current = true;
       setLeaving(true);
       router.push("/" + module + "/" + saved.id + "?saved=1");
-      router.refresh();
     } catch (error) {
       sending.current = false;
       setError((error as Error).message);

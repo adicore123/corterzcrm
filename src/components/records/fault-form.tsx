@@ -62,8 +62,8 @@ export function FaultForm({
   const watchedCommonFaults = useWatch({ control, name: "commonFaults" });
   const commonFaults = useFieldArray({ name: "commonFaults", control, keyName: "fieldKey" });
   const videoLinks = useFieldArray({ name: "videoLinks", control, keyName: "fieldKey" });
-  const photos = usePhotoDraft(record?.photos ?? []);
-  const attachments = useAttachmentDraft(record?.attachments ?? []);
+  const photos = usePhotoDraft(record?.photos ?? [], { module: "faults", cloud });
+  const attachments = useAttachmentDraft(record?.attachments ?? [], { cloud });
   const editor = useEditor("faults", record, isDirty, photos, cloud, attachments);
   const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
   const savedFaultIds = new Set((record?.commonFaults ?? []).map((item) => item.id));
@@ -150,7 +150,14 @@ export function FaultForm({
             <Film size={18} aria-hidden />
             <div>
               <strong>{item.file.name}</strong>
-              <small>{formatBytes(item.file.size)} · ממתין להעלאה בשמירה</small>
+              <small>
+                {formatBytes(item.file.size)} ·{" "}
+                {item.uploadStatus === "uploaded"
+                  ? "הועלה ומוכן לשמירה ✓"
+                  : item.uploadStatus === "uploading"
+                    ? `מעלה ברקע… ${item.uploadProgress ?? 0}%`
+                    : "ממתין להעלאה בשמירה"}
+              </small>
             </div>
           </div>
           <Button size="icon" variant="ghost" aria-label={"הסרת סרטון " + item.file.name} onClick={() => attachments.removePending(item.id)}><X size={16} /></Button>
@@ -276,7 +283,17 @@ export function FaultForm({
         {pendingFiles.map((item) => <div className="attachment-row is-pending" key={item.id}>
           <div className="attachment-meta">
             <FileText size={18} aria-hidden />
-            <div><strong>{item.file.name}</strong><small>{formatBytes(item.file.size)} · ממתין להעלאה בשמירה</small></div>
+            <div>
+              <strong>{item.file.name}</strong>
+              <small>
+                {formatBytes(item.file.size)} ·{" "}
+                {item.uploadStatus === "uploaded"
+                  ? "הועלה ומוכן לשמירה ✓"
+                  : item.uploadStatus === "uploading"
+                    ? `מעלה ברקע… ${item.uploadProgress ?? 0}%`
+                    : "ממתין להעלאה בשמירה"}
+              </small>
+            </div>
           </div>
           <Button size="icon" variant="ghost" aria-label={"הסרת קובץ " + item.file.name} onClick={() => attachments.removePending(item.id)}><X size={16} /></Button>
         </div>)}

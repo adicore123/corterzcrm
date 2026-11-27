@@ -3,6 +3,7 @@ import { Binary } from "mongodb";
 import { z } from "zod";
 import { AppError } from "../errors";
 import { mongoDatabase } from "../json-db/mongo-client";
+import { mapConcurrent } from "../utils";
 import { uuid, type Photo, type PhotoModule } from "../validation/models";
 import { readStagedPhoto, uploadList } from "./blob-images";
 import { maxImageBytes, normalizePhoto } from "./images";
@@ -25,19 +26,25 @@ export async function prepareMongoPhotos(
   user: string,
   staged: z.infer<typeof uploadList>,
 ) {
-  const photos: Photo[] = [];
-  for (const item of staged) {
-    const bytes = await readStagedPhoto(kind, user, item.id);
-    const photo: Photo = {
-      id: randomUUID(),
-      name: item.name,
-      type: "image/webp",
-      bytes: bytes.length,
-    };
-    await putMongoPhoto(kind, photo, bytes);
-    photos.push(photo);
+  if (!staged.length) return [];
+  const saved: Photo[] = [];
+  try {
+    return await mapConcurrent(staged, 3, async (item) => {
+      const bytes = await readStagedPhoto(kind, user, item.id);
+      const photo: Photo = {
+        id: randomUUID(),
+        name: item.name,
+        type: "image/webp",
+        bytes: bytes.length,
+      };
+      await putMongoPhoto(kind, photo, bytes);
+      saved.push(photo);
+      return photo;
+    });
+  } catch (error) {
+    await removeMongoPhotos(kind, saved);
+    throw error;
   }
-  return photos;
 }
 
 /**
@@ -45,12 +52,15 @@ export async function prepareMongoPhotos(
  * (used when CORTEZ_STORAGE_BACKEND === "mongo" and BLOB_READ_WRITE_TOKEN is not configured).
  */
 export async function saveDirectMongoPhotos(kind: PhotoModule, files: File[]): Promise<Photo[]> {
+  if (!files.length) return [];
+  for (const file of files) {
+    if (file.size > maxImageBytes) {
+      throw new AppError(400, "יש לבחור תמונות בגודל של עד 20 מ״ב לתמונה.");
+    }
+  }
   const saved: Photo[] = [];
   try {
-    for (const file of files) {
-      if (file.size > maxImageBytes) {
-        throw new AppError(400, "יש לבחור תמונות בגודל של עד 20 מ״ב לתמונה.");
-      }
+    return await mapConcurrent(files, 3, async (file) => {
       const buffer = await normalizePhoto(Buffer.from(await file.arrayBuffer()), file.type, true);
       const photo: Photo = {
         id: randomUUID(),
@@ -60,8 +70,8 @@ export async function saveDirectMongoPhotos(kind: PhotoModule, files: File[]): P
       };
       await putMongoPhoto(kind, photo, buffer);
       saved.push(photo);
-    }
-    return saved;
+      return photo;
+    });
   } catch (error) {
     await removeMongoPhotos(kind, saved);
     throw error;

@@ -4,6 +4,7 @@ import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
 import { z } from "zod";
 import { AppError } from "../errors";
 import { cloudPrefix } from "../json-db/blob-store";
+import { mapConcurrent } from "../utils";
 import { uuid, type Photo, type PhotoModule } from "../validation/models";
 import { acceptedImageTypes, maxImageBytes, maxPhotos, normalizePhoto } from "./images";
 
@@ -42,7 +43,11 @@ export async function authorizeUpload(kind: PhotoModule, user: string, id: strin
     allowOverwrite: false,
     ttlDays: 1,
   });
-  return { pathname, token };
+  return { id, pathname, token };
+}
+
+export async function authorizeUploads(kind: PhotoModule, user: string, ids: string[]) {
+  return Promise.all(ids.map((id) => authorizeUpload(kind, user, id)));
 }
 
 export async function readStagedPhoto(kind: PhotoModule, user: string, id: string) {
@@ -54,8 +59,8 @@ export async function readStagedPhoto(kind: PhotoModule, user: string, id: strin
   }
   const input = Buffer.from(await new Response(blob.stream).arrayBuffer());
   const normalized = await normalizePhoto(input, blob.blob.contentType, true);
-  // Best-effort cleanup of staging blob after normalization
-  await del(path).catch(() => undefined);
+  // Non-blocking cleanup of staging blob (TTL=1 day also cleans up on crash)
+  void del(path).catch(() => undefined);
   return normalized;
 }
 
@@ -64,19 +69,25 @@ export async function prepareBlobPhotos(
   user: string,
   staged: z.infer<typeof uploadList>,
 ) {
-  const photos: Photo[] = [];
-  for (const item of staged) {
-    const bytes = await readStagedPhoto(kind, user, item.id);
-    const photo = {
-      id: randomUUID(),
-      name: item.name,
-      type: "image/webp" as const,
-      bytes: bytes.length,
-    };
-    await put(photoPath(kind, photo.id), bytes, { ...privateAccess, contentType: photo.type });
-    photos.push(photo);
+  if (!staged.length) return [];
+  const saved: Photo[] = [];
+  try {
+    return await mapConcurrent(staged, 3, async (item) => {
+      const bytes = await readStagedPhoto(kind, user, item.id);
+      const photo: Photo = {
+        id: randomUUID(),
+        name: item.name,
+        type: "image/webp",
+        bytes: bytes.length,
+      };
+      await put(photoPath(kind, photo.id), bytes, { ...privateAccess, contentType: photo.type });
+      saved.push(photo);
+      return photo;
+    });
+  } catch (error) {
+    await removeBlobPhotos(kind, saved);
+    throw error;
   }
-  return photos;
 }
 
 export async function removeBlobPhotos(kind: PhotoModule, photos: Photo[]) {

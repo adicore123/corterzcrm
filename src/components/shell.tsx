@@ -52,11 +52,16 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
         {inDrawer && <Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="סגירת תפריט"><X size={22} /></Button></Dialog.Close>}
       </div>
       <nav className="side-nav" aria-label="ניווט ראשי">
-        {navigation.map(([key, Icon]) => <Link href={"/" + key} key={key} prefetch={false}
-          onClick={(event) => { if (!event.defaultPrevented) setDrawer(false); }}
-          aria-current={current === key ? "page" : undefined} title={compact ? labels[key] : undefined}>
-          <Icon size={19} aria-hidden /><span className={compact ? "sr-only" : undefined}>{labels[key]}</span>
-        </Link>)}
+        {navigation.map(([key, Icon]) => {
+          const href = "/" + key;
+          return <Link href={href} key={key} prefetch={false}
+            onPointerEnter={() => router.prefetch(href)}
+            onTouchStart={() => router.prefetch(href)}
+            onClick={(event) => { if (!event.defaultPrevented) setDrawer(false); }}
+            aria-current={current === key ? "page" : undefined} title={compact ? labels[key] : undefined}>
+            <Icon size={19} aria-hidden /><span className={compact ? "sr-only" : undefined}>{labels[key]}</span>
+          </Link>;
+        })}
       </nav>
       <div className="side-footer">
         <Link className="profile" href="/settings" onClick={() => setDrawer(false)} title={compact ? user.name : undefined}>

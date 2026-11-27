@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,35 +28,15 @@ export function QuickStatus({ module, record }: {
     if (busy || nextStatus === status) return;
     setBusy(nextStatus);
     setError("");
-    const payload = "tasks" in record
-      ? {
-          number: record.number,
-          device: record.device,
-          model: record.model,
-          status: nextStatus,
-          delay: record.delay,
-          delayReason: record.delayReason,
-          notes: record.notes,
-          tasks: record.tasks,
-          version,
-          keptPhotos: record.photos.map((p) => p.id),
-        }
-      : {
-          device: record.device,
-          model: record.model,
-          serial: record.serial,
-          customerId: record.customerId,
-          fault: record.fault,
-          work: record.work,
-          status: nextStatus,
-          version,
-          keptPhotos: record.photos.map((p) => p.id),
-        };
     try {
-      const saved = await requestJson<{ updatedAt: string }>("/api/records/" + module + "/" + record.id, "PUT", payload);
+      const saved = await requestJson<{ updatedAt: string }>(
+        "/api/records/" + module + "/" + record.id,
+        "PATCH",
+        { status: nextStatus, version },
+      );
       setStatus(nextStatus as typeof status);
       setVersion(saved.updatedAt);
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (error) {
       setError((error as Error).message);
     } finally {

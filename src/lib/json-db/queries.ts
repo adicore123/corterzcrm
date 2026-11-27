@@ -1,3 +1,5 @@
+import { usesMongoStorage } from "./mongo-client";
+import { readMongoDistinctModelNames } from "./mongo-store";
 import { readCollection } from "./store";
 import { defaultCatalogModels } from "./cortez-catalog";
 import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "../validation/models";
@@ -105,6 +107,15 @@ export async function catalogModels(): Promise<CatalogModel[]> {
 }
 
 export async function knownModels() {
+  if (usesMongoStorage()) {
+    const [models, distinctUsed] = await Promise.all([
+      catalogModels(),
+      readMongoDistinctModelNames(),
+    ]);
+    return Array.from(new Set([...models.map((item) => item.name), ...distinctUsed])).sort((a, b) =>
+      a.localeCompare(b, "he"),
+    );
+  }
   const [models, standards, repairs, faults] = await Promise.all([
     catalogModels(), readCollection("standards"), readCollection("repairs"), readCollection("faults"),
   ]);

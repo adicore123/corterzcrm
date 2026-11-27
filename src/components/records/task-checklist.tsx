@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ListChecks } from "lucide-react";
 import { TaskProgress } from "@/components/record-cells";
@@ -20,21 +20,13 @@ export function TaskChecklist({ record, readOnly = false }: { record: Standard; 
     setBusyId(taskId);
     setError("");
     try {
-      const saved = await requestJson<{ updatedAt: string }>("/api/records/standards/" + record.id, "PUT", {
-        number: record.number,
-        device: record.device,
-        model: record.model,
-        status: record.status,
-        delay: record.delay,
-        delayReason: record.delayReason,
-        notes: record.notes,
+      const saved = await requestJson<{ updatedAt: string }>("/api/records/standards/" + record.id, "PATCH", {
         tasks: nextTasks,
         version,
-        keptPhotos: record.photos.map((photo) => photo.id),
       });
       setTasks(nextTasks);
       setVersion(saved.updatedAt);
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (error) {
       setError((error as Error).message);
     } finally {

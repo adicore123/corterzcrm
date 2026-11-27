@@ -85,11 +85,13 @@ export function PhotoPicker({ module, id, photos, onAuthorizeDelete, canDelete =
             <div className="photo-preview photo-heic-pending" aria-label={"תמונה " + number}>
               <Images size={24} aria-hidden />
               <strong>HEIC</strong>
-              <span>יומר בשמירה</span>
+              <span>{photo.uploadStatus === "uploaded" ? "מוכן ✓" : photo.uploadStatus === "uploading" ? "מעלה…" : "יומר בשמירה"}</span>
             </div>
           ) : (
             <PhotoPreview url={photo.preview} label={"תמונה " + number} name={photo.file.name} />
           )}
+          {photo.uploadStatus === "uploading" && <span className="photo-stage-badge is-uploading" aria-hidden>מעלה…</span>}
+          {photo.uploadStatus === "uploaded" && <span className="photo-stage-badge is-ready" aria-hidden>מוכן ✓</span>}
           <button className="photo-remove" type="button" aria-label={"הסרת תמונה " + number} onClick={() => photos.removePreview(photo.preview)}><X size={16} /></button>
         </div>;
       })}

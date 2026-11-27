@@ -32,7 +32,7 @@ export function StandardsForm({ record, models, catalog = [], initialModel, clou
   const delay = useWatch({ name: "delay", control });
   const selectedDevice = useWatch({ name: "device", control });
   const selectedModel = useWatch({ name: "model", control });
-  const photos = usePhotoDraft(record?.photos ?? []);
+  const photos = usePhotoDraft(record?.photos ?? [], { module: "standards", cloud });
   const editor = useEditor("standards", record, isDirty, photos, cloud);
   const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
   const savedTaskIds = new Set((record?.tasks ?? []).map((item) => item.id));

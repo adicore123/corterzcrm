@@ -4,7 +4,7 @@ import path from "node:path";
 import { AppError } from "../errors";
 import { blobTransaction, listBlobBackups, readBlobBackup, readBlobCollection, usesBlobStorage, writeBlobBackup, writeBlobCollection } from "./blob-store";
 import { usesMongoStorage } from "./mongo-client";
-import { listMongoBackups, mongoTransaction, readMongoBackup, readMongoCollection, writeMongoBackup, writeMongoCollection } from "./mongo-store";
+import { listMongoBackups, mongoTransaction, readMongoBackup, readMongoCollection, writeMongoBackup, writeMongoCollection, appendMongoAudit } from "./mongo-store";
 import { collections, initialCounters, initialSettings, type Collection, type Data } from "./collections";
 import { defaultCatalogModels } from "./cortez-catalog";
 const roots = globalThis as typeof globalThis & {
@@ -138,8 +138,13 @@ export async function reserveNumber(key: "standards" | "repairs" | "orders") {
 
 export async function audit(actor: string, action: string, entity: string, entityId: string) {
   try {
+    const event = { id: randomUUID(), at: new Date().toISOString(), actor, action, entity, entityId };
+    if (usesMongoStorage()) {
+      await appendMongoAudit(event);
+      return;
+    }
     const events = await readCollection("activity");
-    events.push({ id: randomUUID(), at: new Date().toISOString(), actor, action, entity, entityId });
+    events.push(event);
     await writeCollection("activity", events.slice(-2000));
   } catch (error) {
     console.error("[cortez] Audit event failed", { actor, action, entity, entityId }, error);

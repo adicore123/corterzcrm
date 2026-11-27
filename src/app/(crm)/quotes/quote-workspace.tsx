@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { startTransition, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Copy, ExternalLink, MessageCircle, PackagePlus, Plus } from "lucide-react";
@@ -39,6 +39,16 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
   const [error, setError] = useState("");
   const [shareHint, setShareHint] = useState("");
   const [created, setCreated] = useState<PublicQuote | null>(null);
+  const [addedQuotes, setAddedQuotes] = useState<PublicQuote[]>([]);
+  const [cancelledIds, setCancelledIds] = useState<Set<string>>(() => new Set());
+
+  const liveQuotes = useMemo(() => {
+    const serverIds = new Set(quotes.map((q) => q.id));
+    const fresh = addedQuotes.filter((q) => !serverIds.has(q.id));
+    return [...fresh, ...quotes].map((q) =>
+      cancelledIds.has(q.id) ? { ...q, status: "cancelled" as const } : q,
+    );
+  }, [quotes, addedQuotes, cancelledIds]);
 
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
 
@@ -97,8 +107,9 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "לא ניתן לשמור את ההצעה");
       setCreated(data);
+      setAddedQuotes((prev) => [data, ...prev.filter((q) => q.id !== data.id)]);
       setOpen(false);
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (caught) {
       setError((caught as Error).message);
     } finally {
@@ -129,8 +140,12 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
   async function cancel(id: string) {
     if (!window.confirm("לבטל את ההצעה? הקישור שנשלח ללקוח יפסיק לעבוד.")) return;
     const response = await fetch(`/api/quotes/${id}`, { method: "DELETE" });
-    if (response.ok) router.refresh();
-    else setError((await response.json()).error || "לא ניתן לבטל את ההצעה");
+    if (response.ok) {
+      setCancelledIds((prev) => new Set(prev).add(id));
+      startTransition(() => router.refresh());
+    } else {
+      setError((await response.json()).error || "לא ניתן לבטל את ההצעה");
+    }
   }
 
   return (
@@ -349,9 +364,9 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
             {error}
           </p>
         )}
-        {quotes.length ? (
+        {liveQuotes.length ? (
           <div className="quote-list">
-            {quotes.map((quote) => {
+            {liveQuotes.map((quote) => {
               const model = modelsById.get(quote.modelId);
               const thumbUrl = model?.imageUrl || model?.exhibitUrl;
               return (

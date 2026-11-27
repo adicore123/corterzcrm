@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { startTransition, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bike,
@@ -178,6 +178,22 @@ export function OrdersWorkspace({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  // Instant optimistic/local order list overlays so UI updates in <1ms while RSC refreshes silently
+  const [addedOrders, setAddedOrders] = useState<Order[]>([]);
+  const [patchedOrders, setPatchedOrders] = useState<Record<string, Order>>({});
+  const [deletedOrderIds, setDeletedOrderIds] = useState<Set<string>>(() => new Set());
+
+  const liveOrders = useMemo(() => {
+    const serverIds = new Set(orders.map((o) => o.id));
+    const freshAdded = addedOrders.filter((o) => !serverIds.has(o.id));
+    return [...freshAdded, ...orders]
+      .filter((o) => !deletedOrderIds.has(o.id))
+      .map((o) => {
+        const local = patchedOrders[o.id];
+        return local && local.updatedAt >= o.updatedAt ? local : o;
+      });
+  }, [orders, addedOrders, patchedOrders, deletedOrderIds]);
+
   const selectedCustomer = selectedCustomerId
     ? customersById.get(selectedCustomerId)
     : undefined;
@@ -202,16 +218,16 @@ export function OrdersWorkspace({
   }, [customers, customerSearch]);
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: orders.length };
+    const counts: Record<string, number> = { all: liveOrders.length };
     for (const st of orderStatuses) counts[st] = 0;
-    for (const o of orders) counts[o.status] = (counts[o.status] ?? 0) + 1;
+    for (const o of liveOrders) counts[o.status] = (counts[o.status] ?? 0) + 1;
     return counts;
-  }, [orders]);
+  }, [liveOrders]);
 
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("he");
     const qDigits = q.replace(/\D/g, "");
-    return orders.filter((order) => {
+    return liveOrders.filter((order) => {
       if (statusFilter !== "all" && order.status !== statusFilter) return false;
       if (!q) return true;
       const haystacks = [
@@ -230,7 +246,7 @@ export function OrdersWorkspace({
       }
       return false;
     });
-  }, [orders, statusFilter, search]);
+  }, [liveOrders, statusFilter, search]);
 
   function resetNewOrderForm() {
     setSelectedCustomerId("");
@@ -302,7 +318,7 @@ export function OrdersWorkspace({
       setCustomerPickerOpen(false);
       setNewCustOpen(false);
       newCustRequestId.current = "";
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (caught) {
       setNewCustError((caught as Error).message);
     } finally {
@@ -375,9 +391,10 @@ export function OrdersWorkspace({
       const saved = await requestJson<Order>("/api/orders", "POST", payload);
       const waUrl = buildMoranOrderWhatsappUrl(saved, moranPhone, pickupAddress);
       setCreatedOrder(saved);
+      setAddedOrders((prev) => [saved, ...prev.filter((o) => o.id !== saved.id)]);
       setOpenForm(false);
       resetNewOrderForm();
-      router.refresh();
+      startTransition(() => router.refresh());
       launchWhatsappUrl(waUrl, pendingTab);
     } catch (caught) {
       if (pendingTab && !pendingTab.closed) {
@@ -397,8 +414,9 @@ export function OrdersWorkspace({
     setListError("");
     setBusyOrderId(orderId);
     try {
-      await requestJson(`/api/orders/${orderId}`, "PATCH", { status: nextStatus });
-      router.refresh();
+      const updated = await requestJson<Order>(`/api/orders/${orderId}`, "PATCH", { status: nextStatus });
+      setPatchedOrders((prev) => ({ ...prev, [orderId]: updated }));
+      startTransition(() => router.refresh());
     } catch (caught) {
       setListError((caught as Error).message);
     } finally {
@@ -1266,7 +1284,7 @@ export function OrdersWorkspace({
           </div>
         ) : (
           <p className="muted">
-            {orders.length === 0
+            {liveOrders.length === 0
               ? "עדיין לא נפתחו הזמנות. לחצו על 'הזמנה חדשה' כדי לשלוח הזמנה ראשונה למורן."
               : "לא נמצאו הזמנות התואמות לסינון."}
           </p>
@@ -1292,14 +1310,16 @@ export function OrdersWorkspace({
         error={deleteError}
         onConfirm={async (deletePassword) => {
           if (!deleteTarget) return;
+          const targetId = deleteTarget.id;
           setDeleteBusy(true);
           setDeleteError("");
           try {
-            await requestJson(`/api/orders/${deleteTarget.id}`, "DELETE", {
+            await requestJson(`/api/orders/${targetId}`, "DELETE", {
               deletePassword,
             });
+            setDeletedOrderIds((prev) => new Set(prev).add(targetId));
             setDeleteTarget(null);
-            router.refresh();
+            startTransition(() => router.refresh());
           } catch (caught) {
             setDeleteError((caught as Error).message);
           } finally {

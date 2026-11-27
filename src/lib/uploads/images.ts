@@ -4,6 +4,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { AppError } from "../errors";
 import { atomicWrite, storageRoot } from "../json-db/store";
+import { mapConcurrent } from "../utils";
 import { uuid, type Photo, type PhotoModule } from "../validation/models";
 
 export const maxPhotos = 10;
@@ -13,9 +14,9 @@ const MAX_SAFE_INPUT_PIXELS = 100_000_000;
 const supportedSharpFormats = new Set(["jpeg", "png", "webp", "heif", "avif", "gif", "tiff"]);
 const heicBrands = new Set(["heic", "heix", "hevc", "hevx", "mif1", "msf1", "heif", "heim", "heis", "hevm", "hevs"]);
 
-// Bound libvips worker threads & internal memory cache to prevent serverless OOM spikes
-sharp.concurrency(2);
-sharp.cache({ memory: 50, files: 0, items: 50 });
+// Bound libvips worker threads & internal memory cache to prevent serverless OOM spikes while keeping multi-photo batches fast
+sharp.concurrency(3);
+sharp.cache({ memory: 64, files: 0, items: 64 });
 
 export function isHeicBuffer(bytes: Uint8Array): boolean {
   if (bytes.length < 16) return false;
@@ -44,13 +45,13 @@ async function decodeHeicToWebp(bytes: Buffer, fitFunctionResponse: boolean) {
     limitInputPixels: MAX_SAFE_INPUT_PIXELS,
   };
   const result = await sharp(rawBuffer, rawOptions)
-    .resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 86 })
+    .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+    .webp({ quality: 84, effort: 2 })
     .toBuffer();
   if (!fitFunctionResponse || result.length <= 4_000_000) return result;
   return await sharp(rawBuffer, rawOptions)
     .resize({ width: 1400, height: 1400, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 76 })
+    .webp({ quality: 74, effort: 2 })
     .toBuffer();
 }
 
@@ -93,11 +94,11 @@ export async function normalizePhoto(bytes: Buffer, type: string, fitFunctionRes
     }
     // Validate strictly by actual decoded image format, never rejecting valid files whose filename/MIME differs (e.g. WhatsApp/Android).
     try {
-      const result = await image.clone().rotate().resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 86 }).toBuffer();
+      const result = await image.clone().rotate().resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 84, effort: 2 }).toBuffer();
       if (!fitFunctionResponse || result.length <= 4_000_000) return result;
       return await image.rotate().resize({ width: 1400, height: 1400, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 76 }).toBuffer();
+        .webp({ quality: 74, effort: 2 }).toBuffer();
     } catch (sharpError) {
       if (info.format === "heif") {
         return await decodeHeicToWebp(bytes, fitFunctionResponse);
@@ -115,18 +116,26 @@ export async function normalizePhoto(bytes: Buffer, type: string, fitFunctionRes
 }
 
 export async function savePhotos(module: PhotoModule, files: File[]) {
+  if (!files.length) return [];
+  for (const file of files) {
+    if (file.size > maxImageBytes) {
+      throw new AppError(400, "יש לבחור תמונות בגודל של עד 20 מ״ב לתמונה.");
+    }
+  }
   const saved: Photo[] = [];
   try {
-    for (const file of files) {
-      if (file.size > maxImageBytes) {
-        throw new AppError(400, "יש לבחור תמונות בגודל של עד 20 מ״ב לתמונה.");
-      }
+    return await mapConcurrent(files, 3, async (file) => {
       const buffer = await normalizePhoto(Buffer.from(await file.arrayBuffer()), file.type);
-      const photo = { id: randomUUID(), name: file.name.slice(0, 255), type: "image/webp" as const, bytes: buffer.length };
+      const photo: Photo = {
+        id: randomUUID(),
+        name: file.name.slice(0, 255),
+        type: "image/webp",
+        bytes: buffer.length,
+      };
       await atomicWrite(imagePath(module, photo.id), buffer);
       saved.push(photo);
-    }
-    return saved;
+      return photo;
+    });
   } catch (error) {
     await removePhotos(module, saved);
     throw error;

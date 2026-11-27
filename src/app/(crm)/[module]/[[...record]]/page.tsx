@@ -55,7 +55,11 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   if (kind === "customers") return <CustomerForm record={record && "phone" in record ? record : undefined} />;
   const cloud = usesBlobStorage();
   if (kind === "models") return <ModelForm record={record && !("phone" in record) && !("model" in record) ? record : undefined} cloud={cloud} />;
-  const [models, catalog] = await Promise.all([knownModels(), catalogModels()]);
+  const [models, catalog, customers] = await Promise.all([
+    knownModels(),
+    catalogModels(),
+    kind === "repairs" ? readCollection("customers") : Promise.resolve([]),
+  ]);
   const initialModel = catalog.find((item) => item.id === value("model"));
   if (kind === "faults") {
     return <FaultForm record={record && "commonFaults" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} canDelete={canDeleteItems(user.role)} />;
@@ -63,7 +67,6 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   if (kind === "standards") {
     return <StandardsForm record={record && "tasks" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
   }
-  const customers = await readCollection("customers");
   customers.sort((a, b) => a.name.localeCompare(b.name, "he"));
   return <RepairForm record={record && "serial" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel}
     customers={customers} cloud={cloud} customerId={customers.find((customer) => customer.id === value("customer"))?.id} />;

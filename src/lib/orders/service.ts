@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireAdmin, requireDeletePassword } from "../auth/session";
 import { AppError } from "../errors";
-import { stripUndefined } from "../json-db/mongo-store";
+import { usesMongoStorage } from "../json-db/mongo-client";
+import { readMongoDocById, stripUndefined } from "../json-db/mongo-store";
 import { catalogModels } from "../json-db/queries";
 import {
   audit,
@@ -34,6 +35,14 @@ export async function listOrderCustomers(): Promise<Customer[]> {
   return [...all].sort((a, b) => a.name.localeCompare(b.name, "he"));
 }
 
+async function readActiveActor(userId: string) {
+  if (usesMongoStorage()) {
+    const doc = await readMongoDocById("users", userId);
+    return doc && !doc.disabled ? doc : undefined;
+  }
+  return (await readCollection("users")).find((user) => user.id === userId && !user.disabled);
+}
+
 /**
  * Creates a new customer directly from the Orders module (permitted for agents, employees, and admins),
  * deduplicating cleanly if a customer with the same canonical phone already exists.
@@ -45,9 +54,7 @@ export async function createCustomerFromOrderForm(
   const input = orderInlineCustomerInputSchema.parse(raw);
 
   return serialized(async () => {
-    const active = (await readCollection("users")).find(
-      (user) => user.id === actor.id && !user.disabled,
-    );
+    const active = await readActiveActor(actor.id);
     if (!active) throw new AppError(401, "יש להיכנס למערכת.");
 
     const customers = await readCollection("customers");
@@ -90,14 +97,18 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
   const input = orderCreateInputSchema.parse(raw);
 
   return serialized(async () => {
-    const active = (await readCollection("users")).find(
-      (user) => user.id === actor.id && !user.disabled,
-    );
+    const active = await readActiveActor(actor.id);
     if (!active) throw new AppError(401, "יש להיכנס למערכת.");
 
-    const [models, customers] = await Promise.all([
+    const [models, directCustomer, allCustomers, existingOrders] = await Promise.all([
       catalogModels(),
-      readCollection("customers"),
+      input.customerId && usesMongoStorage()
+        ? readMongoDocById("customers", input.customerId)
+        : Promise.resolve(null),
+      input.customerId && usesMongoStorage()
+        ? Promise.resolve([] as Customer[])
+        : readCollection("customers"),
+      readCollection("orders"),
     ]);
     const modelsById = new Map(models.map((m) => [m.id, m]));
 
@@ -130,7 +141,8 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
     let resolvedCustomerPhone: string;
 
     if (input.customerId) {
-      const customerRecord = customers.find((c) => c.id === input.customerId);
+      const customerRecord =
+        directCustomer ?? allCustomers.find((c) => c.id === input.customerId);
       if (!customerRecord) {
         throw new AppError(404, "הלקוח שנבחר לא נמצא במאגר הלקוחות.");
       }
@@ -147,7 +159,7 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
     } else {
       const targetDigits = toCanonicalCustomerDigits(input.customerPhone);
       const matchedCustomer = targetDigits
-        ? customers.find((c) => toCanonicalCustomerDigits(c.phone) === targetDigits)
+        ? allCustomers.find((c) => toCanonicalCustomerDigits(c.phone) === targetDigits)
         : undefined;
       resolvedCustomerId = matchedCustomer?.id;
       resolvedCustomerType = input.customerType ?? "private";
@@ -184,7 +196,6 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
       }),
     );
 
-    const existingOrders = await readCollection("orders");
     await writeCollection("orders", [...existingOrders, order]);
     await audit(active.id, "create", "orders", order.id);
     return order;
@@ -205,9 +216,7 @@ export async function updateOrder(
   const patch = orderPatchSchema.parse(rawPatch);
 
   return serialized(async () => {
-    const active = (await readCollection("users")).find(
-      (user) => user.id === actor.id && !user.disabled,
-    );
+    const active = await readActiveActor(actor.id);
     if (!active) throw new AppError(401, "יש להיכנס למערכת.");
 
     const orders = await readCollection("orders");

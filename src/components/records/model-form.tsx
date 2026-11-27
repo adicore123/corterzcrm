@@ -45,7 +45,7 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
   const watchedName = useWatch({ control, name: "name" });
   const specs = useFieldArray({ name: "specs", control, keyName: "fieldKey" });
   const features = useFieldArray({ name: "features", control, keyName: "fieldKey" });
-  const photos = usePhotoDraft(record?.photos ?? []);
+  const photos = usePhotoDraft(record?.photos ?? [], { module: "models", cloud });
   const editor = useEditor("models", record, isDirty, photos, cloud);
   const { requestDelete, dialog: deleteDialog } = useProtectedDelete(editor.authorizeDelete);
 

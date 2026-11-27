@@ -9,6 +9,7 @@ import { z } from "zod";
 import { AppError } from "../errors";
 import { cloudPrefix, usesBlobStorage } from "../json-db/blob-store";
 import { atomicWrite, ensureStorage, storageRoot } from "../json-db/store";
+import { mapConcurrent } from "../utils";
 import { uuid, type Attachment } from "../validation/models";
 
 export const maxAttachments = 15;
@@ -106,7 +107,11 @@ export async function authorizeAttachmentUpload(id: string, kind: "file" | "vide
     addRandomSuffix: false,
     allowOverwrite: false,
   });
-  return { pathname, token };
+  return { id, pathname, token };
+}
+
+export async function authorizeAttachmentUploads(items: Array<{ id: string; kind: "file" | "video" }>) {
+  return Promise.all(items.map((item) => authorizeAttachmentUpload(item.id, item.kind)));
 }
 
 export async function saveLocalAttachmentFile(id: string, file: File, kind: "file" | "video"): Promise<Attachment> {
@@ -126,8 +131,8 @@ export async function saveLocalAttachmentFile(id: string, file: File, kind: "fil
 }
 
 export async function verifyStagedAttachments(staged: StagedAttachment[]): Promise<Attachment[]> {
-  const verified: Attachment[] = [];
-  for (const item of staged) {
+  if (!staged.length) return [];
+  return mapConcurrent(staged, 4, async (item): Promise<Attachment> => {
     const limit = item.kind === "video" ? maxVideoBytes : maxFileBytes;
     if (usesBlobStorage()) {
       let meta;
@@ -142,24 +147,22 @@ export async function verifyStagedAttachments(staged: StagedAttachment[]): Promi
           : "גודל הקובץ חורג מהמותר (עד 25 מ״ב).");
       }
       const resolvedType = resolveAttachmentMime(item.name, item.type || meta.contentType, item.kind);
-      verified.push({ id: item.id, name: item.name, type: resolvedType, bytes: meta.size, kind: item.kind });
-    } else {
-      let info;
-      try {
-        info = await stat(localAttachmentPath(item.id));
-      } catch {
-        throw new AppError(400, "אחד הקבצים או הסרטונים לא הועלה בהצלחה. יש לנסות שוב.");
-      }
-      if (!info.size || info.size > limit) {
-        throw new AppError(400, item.kind === "video"
-          ? "גודל הסרטון חורג מהמותר (עד 100 מ״ב)."
-          : "גודל הקובץ חורג מהמותר (עד 25 מ״ב).");
-      }
-      const resolvedType = resolveAttachmentMime(item.name, item.type, item.kind);
-      verified.push({ id: item.id, name: item.name, type: resolvedType, bytes: info.size, kind: item.kind });
+      return { id: item.id, name: item.name, type: resolvedType, bytes: meta.size, kind: item.kind };
     }
-  }
-  return verified;
+    let info;
+    try {
+      info = await stat(localAttachmentPath(item.id));
+    } catch {
+      throw new AppError(400, "אחד הקבצים או הסרטונים לא הועלה בהצלחה. יש לנסות שוב.");
+    }
+    if (!info.size || info.size > limit) {
+      throw new AppError(400, item.kind === "video"
+        ? "גודל הסרטון חורג מהמותר (עד 100 מ״ב)."
+        : "גודל הקובץ חורג מהמותר (עד 25 מ״ב).");
+    }
+    const resolvedType = resolveAttachmentMime(item.name, item.type, item.kind);
+    return { id: item.id, name: item.name, type: resolvedType, bytes: info.size, kind: item.kind };
+  });
 }
 
 export async function removeAttachments(attachments: Attachment[]) {

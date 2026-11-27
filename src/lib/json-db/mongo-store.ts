@@ -28,9 +28,21 @@ const ARRAY_COLLECTION_NAMES: Record<ArrayCollectionKey, string> = {
 
 const BACKUP_CHUNK_SIZE = 250;
 
-/** Strip explicit `undefined` keys recursively so MongoDB BSON never coerces them to `null`. */
+/** Strip explicit `undefined` keys recursively in-memory so MongoDB BSON never coerces them to `null`. */
 export function stripUndefined<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object" && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v !== undefined) {
+        out[k] = stripUndefined(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
 }
 
 const nonNullableOptionalModelKeys = [
@@ -118,18 +130,23 @@ async function acquireNamedLock(db: Db, lockId: string, ttlMs = 15_000): Promise
   for (let attempt = 0; attempt < 40; attempt++) {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlMs);
-    await locks.deleteOne({ _id: lockId, expiresAt: { $lte: now } }).catch(() => undefined);
+    // Fast single-RTT path when uncontended (99.9% of writes)
     try {
-      const res = await locks.updateOne(
-        { _id: lockId },
-        { $setOnInsert: { _id: lockId, owner, expiresAt } },
-        { upsert: true },
-      );
-      if (res.upsertedCount === 1) return owner;
-      const existing = await locks.findOne({ _id: lockId });
-      if (existing?.owner === owner) return owner;
+      await locks.insertOne({ _id: lockId, owner, expiresAt });
+      return owner;
     } catch {
-      // Duplicate key under contention — retry after short jitter
+      // Lock exists: evict if expired and retry with jitter
+      await locks.deleteOne({ _id: lockId, expiresAt: { $lte: now } }).catch(() => undefined);
+      try {
+        const res = await locks.updateOne(
+          { _id: lockId },
+          { $setOnInsert: { _id: lockId, owner, expiresAt } },
+          { upsert: true },
+        );
+        if (res.upsertedCount === 1) return owner;
+      } catch {
+        // Still held by active transaction
+      }
     }
     await delay(Math.min(250, 8 * 1.45 ** attempt) * (0.6 + Math.random() * 0.6));
   }
@@ -304,43 +321,50 @@ async function persistCollectionDiff<K extends Collection>(
   prevValue: Data<K> | undefined,
   nextValue: Data<K>,
 ) {
-  const validated = stripUndefined(collections[key].schema.parse(nextValue)) as Data<K>;
-
   if (key === "counters" || key === "settings") {
+    const validated = stripUndefined(nextValue) as Record<string, unknown>;
     await db
       .collection<Document & { _id: string }>("crm_meta")
-      .replaceOne({ _id: key }, { _id: key, ...(validated as Record<string, unknown>) }, { upsert: true });
+      .replaceOne({ _id: key }, { _id: key, ...validated }, { upsert: true });
     return;
   }
 
   const arrKey = key as ArrayCollectionKey;
   const col = db.collection<Document & { _id: string }>(ARRAY_COLLECTION_NAMES[arrKey]);
-  const nextItems = validated as unknown as Array<Record<string, unknown>>;
+  const nextItems = nextValue as unknown as Array<Record<string, unknown>>;
   const nextById = new Map<string, Record<string, unknown>>();
   for (const item of nextItems) {
     nextById.set(getItemDocId(arrKey, item), item);
   }
 
-  let prevSerializedById: Map<string, string>;
+  let prevItemById: Map<string, Record<string, unknown>> | null = null;
+  let existingIdSet: Set<string>;
   if (prevValue !== undefined) {
-    prevSerializedById = new Map();
+    prevItemById = new Map();
     for (const item of prevValue as unknown as Array<Record<string, unknown>>) {
-      const cleaned = stripUndefined(item);
-      prevSerializedById.set(getItemDocId(arrKey, cleaned), JSON.stringify(cleaned));
+      prevItemById.set(getItemDocId(arrKey, item), item);
     }
+    existingIdSet = new Set(prevItemById.keys());
   } else {
     const existingIds = await col.find({}, { projection: { _id: 1 } }).toArray();
-    prevSerializedById = new Map(existingIds.map((doc) => [String(doc._id), ""]));
+    existingIdSet = new Set(existingIds.map((doc) => String(doc._id)));
   }
 
   const ops: AnyBulkWriteOperation<Document & { _id: string }>[] = [];
-  for (const [docId, item] of nextById) {
-    const prevJson = prevSerializedById.get(docId);
-    if (prevJson === undefined || prevJson !== JSON.stringify(item)) {
+  for (const [docId, rawItem] of nextById) {
+    const prevItem = prevItemById?.get(docId);
+    // Fast-path: identical JS object reference means untouched record (skips O(N) stringify!)
+    if (prevItem === rawItem) continue;
+
+    const cleanedNext = stripUndefined(rawItem);
+    const changed =
+      prevItem === undefined
+      || JSON.stringify(stripUndefined(prevItem)) !== JSON.stringify(cleanedNext);
+    if (changed) {
       ops.push({
         replaceOne: {
           filter: { _id: docId },
-          replacement: { _id: docId, ...item },
+          replacement: { _id: docId, ...cleanedNext },
           upsert: true,
         },
       });
@@ -348,7 +372,7 @@ async function persistCollectionDiff<K extends Collection>(
   }
 
   const deletedIds: string[] = [];
-  for (const oldId of prevSerializedById.keys()) {
+  for (const oldId of existingIdSet) {
     if (!nextById.has(oldId)) deletedIds.push(oldId);
   }
   if (deletedIds.length > 0) {
@@ -392,10 +416,14 @@ export async function mongoTransaction<R>(work: () => Promise<R>): Promise<R> {
       dirty: new Set(),
     };
     const result = await txScope.run(ctx, work);
-    for (const key of ctx.dirty) {
-      const prevVal = ctx.initial.get(key) as Data<typeof key> | undefined;
-      const nextVal = ctx.working.get(key) as Data<typeof key>;
-      await persistCollectionDiff(db, key, prevVal, nextVal);
+    if (ctx.dirty.size > 0) {
+      await Promise.all(
+        [...ctx.dirty].map((key) => {
+          const prevVal = ctx.initial.get(key) as Data<typeof key> | undefined;
+          const nextVal = ctx.working.get(key) as Data<typeof key>;
+          return persistCollectionDiff(db, key, prevVal, nextVal);
+        }),
+      );
     }
     return result;
   } finally {
@@ -403,25 +431,115 @@ export async function mongoTransaction<R>(work: () => Promise<R>): Promise<R> {
   }
 }
 
+function shallowCopyCollection<K extends Collection>(val: Data<K>): Data<K> {
+  return (Array.isArray(val) ? val.slice() : { ...(val as Record<string, unknown>) }) as Data<K>;
+}
+
 export async function readMongoCollection<K extends Collection>(key: K): Promise<Data<K>> {
   const ctx = txScope.getStore();
   if (ctx) {
     if (!ctx.working.has(key)) {
       const loaded = await readSingleCollectionFromDb(ctx.db, key);
-      ctx.initial.set(key, structuredClone(loaded));
-      ctx.working.set(key, loaded);
+      ctx.initial.set(key, shallowCopyCollection(loaded));
+      ctx.working.set(key, shallowCopyCollection(loaded));
     }
-    return collections[key].schema.parse(structuredClone(ctx.working.get(key))) as Data<K>;
+    return shallowCopyCollection(ctx.working.get(key) as Data<K>);
   }
-  return (await readCollectionCachedForRender(key)) as Data<K>;
+  return shallowCopyCollection((await readCollectionCachedForRender(key)) as Data<K>);
 }
 
 export async function writeMongoCollection<K extends Collection>(key: K, value: Data<K>) {
   const ctx = txScope.getStore();
   if (!ctx) throw new Error("A storage transaction is required.");
-  const validated = collections[key].schema.parse(value) as Data<K>;
-  ctx.working.set(key, structuredClone(validated));
+  // Note: `store.writeCollection` already parses `value` against `collections[key].schema`.
+  ctx.working.set(key, shallowCopyCollection(value));
   ctx.dirty.add(key);
+}
+
+let auditInsertCounter = 0;
+
+async function trimMongoActivity(db: Db) {
+  const col = db.collection<{ _id: string }>("crm_activity");
+  const stale = await col
+    .find({}, { projection: { _id: 1 } })
+    .sort({ at: -1 })
+    .skip(2000)
+    .limit(500)
+    .toArray();
+  if (stale.length > 0) {
+    await col.deleteMany({ _id: { $in: stale.map((d) => d._id) } });
+  }
+}
+
+/**
+ * Appends a single audit log entry in O(1) (`insertOne`) without reading or rewriting
+ * the previous 2,000 activity events on every save.
+ */
+export async function appendMongoAudit(event: Data<"activity">[number]) {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const cleaned = stripUndefined(event);
+  await db
+    .collection<Document & { _id: string }>("crm_activity")
+    .insertOne({ _id: cleaned.id, ...cleaned });
+
+  const ctx = txScope.getStore();
+  if (ctx && ctx.working.has("activity")) {
+    const current = (ctx.working.get("activity") as Data<"activity">).slice();
+    current.push(cleaned);
+    ctx.working.set("activity", current.slice(-2000));
+  }
+
+  if (++auditInsertCounter % 50 === 0) {
+    void trimMongoActivity(db).catch(() => undefined);
+  }
+}
+
+/**
+ * Fetches a single document by primary key (`_id`) in O(1) from MongoDB without scanning
+ * or parsing the entire collection.
+ */
+export async function readMongoDocById<K extends ArrayCollectionKey>(
+  key: K,
+  docId: string,
+): Promise<Data<K>[number] | null> {
+  const ctx = txScope.getStore();
+  if (ctx && ctx.working.has(key)) {
+    const arr = ctx.working.get(key) as Array<Record<string, unknown>>;
+    const hit = arr.find((item) => getItemDocId(key, item) === docId);
+    return (hit ? (hit as Data<K>[number]) : null);
+  }
+
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const col = db.collection<Document & { _id: string }>(ARRAY_COLLECTION_NAMES[key]);
+  const rawDoc = await col.findOne({ _id: docId });
+  if (!rawDoc) return null;
+
+  const cleaned = key === "models" ? sanitizeModelDoc(rawDoc) : stripMongoId(rawDoc);
+  const parsed = collections[key].schema.parse([cleaned]) as Data<K>;
+  return parsed[0] ?? null;
+}
+
+/**
+ * Fetches distinct model names across standards, repairs, and faults using lightweight
+ * indexed `distinct("model")` queries instead of downloading full historical documents.
+ */
+export async function readMongoDistinctModelNames(): Promise<string[]> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const [stdNames, repNames, faultNames] = await Promise.all([
+    db.collection("crm_standards").distinct("model"),
+    db.collection("crm_repairs").distinct("model"),
+    db.collection("crm_faults").distinct("model"),
+  ]);
+  const out: string[] = [];
+  for (const list of [stdNames, repNames, faultNames]) {
+    for (const v of list) {
+      if (typeof v === "string" && v.trim()) out.push(v);
+    }
+  }
+  return out;
 }
 
 export async function listMongoBackups() {

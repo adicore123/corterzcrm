@@ -6,11 +6,11 @@ import { changeDeletePassword, changeOwnPassword, createUser, getUser, login, lo
 import { AppError } from "@/lib/errors";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
-import { deleteRecord, getRecord, saveRecord } from "@/lib/json-db/records";
+import { deleteRecord, getRecord, quickPatchRecord, saveRecord } from "@/lib/json-db/records";
 import { audit, createBackup, readBackup, serialized } from "@/lib/json-db/store";
-import { authorizeAttachmentUpload, maxVideoBytes, saveLocalAttachmentFile, serveAttachmentResponse } from "@/lib/uploads/attachments";
+import { authorizeAttachmentUpload, authorizeAttachmentUploads, maxAttachments, maxVideoBytes, saveLocalAttachmentFile, serveAttachmentResponse } from "@/lib/uploads/attachments";
 import { maxImageBytes, maxPhotos, readPhoto } from "@/lib/uploads/images";
-import { authorizeUpload, readBlobPhoto } from "@/lib/uploads/blob-images";
+import { authorizeUpload, authorizeUploads, readBlobPhoto } from "@/lib/uploads/blob-images";
 import { readMongoPhoto } from "@/lib/uploads/mongo-images";
 import { canDeleteItems, canEditModule, deletePasswordSchema, modules, ordersPhoneSchema, passwordSchema, pickupAddressSchema, usernameSchema, uuid } from "@/lib/validation/models";
 
@@ -167,12 +167,16 @@ export async function GET(request: NextRequest, { params }: Route) {
       await requireUser(request);
     }
     const record = await getRecord(kind, uuid.parse(id));
-    if (kind === "models" && "published" in record && record.published === false) await requireUser(request);
+    const isUnpublishedModel = kind === "models" && "published" in record && record.published === false;
+    if (isUnpublishedModel) await requireUser(request);
     const image = record.photos.find((item) => item.id === uuid.parse(photo));
     if (!image) throw new AppError(404, "התמונה לא נמצאה.");
     const body = usesMongoStorage() ? await readMongoPhoto(kind, image.id)
       : usesBlobStorage() ? await readBlobPhoto(kind, image.id) : new Uint8Array(await readPhoto(kind, image.id));
-    const cacheHeader = kind === "models" ? "no-store" : "private, max-age=31536000, immutable";
+    // Every uploaded photo receives a fresh immutable UUID, so browser caching is 100% safe and eliminates repeat DB/Blob reads
+    const cacheHeader = kind === "models" && !isUnpublishedModel
+      ? "public, max-age=3600, stale-while-revalidate=86400"
+      : "private, max-age=31536000, immutable";
     return new NextResponse(body, { headers: { "Cache-Control": cacheHeader, "Content-Type": image.type } });
   } catch (error) {
     return errorResponse(error);
@@ -240,6 +244,12 @@ async function mutate(request: NextRequest, { params }: Route) {
         throw new AppError(403, "לחשבון זה אין הרשאת העלאת קבצים במודול זה.");
       }
       const { value } = await parseBody(request);
+      if (value && typeof value === "object" && "items" in value) {
+        const batch = z.object({
+          items: z.array(z.object({ id: uuid, kind: z.enum(["file", "video"]) })).min(1).max(maxAttachments),
+        }).parse(value);
+        return json({ grants: await authorizeAttachmentUploads(batch.items) }, 201);
+      }
       const input = z.object({ id: uuid, kind: z.enum(["file", "video"]) }).parse(value);
       return json(await authorizeAttachmentUpload(input.id, input.kind), 201);
     }
@@ -249,6 +259,10 @@ async function mutate(request: NextRequest, { params }: Route) {
         throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
       }
       const { value } = await parseBody(request);
+      if (value && typeof value === "object" && "ids" in value) {
+        const batch = z.object({ ids: z.array(uuid).min(1).max(maxPhotos) }).parse(value);
+        return json({ grants: await authorizeUploads(kind, user.id, batch.ids) }, 201);
+      }
       const input = z.object({ id: uuid }).parse(value);
       return json(await authorizeUpload(kind, user.id, input.id), 201);
     }
@@ -282,6 +296,13 @@ async function mutate(request: NextRequest, { params }: Route) {
         }
         const { value, files } = await parseBody(request, kind !== "customers");
         return json(await saveRecord(kind, key, value, files, user), key ? 200 : 201);
+      }
+      if (method === "PATCH" && key && (kind === "standards" || kind === "repairs")) {
+        if (!canEditModule(user.role, kind)) {
+          throw new AppError(403, "לחשבון סוכן יש הרשאת צפייה בלבד במודול זה.");
+        }
+        const { value } = await parseBody(request);
+        return json(await quickPatchRecord(kind, key, value, user));
       }
       if (method === "DELETE" && key) {
         requireAdmin(user);

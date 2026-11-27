@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AppError } from "../errors";
+import { usesMongoStorage } from "../json-db/mongo-client";
 import { catalogModels } from "../json-db/queries";
-import { stripUndefined } from "../json-db/mongo-store";
+import { readMongoDocById, stripUndefined } from "../json-db/mongo-store";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import type { PublicUser } from "../validation/models";
 import { quoteTotal } from "./pricing";
@@ -62,19 +63,20 @@ export async function createQuote(raw: unknown, actor: PublicUser) {
     throw new AppError(400, (error as Error).message);
   }
   return serialized(async () => {
-    const active = (await readCollection("users")).find(
-      (user) => user.id === actor.id && !user.disabled,
-    );
+    const active = usesMongoStorage()
+      ? await readMongoDocById("users", actor.id).then((u) => (u && !u.disabled ? u : undefined))
+      : (await readCollection("users")).find((user) => user.id === actor.id && !user.disabled);
     if (!active) throw new AppError(403, "אין הרשאה ליצור הצעה.");
 
-    // Always resolve against merged catalogModels() so seed/default catalog models never 400
-    const allModels = await catalogModels();
+    const targetDigits = normalizePhoneDigits(input.customerPhone);
+    const [allModels, customers, existingQuotes] = await Promise.all([
+      catalogModels(),
+      readCollection("customers"),
+      readCollection("quotes"),
+    ]);
     const model = allModels.find((item) => item.id === input.modelId);
     if (!model) throw new AppError(400, "הדגם לא נמצא במאגר.");
 
-    // Automatically link to an existing CRM customer if phone matches
-    const targetDigits = normalizePhoneDigits(input.customerPhone);
-    const customers = await readCollection("customers");
     const matchedCustomer = targetDigits
       ? customers.find((c) => normalizePhoneDigits(c.phone) === targetDigits)
       : undefined;
@@ -101,7 +103,7 @@ export async function createQuote(raw: unknown, actor: PublicUser) {
       }),
     );
 
-    await writeCollection("quotes", [...(await readCollection("quotes")), quote]);
+    await writeCollection("quotes", [...existingQuotes, quote]);
     await audit(actor.id, "create", "quotes", quote.id);
     return quote;
   });

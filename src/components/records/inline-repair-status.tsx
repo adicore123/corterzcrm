@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { startTransition, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CircleCheck, ClipboardList, Clock3 } from "lucide-react";
 import { requestJson } from "@/lib/client-api";
@@ -63,16 +63,10 @@ export function InlineRepairStatus({
     setError("");
     setSavedFlash(false);
     try {
-      const saved = await requestJson<{ updatedAt: string }>("/api/records/repairs/" + record.id, "PUT", {
-        device: record.device,
-        model: record.model,
-        serial: record.serial,
-        customerId: record.customerId,
-        fault: record.fault,
+      const saved = await requestJson<{ updatedAt: string }>("/api/records/repairs/" + record.id, "PATCH", {
         work: nextWork,
         status: nextStatus,
         version,
-        keptPhotos: record.photos.map((photo) => photo.id),
       });
       setOverride({ status: nextStatus, work: nextWork, version: saved.updatedAt });
       setPendingStatus(null);
@@ -85,7 +79,7 @@ export function InlineRepairStatus({
         });
       }
       window.setTimeout(() => setSavedFlash(false), 1800);
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (err) {
       setError((err as Error).message);
     } finally {

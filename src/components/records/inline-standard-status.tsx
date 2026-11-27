@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CircleCheck, ClipboardList, Clock3 } from "lucide-react";
 import { requestJson } from "@/lib/client-api";
@@ -41,22 +41,14 @@ export function InlineStandardStatus({
     setError("");
     setSavedFlash(false);
     try {
-      const saved = await requestJson<{ updatedAt: string }>("/api/records/standards/" + record.id, "PUT", {
-        number: record.number,
-        device: record.device,
-        model: record.model,
+      const saved = await requestJson<{ updatedAt: string }>("/api/records/standards/" + record.id, "PATCH", {
         status: nextStatus,
-        delay: record.delay,
-        delayReason: record.delayReason,
-        notes: record.notes,
-        tasks: record.tasks,
         version,
-        keptPhotos: record.photos.map((photo) => photo.id),
       });
       setOverride({ status: nextStatus, version: saved.updatedAt });
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 1800);
-      router.refresh();
+      startTransition(() => router.refresh());
     } catch (err) {
       setError((err as Error).message);
     } finally {

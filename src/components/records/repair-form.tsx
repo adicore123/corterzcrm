@@ -30,7 +30,7 @@ export function RepairForm({ record, models, catalog = [], initialModel, custome
   const selectedDevice = useWatch({ name: "device", control });
   const selectedModel = useWatch({ name: "model", control });
   const selectedCustomerId = useWatch({ name: "customerId", control });
-  const photos = usePhotoDraft(record?.photos ?? []);
+  const photos = usePhotoDraft(record?.photos ?? [], { module: "repairs", cloud });
   const editor = useEditor("repairs", record, isDirty, photos, cloud);
   const allCatalog = [...addedModels, ...catalog.filter((item) => !addedModels.some((addedItem) => addedItem.id === item.id))];
   const allModelNames = Array.from(new Set([...addedModels.map((item) => item.name), ...models]));
