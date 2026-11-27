@@ -32,9 +32,13 @@ import {
   type FitFilter,
 } from "./catalog-utils";
 import { CoastalExhibition } from "./coastal-exhibition";
-import { ProductExperience, type InitialStudioState } from "./product-experience";
+import type { InitialStudioState } from "./product-experience";
 import { RideFinderDialog } from "./ride-finder";
 
+const ProductExperience = dynamic(
+  () => import("./product-experience").then((module) => module.ProductExperience),
+  { ssr: false },
+);
 const ProductCompare3D = dynamic(() => import("./product-compare-3d").then((module) => module.ProductCompare3D), { ssr: false });
 
 type CategoryFilter = "all" | "קורקינט חשמלי" | "אופניים חשמליים" | "2027";

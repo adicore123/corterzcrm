@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import { z } from "zod";
 import { getClientIp, verifySameOrigin } from "@/lib/api-guard";
 import { consumeRateLimit } from "@/lib/auth/rate-limit";
@@ -99,7 +100,20 @@ async function parseBody(request: NextRequest, allowFiles = false) {
   }
 }
 
-async function fetchCatalogImage(rawUrl: string) {
+type CatalogThumbCacheEntry = {
+  bytes: Uint8Array;
+  contentType: string;
+  expiresAt: number;
+};
+
+const CATALOG_THUMB_MAX = 90;
+const CATALOG_THUMB_TTL_MS = 24 * 60 * 60 * 1000;
+const catalogThumbGlobal = globalThis as typeof globalThis & {
+  cortezCatalogThumbCache?: Map<string, CatalogThumbCacheEntry>;
+};
+const catalogThumbCache = (catalogThumbGlobal.cortezCatalogThumbCache ??= new Map());
+
+async function fetchCatalogImage(rawUrl: string, rawWidth?: string | null) {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -109,21 +123,92 @@ async function fetchCatalogImage(rawUrl: string) {
   if (parsed.protocol !== "https:" || parsed.hostname !== "cortez.co.il" || !parsed.pathname.startsWith("/wp-content/uploads/")) {
     throw new AppError(400, "כתובת התמונה אינה מורשית.");
   }
-  let response = await fetch(parsed.toString(), { redirect: "manual" });
-  if (response.status >= 300 && response.status < 400) {
-    const location = response.headers.get("location");
-    if (!location) throw new AppError(404, "התמונה לא נמצאה.");
-    const redirected = new URL(location, parsed);
-    if (redirected.protocol !== "https:" || redirected.hostname !== "cortez.co.il" || !redirected.pathname.startsWith("/wp-content/uploads/")) {
-      throw new AppError(400, "כתובת התמונה אינה מורשית.");
+
+  const parsedWidth = rawWidth ? Number(rawWidth) : 0;
+  const targetWidth =
+    Number.isFinite(parsedWidth) && parsedWidth >= 48 && parsedWidth <= 1200
+      ? Math.round(parsedWidth)
+      : 0;
+  const cacheKey = targetWidth ? `${parsed.toString()}::w=${targetWidth}` : "";
+
+  if (cacheKey) {
+    const hit = catalogThumbCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) {
+      catalogThumbCache.delete(cacheKey);
+      catalogThumbCache.set(cacheKey, hit);
+      return new NextResponse(Buffer.from(hit.bytes), {
+        headers: {
+          "Content-Type": hit.contentType,
+          "Cache-Control": "public, max-age=604800, stale-while-revalidate=2592000",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
     }
-    response = await fetch(redirected.toString(), { redirect: "manual" });
   }
+
+  let response: Response;
+  try {
+    response = await fetch(parsed.toString(), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(6000),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new AppError(404, "התמונה לא נמצאה.");
+      const redirected = new URL(location, parsed);
+      if (redirected.protocol !== "https:" || redirected.hostname !== "cortez.co.il" || !redirected.pathname.startsWith("/wp-content/uploads/")) {
+        throw new AppError(400, "כתובת התמונה אינה מורשית.");
+      }
+      response = await fetch(redirected.toString(), {
+        redirect: "manual",
+        signal: AbortSignal.timeout(6000),
+      });
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError(404, "התמונה לא נמצאה.");
+  }
+
   if (!response.ok) throw new AppError(404, "התמונה לא נמצאה.");
   const contentType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   if (!contentType.startsWith("image/")) throw new AppError(400, "הקובץ אינו תמונה תקינה.");
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new AppError(400, "גודל התמונה אינו תקין.");
+
+  if (targetWidth) {
+    try {
+      const resized = await sharp(Buffer.from(bytes), { failOn: "none" })
+        .rotate()
+        .resize({
+          width: targetWidth,
+          height: targetWidth,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 80, effort: 2 })
+        .toBuffer();
+      const thumbBytes = new Uint8Array(resized);
+      if (catalogThumbCache.size >= CATALOG_THUMB_MAX) {
+        const oldest = catalogThumbCache.keys().next().value;
+        if (oldest) catalogThumbCache.delete(oldest);
+      }
+      catalogThumbCache.set(cacheKey, {
+        bytes: thumbBytes,
+        contentType: "image/webp",
+        expiresAt: Date.now() + CATALOG_THUMB_TTL_MS,
+      });
+      return new NextResponse(Buffer.from(thumbBytes), {
+        headers: {
+          "Content-Type": "image/webp",
+          "Cache-Control": "public, max-age=604800, stale-while-revalidate=2592000",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch {
+      // Fallback to raw image bytes if sharp cannot resize an exotic format
+    }
+  }
+
   return new NextResponse(bytes, {
     headers: {
       "Content-Type": contentType,
@@ -137,9 +222,10 @@ export async function GET(request: NextRequest, { params }: Route) {
   try {
     const [resource, module, id, photo, ...extra] = (await params).segments;
     if (resource === "catalog-image" && !module) {
-      await consumeRateLimit(`catimg:${getClientIp(request)}`, 180, 60_000);
+      await consumeRateLimit(`catimg:${getClientIp(request)}`, 400, 60_000);
       const rawUrl = request.nextUrl.searchParams.get("url") ?? "";
-      return await fetchCatalogImage(rawUrl);
+      const rawW = request.nextUrl.searchParams.get("w");
+      return await fetchCatalogImage(rawUrl, rawW);
     }
     if (resource === "settings" && module === "backups" && id && !photo && !extra.length) {
       const user = await requireUser(request);

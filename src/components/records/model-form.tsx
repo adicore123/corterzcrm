@@ -11,6 +11,7 @@ import { useProtectedDelete } from "@/components/ui/delete-password-dialog";
 import { Modal, UnsavedDialog } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Editor, Section } from "./form-parts";
+import { toCatalogThumbUrl } from "@/components/record-cells";
 import { PhotoPicker } from "./photos";
 import { StudioContentEditor } from "@/components/catalog/studio-content-editor";
 import { useEditor, usePhotoDraft } from "./use-editor";
@@ -141,7 +142,7 @@ export function ModelForm({ record, cloud }: { record?: CatalogModel; cloud: boo
     <Section title="תמונות הדגם" icon={Images}>
       {record?.imageUrl && <div className="catalog-image-banner">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={record.imageUrl} alt={record.name} className="catalog-thumb-lg" />
+        <img src={toCatalogThumbUrl(record.imageUrl, 200)} alt={record.name} className="catalog-thumb-lg" loading="lazy" decoding="async" />
         <div><strong>תמונת קטלוג רשמית</strong><p className="muted">ניתן גם להעלות תמונות נוספות של הדגם מהמכשיר או מהמצלמה.</p></div>
       </div>}
       <PhotoPicker module="models" id={record?.id} photos={photos} onAuthorizeDelete={editor.authorizeDelete} />

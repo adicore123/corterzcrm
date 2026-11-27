@@ -15,7 +15,11 @@ import type { UnsavedState } from "./use-editor";
 export function modelImageSrc(model?: Pick<CatalogModel, "id" | "imageUrl" | "photos">) {
   if (!model) return undefined;
   if (model.photos.length > 0) return "/api/images/models/" + model.id + "/" + model.photos[0].id;
-  return model.imageUrl || undefined;
+  const raw = model.imageUrl || undefined;
+  if (raw && raw.startsWith("https://cortez.co.il/wp-content/uploads/")) {
+    return `/api/catalog-image?url=${encodeURIComponent(raw)}&w=160`;
+  }
+  return raw;
 }
 
 export function Section({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: ReactNode }) {

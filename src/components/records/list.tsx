@@ -1,13 +1,14 @@
 import Link from "next/link";
-import { Bike, ClipboardList, ListFilter, Plus, Search, ShieldAlert, Users, Wrench } from "lucide-react";
+import { Bike, ClipboardList, Plus, ShieldAlert, Users, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { customerRow, faultGuideRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { FaultsModuleHub } from "./faults-hub";
+import { RecordFiltersBar } from "./record-filters-bar";
 import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
-import { canEditModule, DEFAULT_PICKUP_ADDRESS, delayStatuses, devices, repairStatuses, standardStatuses, type FaultGuide, type Module, type Role } from "@/lib/validation/models";
+import { canEditModule, DEFAULT_PICKUP_ADDRESS, type FaultGuide, type Module, type Role } from "@/lib/validation/models";
 
 const icons = { standards: ClipboardList, repairs: Wrench, customers: Users, models: Bike, faults: ShieldAlert };
 
@@ -58,37 +59,7 @@ export async function RecordList({ module, filters, deleted, userRole = "admin" 
 
   const listSection = (
     <section className="card list-card" aria-label={labels[module]}>
-      <form method="get" action={href} className="filters" aria-label="חיפוש וסינון">
-        <div className="search-field">
-          <Search size={18} aria-hidden />
-          <input type="search" name="q" aria-label={copy.search} placeholder={copy.search} defaultValue={filters.q} maxLength={120} />
-        </div>
-        {(module === "standards" || module === "repairs") && <select name="status" aria-label="סינון לפי סטטוס" defaultValue={filters.status ?? ""}>
-          <option value="">כל הסטטוסים</option>
-          <option value="active">כל הפעילים</option>
-          {(module === "standards" ? standardStatuses : repairStatuses).map((item) => <option key={item}>{item}</option>)}
-        </select>}
-        {module === "models" && <select name="status" aria-label="סינון לפי סוג מכשיר" defaultValue={filters.status ?? ""}>
-          <option value="">כל סוגי הכלים</option>
-          {devices.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>}
-        {module === "faults" && <select name="status" aria-label="סינון מדריכי תקלות" defaultValue={filters.status ?? ""}>
-          <option value="">הכל</option>
-          <option value="has-video">כולל סרטון פתיחת הגבלה</option>
-          <option value="has-files">כולל קבצים מצורפים</option>
-          {devices.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>}
-        {module === "standards" && <select name="delay" aria-label="סינון עיכובים" defaultValue={filters.delay ?? ""}>
-          <option value="">כל מצבי העיכוב</option>{delayStatuses.map((item) => <option key={item}>{item}</option>)}
-        </select>}
-        <select name="sort" aria-label="מיון רשומות" defaultValue={filters.sort ?? ""}>
-          <option value="">{module === "models" ? "לפי שם דגם" : "עדכון אחרון"}</option>
-          <option value="created">נפתחו לאחרונה</option>
-          <option value="oldest">מהישן לחדש</option>
-        </select>
-        <Button type="submit" variant="outline"><ListFilter size={17} /> חיפוש</Button>
-        {filtered && <Button variant="ghost" asChild><Link href={href}>ניקוי</Link></Button>}
-      </form>
+      <RecordFiltersBar module={module} href={href} searchLabel={copy.search} filters={filters} />
       <div className="list-toolbar"><span>{rows.length === 1 ? "רשומה אחת" : rows.length + " רשומות"}</span></div>
       <RecordTable rows={rows} columns={columns} icon={icons[module]} empty={filtered ? "לא נמצאו תוצאות" : copy.empty} showEmptyHeader />
     </section>

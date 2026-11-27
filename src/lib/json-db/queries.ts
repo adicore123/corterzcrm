@@ -1,5 +1,5 @@
 import { usesMongoStorage } from "./mongo-client";
-import { readMongoDistinctModelNames } from "./mongo-store";
+import { readMongoDashboardSummary, readMongoDistinctModelNames } from "./mongo-store";
 import { readCollection } from "./store";
 import { defaultCatalogModels } from "./cortez-catalog";
 import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "../validation/models";
@@ -9,6 +9,16 @@ const matches = (value: string, query: string) => value.toLocaleLowerCase("he").
 const newest = <T extends { updatedAt: string }>(items: T[]) => items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
 export async function dashboard() {
+  if (usesMongoStorage()) {
+    const [summary, models] = await Promise.all([
+      readMongoDashboardSummary(),
+      catalogModels(),
+    ]);
+    return {
+      ...summary,
+      models,
+    };
+  }
   const [standards, repairs, customers, models] = await Promise.all([
     readCollection("standards"), readCollection("repairs"), readCollection("customers"), catalogModels(),
   ]);

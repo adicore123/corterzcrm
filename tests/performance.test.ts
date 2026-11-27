@@ -15,6 +15,8 @@ import {
   setUserDisabled,
 } from "../src/lib/auth/session";
 import { quickPatchRecord, saveRecord } from "../src/lib/json-db/records";
+import { readCollection, reserveNumber, serialized, writeCollection } from "../src/lib/json-db/store";
+import { toCatalogThumbUrl } from "../src/components/record-cells";
 import { authorizeAttachmentUploads } from "../src/lib/uploads/attachments";
 import { authorizeUploads } from "../src/lib/uploads/blob-images";
 import { savePhotos } from "../src/lib/uploads/images";
@@ -244,6 +246,51 @@ test("session cache serves repeat lookups and invalidates immediately on logout,
       admin,
     );
     assert.equal(patched2.tasks.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("hot read cache for models/settings invalidates immediately on write, and catalog thumbnail URLs optimize WordPress images", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cortez-perf-hotcache-"));
+  process.env.CORTEZ_STORAGE_DIR = root;
+  delete process.env.CORTEZ_STORAGE_BACKEND;
+  try {
+    const s1 = await readCollection("settings");
+    assert.deepEqual(s1, {});
+
+    await serialized(async () => {
+      await writeCollection("settings", { pickupAddress: "רחוב הבדיקה 10, תל אביב" });
+    }, "auth");
+
+    // Must immediately reflect newly written value (never stale cached `{}`)
+    const s2 = await readCollection("settings");
+    assert.equal(s2.pickupAddress, "רחוב הבדיקה 10, תל אביב");
+
+    // Mutating returned object in caller must not poison hot cache
+    (s2 as Record<string, unknown>).pickupAddress = "MUTATED";
+    const s3 = await readCollection("settings");
+    assert.equal(s3.pickupAddress, "רחוב הבדיקה 10, תל אביב");
+
+    // Scoped reservations remain strictly sequential
+    const [o1, o2, r1] = await Promise.all([
+      serialized(() => reserveNumber("orders"), "orders"),
+      serialized(() => reserveNumber("orders"), "orders"),
+      serialized(() => reserveNumber("repairs"), "repairs"),
+    ]);
+    assert.match(o1, /^ORD-\d{4}-0001$/);
+    assert.match(o2, /^ORD-\d{4}-0002$/);
+    assert.equal(r1, "REP-0001");
+
+    // Thumbnail URL optimizer
+    assert.equal(
+      toCatalogThumbUrl("https://cortez.co.il/wp-content/uploads/2026/01/mia.png", 128),
+      "/api/catalog-image?url=https%3A%2F%2Fcortez.co.il%2Fwp-content%2Fuploads%2F2026%2F01%2Fmia.png&w=128",
+    );
+    assert.equal(
+      toCatalogThumbUrl("/coastal-showroom/exhibits/mia.png", 128),
+      "/coastal-showroom/exhibits/mia.png",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

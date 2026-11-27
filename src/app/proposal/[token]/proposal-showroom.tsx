@@ -19,13 +19,16 @@ import {
   X,
 } from "lucide-react";
 import { getModelImages, toWebglTextureUrl } from "@/components/catalog/catalog-utils";
-import { BeachScene } from "@/components/three/BeachScene";
 import type { CoastalLightingMode } from "@/components/three/AtmosphericSky";
 import type { CoastalCameraPreset } from "@/components/three/CameraController";
 import { getProposalHeroCutoutUrl, resolveModelVariants } from "@/lib/catalog/coastal-assets";
 import type { CatalogModel } from "@/lib/validation/models";
 import type { ProposalMedia } from "@/lib/quotes/proposal-media";
 
+const BeachScene = dynamic(
+  () => import("@/components/three/BeachScene").then((module) => module.BeachScene),
+  { ssr: false },
+);
 const ProductViewer3D = dynamic(
   () => import("@/components/catalog/product-viewer-3d").then((module) => module.ProductViewer3D),
   { ssr: false },

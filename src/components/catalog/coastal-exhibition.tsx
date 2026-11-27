@@ -14,8 +14,14 @@ import {
   isPremiumModel,
   parseMetrics,
 } from "./catalog-utils";
+import dynamic from "next/dynamic";
 import type { StudioEnvironment } from "./studio-environments";
-import { BeachStage3D, type BeachSlot } from "./beach-stage-3d";
+import type { BeachSlot } from "./beach-stage-3d";
+
+const BeachStage3D = dynamic(
+  () => import("./beach-stage-3d").then((mod) => mod.BeachStage3D),
+  { ssr: false },
+);
 
 const wrapIndex = (index: number, len: number) => (index + len) % len;
 

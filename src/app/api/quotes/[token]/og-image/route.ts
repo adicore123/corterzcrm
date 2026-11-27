@@ -17,6 +17,23 @@ import type { CatalogModel } from "@/lib/validation/models";
 
 export const dynamic = "force-dynamic";
 
+type CachedOgEntry = {
+  bytes: Uint8Array;
+  expiresAt: number;
+};
+
+const OG_CACHE_MAX = 40;
+const OG_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+const ogGlobal = globalThis as typeof globalThis & {
+  cortezOgPngCache?: Map<string, CachedOgEntry>;
+};
+const ogPngCache = (ogGlobal.cortezOgPngCache ??= new Map());
+
+function modelOgCacheKey(model: CatalogModel): string {
+  return `${model.id}|${model.updatedAt}|${model.photos[0]?.id ?? ""}|${model.imageUrl ?? ""}`;
+}
+
 async function loadOriginalCatalogImageBytes(model: CatalogModel): Promise<Buffer | null> {
   // 1. Prefer custom CRM-uploaded model photo if present
   if (model.photos.length > 0) {
@@ -80,7 +97,8 @@ async function loadOriginalCatalogImageBytes(model: CatalogModel): Promise<Buffe
 
 /**
  * Serves the authentic original catalog image of the quoted model as a high-resolution PNG
- * for direct WhatsApp sharing (Web Share API file attachment & desktop ClipboardItem).
+ * for direct WhatsApp sharing, with bounded LRU memory caching so repeat quotes for the same
+ * model return in <1ms without re-fetching or re-encoding via sharp.
  */
 export async function GET(
   request: Request,
@@ -102,10 +120,27 @@ export async function GET(
   const models = await catalogModels();
   const model =
     models.find((m) => m.id === quote.modelId)
-    ?? models.find((m) => m.name.toLocaleLowerCase("he") === quote.modelName.toLocaleLowerCase("he"));
+    ?? models.find(
+      (m) => m.name.toLocaleLowerCase("he") === quote.modelName.toLocaleLowerCase("he"),
+    );
 
   if (!model) {
     return new NextResponse("Model not found", { status: 404 });
+  }
+
+  const cacheKey = modelOgCacheKey(model);
+  const hit = ogPngCache.get(cacheKey);
+  if (hit && hit.expiresAt > Date.now()) {
+    // Refresh LRU order
+    ogPngCache.delete(cacheKey);
+    ogPngCache.set(cacheKey, hit);
+    return new NextResponse(Buffer.from(hit.bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+      },
+    });
   }
 
   try {
@@ -127,14 +162,24 @@ export async function GET(
         withoutEnlargement: true,
       })
       .flatten({ background: "#FFFFFF" })
-      .png({ quality: 95, compressionLevel: 8 })
+      .png({ quality: 95, compressionLevel: 4 })
       .toBuffer();
 
-    return new NextResponse(new Uint8Array(pngBuffer), {
+    const bytes = new Uint8Array(pngBuffer);
+    if (ogPngCache.size >= OG_CACHE_MAX) {
+      const oldestKey = ogPngCache.keys().next().value;
+      if (oldestKey) ogPngCache.delete(oldestKey);
+    }
+    ogPngCache.set(cacheKey, {
+      bytes,
+      expiresAt: Date.now() + OG_CACHE_TTL_MS,
+    });
+
+    return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {
         "Content-Type": "image/png",
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
       },
     });
   } catch {

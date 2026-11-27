@@ -12,10 +12,18 @@ import { InlineRepairStatus } from "./records/inline-repair-status";
 import type { TableRow } from "./record-table";
 import { Status } from "./ui/status";
 
-export function modelThumbUrl(model?: Pick<CatalogModel, "id" | "imageUrl" | "photos">) {
+export function toCatalogThumbUrl(rawUrl?: string, width = 128): string | undefined {
+  if (!rawUrl) return undefined;
+  if (rawUrl.startsWith("https://cortez.co.il/wp-content/uploads/")) {
+    return `/api/catalog-image?url=${encodeURIComponent(rawUrl)}&w=${width}`;
+  }
+  return rawUrl;
+}
+
+export function modelThumbUrl(model?: Pick<CatalogModel, "id" | "imageUrl" | "photos">, width = 128) {
   if (!model) return undefined;
   if (model.photos.length > 0) return "/api/images/models/" + model.id + "/" + model.photos[0].id;
-  return model.imageUrl || undefined;
+  return toCatalogThumbUrl(model.imageUrl, width);
 }
 
 function recordCardPhotos(module: PhotoModule, id: string, photos: Photo[]): CardPhoto[] {

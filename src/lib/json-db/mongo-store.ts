@@ -216,10 +216,24 @@ async function ensureMongoCollectionsReady(db: Db): Promise<void> {
   let pending = initByDb.get(dbName);
   if (!pending) {
     pending = (async () => {
-      await ensureIndexes(db);
       const metaCol = db.collection<Document & { _id: string }>("crm_meta");
-      const marker = await metaCol.findOne({ _id: "migration_v2" });
-      if (marker) return;
+      // Fast Cold-Start path: 1 lightweight query instead of 20 createIndex round-trips
+      const markers = await metaCol
+        .find({ _id: { $in: ["migration_v2", "indexes_v2"] } }, { projection: { _id: 1 } })
+        .toArray();
+      const hasMigration = markers.some((m) => m._id === "migration_v2");
+      const hasIndexes = markers.some((m) => m._id === "indexes_v2");
+      if (hasMigration && hasIndexes) return;
+
+      if (!hasIndexes) {
+        await ensureIndexes(db);
+        await metaCol.updateOne(
+          { _id: "indexes_v2" },
+          { $set: { _id: "indexes_v2", createdAt: new Date().toISOString() } },
+          { upsert: true },
+        );
+      }
+      if (hasMigration) return;
 
       const lockOwner = await acquireNamedLock(db, "migration_lock", 30_000);
       try {
@@ -402,12 +416,102 @@ const readCollectionCachedForRender = cache(async (key: Collection) => {
   return readSingleCollectionFromDb(db, key);
 });
 
-export async function mongoTransaction<R>(work: () => Promise<R>): Promise<R> {
+export type LockScope =
+  | "orders"
+  | "quotes"
+  | "repairs"
+  | "standards"
+  | "customers"
+  | "faults"
+  | "models"
+  | "auth";
+
+const ALL_LOCK_IDS = [
+  "tx_lock:auth",
+  "tx_lock:customers",
+  "tx_lock:faults",
+  "tx_lock:models",
+  "tx_lock:orders",
+  "tx_lock:quotes",
+  "tx_lock:repairs",
+  "tx_lock:standards",
+] as const;
+
+async function acquireScopedLocks(
+  db: Db,
+  scopes?: LockScope | readonly LockScope[],
+  ttlMs = 20_000,
+): Promise<{ owner: string; lockIds: string[] }> {
+  const lockIds = scopes
+    ? Array.from(
+        new Set(
+          (Array.isArray(scopes) ? scopes : [scopes]).map((s) => `tx_lock:${s}`),
+        ),
+      ).sort()
+    : [...ALL_LOCK_IDS];
+
+  if (lockIds.length === 1) {
+    const owner = await acquireNamedLock(db, lockIds[0], ttlMs);
+    return { owner, lockIds };
+  }
+
+  const owner = randomUUID();
+  const locks = db.collection<{ _id: string; owner: string; expiresAt: Date }>("crm_locks");
+  const expiresAt = new Date(Date.now() + ttlMs);
+
+  // Fast 1-RTT batch lock acquisition when uncontended
+  try {
+    await locks.insertMany(
+      lockIds.map((id) => ({ _id: id, owner, expiresAt })),
+      { ordered: true },
+    );
+    return { owner, lockIds };
+  } catch {
+    await locks.deleteMany({ owner }).catch(() => undefined);
+  }
+
+  // Contended fallback: acquire in strict alphabetical order (deadlock-free)
+  const acquired: string[] = [];
+  try {
+    for (const id of lockIds) {
+      const singleOwner = await acquireNamedLock(db, id, ttlMs);
+      // Re-tag under unified owner for single deleteMany release
+      if (singleOwner !== owner) {
+        await locks.updateOne({ _id: id, owner: singleOwner }, { $set: { owner } });
+      }
+      acquired.push(id);
+    }
+    return { owner, lockIds };
+  } catch (err) {
+    if (acquired.length > 0) {
+      await locks.deleteMany({ _id: { $in: acquired }, owner }).catch(() => undefined);
+    }
+    throw err;
+  }
+}
+
+async function releaseScopedLocks(db: Db, lockIds: string[], owner: string) {
+  const locks = db.collection<{ _id: string; owner: string }>("crm_locks");
+  if (lockIds.length === 1) {
+    await locks.deleteOne({ _id: lockIds[0], owner }).catch(() => undefined);
+    return;
+  }
+  await locks.deleteMany({ _id: { $in: lockIds }, owner }).catch(() => undefined);
+}
+
+export function isInsideMongoTransaction(): boolean {
+  return Boolean(txScope.getStore());
+}
+
+export async function mongoTransaction<R>(
+  work: () => Promise<R>,
+  scopes?: LockScope | readonly LockScope[],
+): Promise<R> {
   if (txScope.getStore()) throw new Error("Nested storage transaction.");
   const db = await mongoDatabase();
   await ensureMongoCollectionsReady(db);
 
-  const lockOwner = await acquireNamedLock(db, "tx_write_lock", 20_000);
+  const { owner, lockIds } = await acquireScopedLocks(db, scopes, 20_000);
   try {
     const ctx: TxContext = {
       db,
@@ -427,7 +531,7 @@ export async function mongoTransaction<R>(work: () => Promise<R>): Promise<R> {
     }
     return result;
   } finally {
-    await releaseNamedLock(db, "tx_write_lock", lockOwner);
+    await releaseScopedLocks(db, lockIds, owner);
   }
 }
 
@@ -664,4 +768,125 @@ export async function readMongoBackup(id: string) {
   });
 
   return { id: backup._id, timestamp: backup.timestamp, state };
+}
+
+/**
+ * Atomically increments a sequential counter in MongoDB (`$inc`) in a single round-trip.
+ */
+export async function reserveMongoCounter(
+  key: "standards" | "repairs" | "orders",
+): Promise<number> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const doc = await db
+    .collection<Document & { _id: string }>("crm_meta")
+    .findOneAndUpdate(
+      { _id: "counters" },
+      { $inc: { [key]: 1 } },
+      { upsert: true, returnDocument: "after" },
+    );
+  const next = Number((doc as Record<string, unknown> | null)?.[key] ?? 1);
+  const ctx = txScope.getStore();
+  if (ctx && ctx.working.has("counters")) {
+    const current = ctx.working.get("counters") as Data<"counters">;
+    ctx.working.set("counters", { ...current, [key]: next });
+  }
+  return next;
+}
+
+/**
+ * Fetches dashboard counts and top-5 recent items directly via indexed MongoDB queries
+ * instead of loading the entire standards, repairs, and customers collections into RAM.
+ */
+export async function readMongoDashboardSummary() {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+
+  const stdCol = db.collection<Document & { _id: string }>("crm_standards");
+  const repCol = db.collection<Document & { _id: string }>("crm_repairs");
+  const custCol = db.collection<Document & { _id: string }>("crm_customers");
+
+  const [
+    activeStandards,
+    delayedCount,
+    completedCount,
+    activeRepairs,
+    rawRecentStandards,
+    rawDelayedStandards,
+    rawRecentRepairs,
+  ] = await Promise.all([
+    stdCol.countDocuments({ status: { $ne: "הסתיים" } }),
+    stdCol.countDocuments({ delay: "מתעכב" }),
+    stdCol.countDocuments({ status: "הסתיים" }),
+    repCol.countDocuments({ status: { $ne: "הסתיים" } }),
+    stdCol.find({}).sort({ updatedAt: -1 }).limit(5).toArray(),
+    stdCol.find({ delay: "מתעכב" }).sort({ updatedAt: -1 }).limit(5).toArray(),
+    repCol.find({}).sort({ updatedAt: -1 }).limit(5).toArray(),
+  ]);
+
+  const standards = collections.standards.schema.parse(rawRecentStandards.map(stripMongoId));
+  const delayed = collections.standards.schema.parse(rawDelayedStandards.map(stripMongoId));
+  const repairs = collections.repairs.schema.parse(rawRecentRepairs.map(stripMongoId));
+
+  const neededCustomerIds = Array.from(new Set(repairs.map((r) => r.customerId)));
+  const rawCustomers =
+    neededCustomerIds.length > 0
+      ? await custCol.find({ _id: { $in: neededCustomerIds } }).toArray()
+      : [];
+  const customers = collections.customers.schema.parse(rawCustomers.map(stripMongoId));
+
+  return {
+    counts: {
+      activeStandards,
+      delayed: delayedCount,
+      completed: completedCount,
+      activeRepairs,
+    },
+    standards,
+    delayed,
+    repairs,
+    customers,
+  };
+}
+
+export async function readMongoOrdersForActor(
+  actorId: string,
+  role: string,
+): Promise<Data<"orders">> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const filter = role === "agent" ? { createdBy: actorId } : {};
+  const docs = await db
+    .collection<Document & { _id: string }>("crm_orders")
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .toArray();
+  return collections.orders.schema.parse(docs.map(stripMongoId));
+}
+
+export async function readMongoQuotesForActor(
+  actorId: string,
+  role: string,
+): Promise<Data<"quotes">> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const filter = role === "agent" ? { createdBy: actorId } : {};
+  const docs = await db
+    .collection<Document & { _id: string }>("crm_quotes")
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .toArray();
+  return collections.quotes.schema.parse(docs.map(stripMongoId));
+}
+
+export async function readMongoQuoteByTokenHash(
+  targetHash: string,
+): Promise<Data<"quotes">[number] | null> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const doc = await db
+    .collection<Document & { _id: string }>("crm_quotes")
+    .findOne({ tokenHash: targetHash, status: { $ne: "cancelled" } });
+  if (!doc) return null;
+  return collections.quotes.schema.parse([stripMongoId(doc)])[0] ?? null;
 }

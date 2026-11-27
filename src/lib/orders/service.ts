@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdmin, requireDeletePassword } from "../auth/session";
 import { AppError } from "../errors";
 import { usesMongoStorage } from "../json-db/mongo-client";
-import { readMongoDocById, stripUndefined } from "../json-db/mongo-store";
+import { readMongoDocById, readMongoOrdersForActor, stripUndefined } from "../json-db/mongo-store";
 import { catalogModels } from "../json-db/queries";
 import {
   audit,
@@ -24,6 +24,9 @@ import {
 } from "./schema";
 
 export async function listOrdersForUser(actor: PublicUser): Promise<Order[]> {
+  if (usesMongoStorage()) {
+    return readMongoOrdersForActor(actor.id, actor.role);
+  }
   const all = await readCollection("orders");
   const visible =
     actor.role === "agent" ? all.filter((order) => order.createdBy === actor.id) : all;
@@ -90,7 +93,7 @@ export async function createCustomerFromOrderForm(
     await writeCollection("customers", [...customers, record]);
     await audit(active.id, "create", "customers", record.id);
     return record;
-  });
+  }, "customers");
 }
 
 export async function createOrder(raw: unknown, actor: PublicUser): Promise<Order> {
@@ -199,7 +202,7 @@ export async function createOrder(raw: unknown, actor: PublicUser): Promise<Orde
     await writeCollection("orders", [...existingOrders, order]);
     await audit(active.id, "create", "orders", order.id);
     return order;
-  });
+  }, "orders");
 }
 
 const orderPatchSchema = z.object({
@@ -260,7 +263,7 @@ export async function updateOrder(
       validId,
     );
     return updated;
-  });
+  }, "orders");
 }
 
 export async function deleteOrder(
@@ -289,5 +292,5 @@ export async function deleteOrder(
     );
     await audit(active.id, "delete", "orders", validId);
     return { ok: true };
-  });
+  }, "orders");
 }

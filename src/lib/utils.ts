@@ -18,6 +18,7 @@ export async function mapConcurrent<T, R>(
   const results = new Array<R>(items.length);
   let nextIndex = 0;
   let failed = false;
+  let firstError: unknown;
 
   async function runLane() {
     while (!failed) {
@@ -26,12 +27,17 @@ export async function mapConcurrent<T, R>(
       try {
         results[current] = await worker(items[current], current);
       } catch (err) {
-        failed = true;
-        throw err;
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
       }
     }
   }
 
-  await Promise.all(Array.from({ length: limit }, () => runLane()));
+  // Wait for any already-started sibling operations to settle so callers can roll back cleanly
+  await Promise.allSettled(Array.from({ length: limit }, () => runLane()));
+  if (failed) throw firstError;
   return results;
 }

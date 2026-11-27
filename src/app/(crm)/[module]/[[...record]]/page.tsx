@@ -38,7 +38,7 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   const value = (key: string) => typeof query[key] === "string" ? query[key] : undefined;
   if (segments.length > 2 || (action && action !== "edit")) notFound();
   if (!id) {
-    return <RecordList key={JSON.stringify(query)} module={kind} filters={{ q: value("q"), status: value("status"), delay: value("delay"), sort: value("sort") }}
+    return <RecordList module={kind} filters={{ q: value("q"), status: value("status"), delay: value("delay"), sort: value("sort") }}
       deleted={value("deleted") === "1"} userRole={user.role} />;
   }
   const creating = id === "new";

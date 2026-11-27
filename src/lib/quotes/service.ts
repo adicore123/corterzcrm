@@ -3,7 +3,12 @@ import { z } from "zod";
 import { AppError } from "../errors";
 import { usesMongoStorage } from "../json-db/mongo-client";
 import { catalogModels } from "../json-db/queries";
-import { readMongoDocById, stripUndefined } from "../json-db/mongo-store";
+import {
+  readMongoDocById,
+  readMongoQuoteByTokenHash,
+  readMongoQuotesForActor,
+  stripUndefined,
+} from "../json-db/mongo-store";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import type { PublicUser } from "../validation/models";
 import { quoteTotal } from "./pricing";
@@ -44,6 +49,10 @@ export function toPublicQuote(quote: Quote): PublicQuote {
 }
 
 export async function listQuotesForUser(actor: PublicUser): Promise<PublicQuote[]> {
+  if (usesMongoStorage()) {
+    const docs = await readMongoQuotesForActor(actor.id, actor.role);
+    return docs.map(toPublicQuote);
+  }
   const all = await readCollection("quotes");
   const visible =
     actor.role === "agent" ? all.filter((quote) => quote.createdBy === actor.id) : all;
@@ -106,12 +115,15 @@ export async function createQuote(raw: unknown, actor: PublicUser) {
     await writeCollection("quotes", [...existingQuotes, quote]);
     await audit(actor.id, "create", "quotes", quote.id);
     return quote;
-  });
+  }, "quotes");
 }
 
 export async function quoteByToken(token: string) {
   if (!/^[a-f0-9]{48}$/.test(token)) return null;
   const targetHash = hash(token);
+  if (usesMongoStorage()) {
+    return readMongoQuoteByTokenHash(targetHash);
+  }
   return (
     (await readCollection("quotes")).find(
       (quote) => quote.tokenHash === targetHash && quote.status !== "cancelled",
@@ -140,7 +152,7 @@ export async function acceptQuote(token: string) {
     );
     await audit(quote.createdBy, "accept", "quotes", quote.id);
     return { ok: true };
-  });
+  }, "quotes");
 }
 
 export async function cancelQuote(id: string, actor: PublicUser) {
@@ -165,5 +177,5 @@ export async function cancelQuote(id: string, actor: PublicUser) {
     );
     await audit(actor.id, "cancel", "quotes", validId);
     return { ok: true };
-  });
+  }, "quotes");
 }

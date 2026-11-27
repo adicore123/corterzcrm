@@ -13,7 +13,7 @@ import {
   formatRepairWhatsapp, formatStandardWhatsapp,
 } from "@/lib/whatsapp-card";
 import { CardWhatsappButton } from "@/components/card-actions";
-import { ModelBadge, modelThumbUrl, PhoneLink, RecordNumber, repairRow, standardRow } from "@/components/record-cells";
+import { ModelBadge, modelThumbUrl, PhoneLink, RecordNumber, repairRow, standardRow, toCatalogThumbUrl } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { Button } from "@/components/ui/button";
 import { Status } from "@/components/ui/status";
@@ -143,7 +143,7 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" loading="lazy" decoding="async" />
           <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
         </div>}
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["סטטוס טיפול", <Status key="status" value={record.status} />],
@@ -162,7 +162,7 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+          <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" loading="lazy" decoding="async" />
           <div><strong>{linkedModel.name}</strong><p className="muted">{record.device} · סידורי <bdi dir="ltr">{record.serial}</bdi></p></div>
         </div>}
         <Details rows={[["סוג מכשיר", record.device], ["שם הדגם", linkedModel ? <ModelBadge key="model" model={linkedModel} linked /> : record.model], ["מספר סידורי", <bdi key="serial">{record.serial}</bdi>],
@@ -246,7 +246,7 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         <h2><span className="section-icon"><Bike size={18} /></span>פרטי הדגם</h2>
         {record.imageUrl && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={record.imageUrl} alt={record.name} className="catalog-thumb-lg" />
+          <img src={toCatalogThumbUrl(record.imageUrl, 200)} alt={record.name} className="catalog-thumb-lg" loading="lazy" decoding="async" />
           <div><strong>{record.name}</strong><p className="muted">{record.device}</p></div>
         </div>}
         <Details rows={[
@@ -416,7 +416,7 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
           <h2><span className="section-icon"><ShieldAlert size={18} /></span>סקירת הדגם</h2>
           {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" />
+            <img src={linkedModelThumb} alt={linkedModel.name} className="catalog-thumb-lg" loading="lazy" decoding="async" />
             <div><strong>{linkedModel.name}</strong><p className="muted">{record.device}</p></div>
           </div>}
           <Details rows={[

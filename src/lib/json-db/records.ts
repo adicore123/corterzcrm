@@ -813,7 +813,7 @@ export async function quickPatchRecord(
       await writeCollection("standards", upsert(all, updated, true));
       await audit(actor.id, "update", "standards", id);
       return updated;
-    });
+    }, "standards");
   }
 
   const patch = repairQuickPatchSchema.parse(payload);
@@ -835,5 +835,5 @@ export async function quickPatchRecord(
     await writeCollection("repairs", upsert(all, updated, true));
     await audit(actor.id, "update", "repairs", id);
     return updated;
-  });
+  }, "repairs");
 }
