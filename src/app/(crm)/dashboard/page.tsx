@@ -31,7 +31,7 @@ export default async function DashboardPage() {
       <div><h1>סקירה כללית</h1><p>{isAgent ? "ממשק סוכן · צפייה בנתוני המערכת ועדכון תקלות ופתיחות הגבלה" : "מרכז התפעול של קורטז"}</p></div>
     </section>
     <section className="metrics" aria-label="תמונת מצב">
-      {metrics.map(({ label, value, icon: Icon, tone, href }) => <Link href={href} prefetch={false} key={label} className="metric card">
+      {metrics.map(({ label, value, icon: Icon, tone, href }) => <Link href={href} prefetch={true} key={label} className="metric card">
         <span className={"metric-icon tone-" + tone}><Icon size={24} strokeWidth={1.8} aria-hidden /></span>
         <span className="metric-copy"><strong>{value}</strong><span>{label}</span></span>
         <ArrowLeft className="metric-arrow" size={16} aria-hidden />
@@ -40,29 +40,29 @@ export default async function DashboardPage() {
     <section className="card quick-card" aria-labelledby="quick-title">
       <h2 id="quick-title">פעולות מהירות</h2>
       <div className="quick-actions">
-        <Button asChild><Link href="/orders?new=1"><PackagePlus size={18} /> הזמנה חדשה</Link></Button>
-        {!isAgent && <Button variant="soft" asChild><Link href="/standards/new"><Plus size={18} /> תיק מכון תקנים</Link></Button>}
-        {!isAgent && <Button variant="soft" asChild><Link href="/repairs/new"><Wrench size={17} /> תיקון חדש</Link></Button>}
-        <Button variant="soft" asChild><Link href="/faults"><ShieldAlert size={18} /> תקלות ופתיחות הגבלה</Link></Button>
-        {isAgent && <Button variant="soft" asChild><Link href="/faults/new"><Plus size={18} /> מדריך חדש לדגם</Link></Button>}
-        {isAgent && <Button variant="soft" asChild><Link href="/catalog"><Sparkles size={18} /> קטלוג סוכנים</Link></Button>}
-        {!isAgent && <Button variant="soft" asChild><Link href="/customers/new"><UserRoundPlus size={18} /> לקוח חדש</Link></Button>}
+        <Button asChild><Link href="/orders?new=1" prefetch={true}><PackagePlus size={18} /> הזמנה חדשה</Link></Button>
+        {!isAgent && <Button variant="soft" asChild><Link href="/standards/new" prefetch={true}><Plus size={18} /> תיק מכון תקנים</Link></Button>}
+        {!isAgent && <Button variant="soft" asChild><Link href="/repairs/new" prefetch={true}><Wrench size={17} /> תיקון חדש</Link></Button>}
+        <Button variant="soft" asChild><Link href="/faults" prefetch={true}><ShieldAlert size={18} /> תקלות ופתיחות הגבלה</Link></Button>
+        {isAgent && <Button variant="soft" asChild><Link href="/faults/new" prefetch={true}><Plus size={18} /> מדריך חדש לדגם</Link></Button>}
+        {isAgent && <Button variant="soft" asChild><Link href="/catalog" prefetch={true}><Sparkles size={18} /> קטלוג סוכנים</Link></Button>}
+        {!isAgent && <Button variant="soft" asChild><Link href="/customers/new" prefetch={true}><UserRoundPlus size={18} /> לקוח חדש</Link></Button>}
       </div>
     </section>
     <div className="dashboard-split">
       <section className="card data-card" aria-labelledby="recent-standards">
-        <div className="section-heading"><h2 id="recent-standards">תיקי תקינה אחרונים</h2><Link className="section-link" href="/standards" aria-label="כל תיקי התקינה">לכל התיקים <ArrowLeft size={14} /></Link></div>
+        <div className="section-heading"><h2 id="recent-standards">תיקי תקינה אחרונים</h2><Link className="section-link" href="/standards" prefetch={true} aria-label="כל תיקי התקינה">לכל התיקים <ArrowLeft size={14} /></Link></div>
         <RecordTable rows={data.standards.map((item) => standardRow(item, "recent", modelsMap, isAgent))} columns={["מספר תיק", "דגם", "סטטוס", "עודכן לאחרונה"]}
           empty="אין תיקי תקינה להצגה" showEmptyHeader />
       </section>
       <section className="card data-card" aria-labelledby="delayed">
-        <div className="section-heading"><h2 id="delayed">תיקים בעיכוב</h2><Link className="section-link" href="/standards?delay=מתעכב" aria-label="כל התיקים בעיכוב">לכל התיקים <ArrowLeft size={14} /></Link></div>
+        <div className="section-heading"><h2 id="delayed">תיקים בעיכוב</h2><Link className="section-link" href="/standards?delay=מתעכב" prefetch={true} aria-label="כל התיקים בעיכוב">לכל התיקים <ArrowLeft size={14} /></Link></div>
         <RecordTable rows={data.delayed.map((item) => standardRow(item, "delayed", modelsMap, isAgent))} columns={["מספר תיק", "דגם", "סטטוס", "סיבת עיכוב"]}
           empty="אין תיקים בעיכוב" icon={TriangleAlert} showEmptyHeader />
       </section>
     </div>
     <section className="card data-card" aria-labelledby="recent-repairs">
-      <div className="section-heading"><h2 id="recent-repairs">תיקונים אחרונים</h2><Link className="section-link" href="/repairs" aria-label="כל התיקונים">לכל התיקונים <ArrowLeft size={14} /></Link></div>
+      <div className="section-heading"><h2 id="recent-repairs">תיקונים אחרונים</h2><Link className="section-link" href="/repairs" prefetch={true} aria-label="כל התיקונים">לכל התיקונים <ArrowLeft size={14} /></Link></div>
       <RecordTable rows={data.repairs.map((item) => repairRow(item, customersMap, true, modelsMap, { readOnly: isAgent, pickupAddress }))} columns={["מספר תיקון", "דגם", "לקוח", "תאריך פתיחה", "סטטוס"]}
         empty="אין תיקונים אחרונים" icon={Wrench} showEmptyHeader />
     </section>

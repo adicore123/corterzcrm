@@ -7,6 +7,7 @@ import { readMongoDocById, readMongoOrdersForActor, stripUndefined } from "../js
 import { catalogModels } from "../json-db/queries";
 import {
   audit,
+  peekHotCollection,
   readCollection,
   reserveNumber,
   serialized,
@@ -25,7 +26,15 @@ import {
 
 export async function listOrdersForUser(actor: PublicUser): Promise<Order[]> {
   if (usesMongoStorage()) {
-    return readMongoOrdersForActor(actor.id, actor.role);
+    const hot = peekHotCollection("orders");
+    if (hot) {
+      const visible =
+        actor.role === "agent" ? hot.filter((order) => order.createdBy === actor.id) : hot;
+      return [...visible].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    if (actor.role === "agent") {
+      return readMongoOrdersForActor(actor.id, actor.role);
+    }
   }
   const all = await readCollection("orders");
   const visible =

@@ -94,12 +94,12 @@ export function peekHotCollection<K extends Collection>(key: K): Data<K> | null 
  * Non-blocking background pre-warmer: loads all primary CRM collections into RAM in parallel
  * so subsequent module navigations render on the server in ~1ms with zero DB network trips.
  */
-export function warmAllCollectionsInBackground(): void {
-  if (usesBlobStorage()) return;
+export function warmAllCollectionsInBackground(): Promise<void> {
+  if (usesBlobStorage()) return Promise.resolve();
   const scope = storageEnvScope();
   const now = Date.now();
   const last = lastWarmupByScope.get(scope) ?? 0;
-  if (now - last < WARMUP_COOLDOWN_MS) return;
+  if (now - last < WARMUP_COOLDOWN_MS) return Promise.resolve();
   lastWarmupByScope.set(scope, now);
 
   const keysToWarm: Collection[] = [
@@ -112,13 +112,13 @@ export function warmAllCollectionsInBackground(): void {
     "faults",
     "quotes",
   ];
-  void Promise.all(
+  return Promise.all(
     keysToWarm.map((key) => {
       const hit = hotReadCache.get(hotCacheScopeKey(key));
       if (hit && hit.expiresAt > now + 5_000) return Promise.resolve();
       return readCollection(key).catch(() => undefined);
     }),
-  );
+  ).then(() => undefined);
 }
 
 export function storageRoot() {

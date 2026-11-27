@@ -21,25 +21,33 @@ const navigation = [
   ["customers", Users], ["models", Bike], ["faults", ShieldAlert], ["catalog", Sparkles], ["quotes", FileText], ["settings", Settings],
 ] as const;
 
+type NavKey = (typeof navigation)[number][0];
+
 export function Shell({ user, today, children }: { user: PublicUser; today: string; children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
+  const [navTarget, setNavTarget] = useState<{ key: NavKey; fromPath: string } | null>(null);
   const pathname = usePathname();
   const initialPathRef = useRef(pathname);
   const router = useRouter();
   const current = navigation.find(([key]) => pathname.startsWith("/" + key))?.[0] ?? "dashboard";
+  const activeKey: NavKey = navTarget && navTarget.fromPath === pathname ? navTarget.key : current;
 
-  // Quietly pre-warm primary modules during browser idle time so sidebar clicks open in 0ms
+  // Pre-warm full dynamic payloads for all primary modules (especially on mobile where drawer links start off-screen)
   useEffect(() => {
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
     if (conn?.saveData) return;
 
+    const fullPrefetchOpt = {
+      kind: "full" as NonNullable<Parameters<typeof router.prefetch>[1]>["kind"],
+    };
+
     const priorityRoutes =
       user.role === "agent"
-        ? ["/orders", "/quotes", "/catalog", "/faults"]
-        : ["/dashboard", "/orders", "/repairs", "/standards", "/customers", "/faults"];
+        ? ["/orders", "/quotes", "/catalog", "/faults", "/dashboard"]
+        : ["/dashboard", "/orders", "/repairs", "/standards", "/customers", "/models", "/faults", "/quotes"];
 
     const timers: number[] = [];
     const bootTimer = window.setTimeout(() => {
@@ -52,12 +60,12 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
         priorityRoutes.forEach((href, idx) => {
           if (initialPathRef.current === href) return;
           const t = window.setTimeout(() => {
-            router.prefetch(href);
-          }, idx * 90);
+            router.prefetch(href, fullPrefetchOpt);
+          }, idx * 55);
           timers.push(t);
         });
       });
-    }, 350);
+    }, 120);
 
     return () => {
       window.clearTimeout(bootTimer);
@@ -80,27 +88,51 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
     }
   }
 
+  const fullPrefetch = (href: string) =>
+    router.prefetch(href, {
+      kind: "full" as NonNullable<Parameters<typeof router.prefetch>[1]>["kind"],
+    });
+
   function sideContent(inDrawer: boolean) {
     const compact = !inDrawer && collapsed;
     return <>
       <div className="sidebar-brand">
-        <Link href="/dashboard" aria-label="קורטז · סקירה כללית" onClick={() => setDrawer(false)}><Brand compact={compact} /></Link>
+        <Link href="/dashboard" prefetch={true} aria-label="קורטז · סקירה כללית"
+          onClick={(event) => {
+            if (!event.defaultPrevented) {
+              setNavTarget({ key: "dashboard", fromPath: pathname });
+              setDrawer(false);
+            }
+          }}><Brand compact={compact} /></Link>
         {inDrawer && <Dialog.Close asChild><Button size="icon" variant="ghost" aria-label="סגירת תפריט"><X size={22} /></Button></Dialog.Close>}
       </div>
       <nav className="side-nav" aria-label="ניווט ראשי">
         {navigation.map(([key, Icon]) => {
           const href = "/" + key;
-          return <Link href={href} key={key} prefetch={false}
-            onPointerEnter={() => router.prefetch(href)}
-            onTouchStart={() => router.prefetch(href)}
-            onClick={(event) => { if (!event.defaultPrevented) setDrawer(false); }}
-            aria-current={current === key ? "page" : undefined} title={compact ? labels[key] : undefined}>
+          return <Link href={href} key={key} prefetch={key !== "settings"}
+            onPointerEnter={() => fullPrefetch(href)}
+            onTouchStart={() => fullPrefetch(href)}
+            onClick={(event) => {
+              if (!event.defaultPrevented) {
+                setNavTarget({ key, fromPath: pathname });
+                setDrawer(false);
+              }
+            }}
+            aria-current={activeKey === key ? "page" : undefined} title={compact ? labels[key] : undefined}>
             <Icon size={19} aria-hidden /><span className={compact ? "sr-only" : undefined}>{labels[key]}</span>
           </Link>;
         })}
       </nav>
       <div className="side-footer">
-        <Link className="profile" href="/settings" onClick={() => setDrawer(false)} title={compact ? user.name : undefined}>
+        <Link className="profile" href="/settings" prefetch={false}
+          onPointerEnter={() => fullPrefetch("/settings")}
+          onTouchStart={() => fullPrefetch("/settings")}
+          onClick={(event) => {
+            if (!event.defaultPrevented) {
+              setNavTarget({ key: "settings", fromPath: pathname });
+              setDrawer(false);
+            }
+          }} title={compact ? user.name : undefined}>
           <span className="avatar" aria-hidden>{Array.from(user.name.trim())[0]?.toLocaleUpperCase()}</span>
           <span className={compact ? "sr-only" : "profile-text"}><strong>{user.name}</strong><small>{roleLabel[user.role]}</small></span>
         </Link>
@@ -133,7 +165,7 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
                   aria-label={collapsed ? "הרחבת סרגל ניווט" : "כיווץ סרגל ניווט"} aria-expanded={!collapsed}>
                   {collapsed ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}
                 </Button>
-                <span>{labels[current]}</span>
+                <span>{labels[activeKey]}</span>
                 {user.role === "agent" && <span className="status status-blue">ממשק סוכן · קטלוג והצעות מחיר</span>}
               </div>
               <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>

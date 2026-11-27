@@ -9,7 +9,7 @@ import {
   readMongoQuotesForActor,
   stripUndefined,
 } from "../json-db/mongo-store";
-import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
+import { audit, peekHotCollection, readCollection, serialized, writeCollection } from "../json-db/store";
 import type { PublicUser } from "../validation/models";
 import { quoteTotal } from "./pricing";
 import { quoteSchema, type PublicQuote, type Quote } from "./schema";
@@ -50,8 +50,18 @@ export function toPublicQuote(quote: Quote): PublicQuote {
 
 export async function listQuotesForUser(actor: PublicUser): Promise<PublicQuote[]> {
   if (usesMongoStorage()) {
-    const docs = await readMongoQuotesForActor(actor.id, actor.role);
-    return docs.map(toPublicQuote);
+    const hot = peekHotCollection("quotes");
+    if (hot) {
+      const visible =
+        actor.role === "agent" ? hot.filter((quote) => quote.createdBy === actor.id) : hot;
+      return [...visible]
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .map(toPublicQuote);
+    }
+    if (actor.role === "agent") {
+      const docs = await readMongoQuotesForActor(actor.id, actor.role);
+      return docs.map(toPublicQuote);
+    }
   }
   const all = await readCollection("quotes");
   const visible =
@@ -122,6 +132,12 @@ export async function quoteByToken(token: string) {
   if (!/^[a-f0-9]{48}$/.test(token)) return null;
   const targetHash = hash(token);
   if (usesMongoStorage()) {
+    const hot = peekHotCollection("quotes");
+    if (hot) {
+      return (
+        hot.find((quote) => quote.tokenHash === targetHash && quote.status !== "cancelled") ?? null
+      );
+    }
     return readMongoQuoteByTokenHash(targetHash);
   }
   return (

@@ -47,7 +47,7 @@ import { listBlobBackups, readBlobBackup, usesBlobStorage } from "./blob-store";
 import { mongoDatabase, usesMongoStorage } from "./mongo-client";
 import { readMongoDocById, stripUndefined } from "./mongo-store";
 import { mergeWithDefaultCatalog } from "./queries";
-import { audit, readCollection, reserveNumber, serialized, writeCollection } from "./store";
+import { audit, peekHotCollection, readCollection, reserveNumber, serialized, writeCollection } from "./store";
 
 const saveOptions = z.object({
   version: z.iso.datetime().optional(),
@@ -84,6 +84,13 @@ export function getRecord(
 ): Promise<Standard | Repair | Customer | CatalogModel | FaultGuide>;
 export async function getRecord(module: Module, id: string) {
   if (usesMongoStorage()) {
+    const hot = peekHotCollection(module);
+    if (hot) {
+      if (module === "models") {
+        return existing<CatalogModel>(mergeWithDefaultCatalog(hot as CatalogModel[]), id);
+      }
+      return existing<Standard | Repair | Customer | CatalogModel | FaultGuide>(hot, id);
+    }
     const doc = await readMongoDocById(module, id);
     if (!doc) throw new AppError(404, "הרשומה לא נמצאה.");
     if (module === "models") {

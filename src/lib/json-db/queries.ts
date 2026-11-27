@@ -1,6 +1,6 @@
 import { usesMongoStorage } from "./mongo-client";
 import { readMongoDashboardSummary, readMongoDistinctModelNames } from "./mongo-store";
-import { readCollection } from "./store";
+import { peekHotCollection, readCollection } from "./store";
 import { defaultCatalogModels } from "./cortez-catalog";
 import type { CatalogModel, Customer, FaultGuide, Module, Repair, Standard } from "../validation/models";
 
@@ -8,8 +8,39 @@ export type RecordFilters = { q?: string; status?: string; delay?: string; sort?
 const matches = (value: string, query: string) => value.toLocaleLowerCase("he").includes(query);
 const newest = <T extends { updatedAt: string }>(items: T[]) => items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
+function computeDashboardFromArrays(
+  standards: Standard[],
+  repairs: Repair[],
+  customers: Customer[],
+  models: CatalogModel[],
+) {
+  const delayed = standards.filter((item) => item.delay === "מתעכב");
+  const topRepairs = newest([...repairs]).slice(0, 5);
+  const neededCustomerIds = new Set(topRepairs.map((r) => r.customerId));
+  return {
+    counts: {
+      activeStandards: standards.filter((item) => item.status !== "הסתיים").length,
+      delayed: delayed.length,
+      completed: standards.filter((item) => item.status === "הסתיים").length,
+      activeRepairs: repairs.filter((item) => item.status !== "הסתיים").length,
+    },
+    standards: newest([...standards]).slice(0, 5),
+    delayed: newest(delayed).slice(0, 5),
+    repairs: topRepairs,
+    customers: customers.filter((c) => neededCustomerIds.has(c.id)),
+    models,
+  };
+}
+
 export async function dashboard() {
   if (usesMongoStorage()) {
+    const hotStandards = peekHotCollection("standards");
+    const hotRepairs = peekHotCollection("repairs");
+    const hotCustomers = peekHotCollection("customers");
+    if (hotStandards && hotRepairs && hotCustomers) {
+      const models = await catalogModels();
+      return computeDashboardFromArrays(hotStandards, hotRepairs, hotCustomers, models);
+    }
     const [summary, models] = await Promise.all([
       readMongoDashboardSummary(),
       catalogModels(),
@@ -22,20 +53,7 @@ export async function dashboard() {
   const [standards, repairs, customers, models] = await Promise.all([
     readCollection("standards"), readCollection("repairs"), readCollection("customers"), catalogModels(),
   ]);
-  const delayed = standards.filter((item) => item.delay === "מתעכב");
-  return {
-    counts: {
-      activeStandards: standards.filter((item) => item.status !== "הסתיים").length,
-      delayed: delayed.length,
-      completed: standards.filter((item) => item.status === "הסתיים").length,
-      activeRepairs: repairs.filter((item) => item.status !== "הסתיים").length,
-    },
-    standards: newest(standards).slice(0, 5),
-    delayed: newest(delayed).slice(0, 5),
-    repairs: newest(repairs).slice(0, 5),
-    customers,
-    models,
-  };
+  return computeDashboardFromArrays(standards, repairs, customers, models);
 }
 
 export async function searchRecords(module: Module, filters: RecordFilters) {
@@ -118,6 +136,20 @@ export async function catalogModels(): Promise<CatalogModel[]> {
 
 export async function knownModels() {
   if (usesMongoStorage()) {
+    const hotStandards = peekHotCollection("standards");
+    const hotRepairs = peekHotCollection("repairs");
+    const hotFaults = peekHotCollection("faults");
+    if (hotStandards && hotRepairs && hotFaults) {
+      const models = await catalogModels();
+      return Array.from(
+        new Set([
+          ...models.map((item) => item.name),
+          ...hotStandards.map((item) => item.model),
+          ...hotRepairs.map((item) => item.model),
+          ...hotFaults.map((item) => item.model),
+        ]),
+      ).sort((a, b) => a.localeCompare(b, "he"));
+    }
     const [models, distinctUsed] = await Promise.all([
       catalogModels(),
       readMongoDistinctModelNames(),

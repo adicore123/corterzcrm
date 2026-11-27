@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -16,7 +16,13 @@ import {
   setUserDisabled,
 } from "../src/lib/auth/session";
 import { quickPatchRecord, saveRecord } from "../src/lib/json-db/records";
-import { readCollection, reserveNumber, serialized, writeCollection } from "../src/lib/json-db/store";
+import {
+  readCollection,
+  reserveNumber,
+  serialized,
+  warmAllCollectionsInBackground,
+  writeCollection,
+} from "../src/lib/json-db/store";
 import { toCatalogThumbUrl } from "../src/components/record-cells";
 import { authorizeAttachmentUploads } from "../src/lib/uploads/attachments";
 import { authorizeUploads } from "../src/lib/uploads/blob-images";
@@ -342,6 +348,47 @@ test("hasAnyUsers fast-path and GET /api/orders/customers lazy endpoint work cle
     assert.equal(list.length, 1);
     assert.equal(list[0].name, "יוסי לוי");
     assert.equal(list[0].store, "אופני הצפון");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("write-through hot RAM cache across CRM modules stays 100% fresh and detects external file corruption", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cortez-perf-writethrough-"));
+  process.env.CORTEZ_STORAGE_DIR = root;
+  delete process.env.CORTEZ_STORAGE_BACKEND;
+  try {
+    const admin = await createUser({
+      role: "admin",
+      username: "wt-admin",
+      name: "מנהל קאש",
+      password: "12345",
+    });
+
+    await warmAllCollectionsInBackground();
+    assert.equal((await readCollection("customers")).length, 0);
+    assert.equal((await readCollection("repairs")).length, 0);
+
+    const cust = (await saveRecord(
+      "customers",
+      undefined,
+      { customerType: "private", name: "לקוח מהיר", store: "", phone: "054-7778899" },
+      [],
+      admin,
+    )) as { id: string };
+
+    // Immediate read hits write-through cache with zero staleness
+    const cachedCustomers = await readCollection("customers");
+    assert.equal(cachedCustomers.length, 1);
+    assert.equal(cachedCustomers[0].id, cust.id);
+
+    // Caller array mutation must not poison hot cache
+    cachedCustomers.pop();
+    assert.equal((await readCollection("customers")).length, 1);
+
+    // External out-of-process corruption on disk is detected via fileSig check
+    await writeFile(join(root, "data", "customers.json"), "{corrupted");
+    await assert.rejects(() => readCollection("customers"), { status: 503 });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

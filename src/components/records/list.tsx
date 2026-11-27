@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { Bike, ClipboardList, Plus, ShieldAlert, Users, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,7 @@ import {
   readMongoRepairCountsByCustomer,
 } from "@/lib/json-db/mongo-store";
 import { catalogModels, searchRecords, type RecordFilters } from "@/lib/json-db/queries";
-import { readCollection } from "@/lib/json-db/store";
+import { peekHotCollection, readCollection } from "@/lib/json-db/store";
 import { labels, moduleCopy } from "@/lib/presentation";
 import {
   canEditModule,
@@ -23,6 +22,7 @@ import {
   type Module,
   type Repair,
   type Role,
+  type Standard,
 } from "@/lib/validation/models";
 
 const icons = {
@@ -33,48 +33,61 @@ const icons = {
   faults: ShieldAlert,
 };
 
-function TableStreamSkeleton() {
-  return (
-    <div className="skeleton-rows" role="status" aria-label="טוען רשומות">
-      <span className="skeleton-bar skeleton-row" />
-      <span className="skeleton-bar skeleton-row" />
-      <span className="skeleton-bar skeleton-row" />
-      <span className="skeleton-bar skeleton-row" />
-    </div>
-  );
-}
-
-async function FaultsStreamContent({
-  filters,
-  canEdit,
-}: {
-  filters: RecordFilters;
-  canEdit: boolean;
-}) {
-  const [records, models] = await Promise.all([
-    searchRecords("faults", filters),
-    catalogModels(),
-  ]);
-  return (
-    <FaultsModuleHub
-      records={records as FaultGuide[]}
-      catalogModels={models}
-      canEdit={canEdit}
-      initialQuery={filters.q}
-    />
-  );
-}
-
-async function StandardModuleTableContent({
+export async function RecordList({
   module,
   filters,
-  readOnly,
+  deleted,
+  userRole = "admin",
 }: {
-  module: Exclude<Module, "faults">;
+  module: Module;
   filters: RecordFilters;
-  readOnly: boolean;
+  deleted: boolean;
+  userRole?: Role;
 }) {
+  const canEdit = canEditModule(userRole, module);
+  const readOnly = !canEdit;
+  const copy = moduleCopy[module];
+  const href = "/" + module;
+
+  if (module === "faults") {
+    const [records, models] = await Promise.all([
+      searchRecords("faults", filters),
+      catalogModels(),
+    ]);
+    return (
+      <div className="page-stack">
+        <div className="page-title title-with-action">
+          <div>
+            <h1>{labels[module]}</h1>
+            <p>{copy.description}</p>
+          </div>
+          {canEdit && (
+            <Button asChild>
+              <Link href={href + "/new"} prefetch={true}>
+                <Plus size={18} /> {copy.create}
+              </Link>
+            </Button>
+          )}
+        </div>
+        {deleted && (
+          <p className="success-message" role="status">
+            הרשומה נמחקה.
+          </p>
+        )}
+        <FaultsModuleHub
+          records={records as FaultGuide[]}
+          catalogModels={models}
+          canEdit={canEdit}
+          initialQuery={filters.q}
+        />
+      </div>
+    );
+  }
+
   const isMongo = usesMongoStorage();
+  const hotRepairs = isMongo ? peekHotCollection("repairs") : null;
+  const hotStandards = isMongo ? peekHotCollection("standards") : null;
+  const hotCustomers = isMongo ? peekHotCollection("customers") : null;
 
   const [records, models, settings, mongoCustomerCounts, mongoModelCounts, fallbackRepairs, fallbackStandards] =
     await Promise.all([
@@ -83,23 +96,33 @@ async function StandardModuleTableContent({
       module === "repairs"
         ? readCollection("settings")
         : Promise.resolve({ pickupAddress: DEFAULT_PICKUP_ADDRESS }),
-      isMongo && module === "customers"
+      isMongo && module === "customers" && !hotRepairs
         ? readMongoRepairCountsByCustomer()
         : Promise.resolve(null),
-      isMongo && module === "models"
+      isMongo && module === "models" && !(hotRepairs && hotStandards)
         ? readMongoRecordCountsByModel(true)
         : Promise.resolve(null),
-      !isMongo && (module === "customers" || module === "models")
-        ? readCollection("repairs")
-        : Promise.resolve([]),
-      !isMongo && module === "models"
-        ? readCollection("standards")
-        : Promise.resolve([]),
+      module === "customers" || module === "models"
+        ? hotRepairs
+          ? Promise.resolve(hotRepairs)
+          : !isMongo
+            ? readCollection("repairs")
+            : Promise.resolve([] as Repair[])
+        : Promise.resolve([] as Repair[]),
+      module === "models"
+        ? hotStandards
+          ? Promise.resolve(hotStandards)
+          : !isMongo
+            ? readCollection("standards")
+            : Promise.resolve([] as Standard[])
+        : Promise.resolve([] as Standard[]),
     ]);
 
   let contacts: Customer[] = [];
   if (module === "repairs") {
-    if (isMongo) {
+    if (hotCustomers) {
+      contacts = hotCustomers;
+    } else if (isMongo) {
       const neededIds = Array.from(new Set((records as Repair[]).map((r) => r.customerId)));
       contacts = await readMongoCustomersByIds(neededIds);
     } else {
@@ -147,7 +170,6 @@ async function StandardModuleTableContent({
     return modelRow(item, modelStandards.get(key) ?? 0, modelRepairs.get(key) ?? 0, readOnly);
   });
 
-  const copy = moduleCopy[module];
   const columns =
     module === "standards"
       ? ["מספר תיק", "דגם", "סוג מכשיר", "סטטוס", "עיכוב", "משימות", "עדכון אחרון"]
@@ -159,39 +181,6 @@ async function StandardModuleTableContent({
   const filtered = Boolean(filters.q || filters.status || filters.delay || filters.sort);
 
   return (
-    <>
-      <div className="list-toolbar">
-        <span>{rows.length === 1 ? "רשומה אחת" : rows.length + " רשומות"}</span>
-      </div>
-      <RecordTable
-        rows={rows}
-        columns={columns}
-        icon={icons[module]}
-        empty={filtered ? "לא נמצאו תוצאות" : copy.empty}
-        showEmptyHeader
-      />
-    </>
-  );
-}
-
-export function RecordList({
-  module,
-  filters,
-  deleted,
-  userRole = "admin",
-}: {
-  module: Module;
-  filters: RecordFilters;
-  deleted: boolean;
-  userRole?: Role;
-}) {
-  const canEdit = canEditModule(userRole, module);
-  const readOnly = !canEdit;
-  const copy = moduleCopy[module];
-  const href = "/" + module;
-  const streamKey = `${module}|${filters.q ?? ""}|${filters.status ?? ""}|${filters.delay ?? ""}|${filters.sort ?? ""}`;
-
-  return (
     <div className="page-stack">
       <div className="page-title title-with-action">
         <div>
@@ -200,7 +189,7 @@ export function RecordList({
         </div>
         {canEdit && (
           <Button asChild>
-            <Link href={href + "/new"}>
+            <Link href={href + "/new"} prefetch={true}>
               <Plus size={18} /> {copy.create}
             </Link>
           </Button>
@@ -211,18 +200,19 @@ export function RecordList({
           הרשומה נמחקה.
         </p>
       )}
-      {module === "faults" ? (
-        <Suspense key={streamKey} fallback={<div className="card skeleton-card"><TableStreamSkeleton /></div>}>
-          <FaultsStreamContent filters={filters} canEdit={canEdit} />
-        </Suspense>
-      ) : (
-        <section className="card list-card" aria-label={labels[module]}>
-          <RecordFiltersBar module={module} href={href} searchLabel={copy.search} filters={filters} />
-          <Suspense key={streamKey} fallback={<TableStreamSkeleton />}>
-            <StandardModuleTableContent module={module} filters={filters} readOnly={readOnly} />
-          </Suspense>
-        </section>
-      )}
+      <section className="card list-card" aria-label={labels[module]}>
+        <RecordFiltersBar module={module} href={href} searchLabel={copy.search} filters={filters} />
+        <div className="list-toolbar">
+          <span>{rows.length === 1 ? "רשומה אחת" : rows.length + " רשומות"}</span>
+        </div>
+        <RecordTable
+          rows={rows}
+          columns={columns}
+          icon={icons[module]}
+          empty={filtered ? "לא נמצאו תוצאות" : copy.empty}
+          showEmptyHeader
+        />
+      </section>
     </div>
   );
 }
