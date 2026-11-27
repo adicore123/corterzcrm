@@ -15,6 +15,7 @@ import {
 } from "@/lib/client-api";
 import { mapConcurrent } from "@/lib/utils";
 import type { Attachment, Module, Photo, PhotoModule } from "@/lib/validation/models";
+import { useToast } from "@/components/ui/toast";
 
 export type PendingPhoto = {
   id: string;
@@ -627,6 +628,7 @@ export function useEditor(
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [leaving, setLeaving] = useState(false);
+  const { addToast } = useToast();
   const unsaved = useUnsaved(dirty || Boolean(photos?.dirty) || Boolean(attachments?.dirty), bypass);
 
   function authorizeDelete(password: string) {
@@ -700,11 +702,26 @@ export function useEditor(
 
       bypass.current = true;
       setLeaving(true);
+      const isCreate = !id;
+      addToast({
+        title: isCreate ? "התיק נוצר בהצלחה" : "התיק נשמר בהצלחה",
+        description: isCreate
+          ? "ניתן להמשיך לערוך או לצפות בפרטי התיק."
+          : "השינויים נשמרו ונעדכנו במערכת.",
+        variant: "success",
+      });
       router.push("/" + module + "/" + saved.id + "?saved=1");
       startTransition(() => router.refresh());
     } catch (error) {
       sending.current = false;
-      setError((error as Error).message);
+      const message = (error as Error).message || "אירעה שגיאה בשמירה.";
+      setError(message);
+      addToast({
+        title: "שמירה נכשלה",
+        description: message,
+        variant: "destructive",
+        duration: 6000,
+      });
     } finally {
       setProgress(null);
     }

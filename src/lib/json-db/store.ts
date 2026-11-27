@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { cp, mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { cp, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { AppError } from "../errors";
 import {
@@ -30,20 +30,38 @@ import { defaultCatalogModels } from "./cortez-catalog";
 type HotCacheEntry = {
   value: unknown;
   expiresAt: number;
+  fileSig?: string;
 };
 
-const HOT_CACHEABLE_KEYS = new Set<Collection>(["models", "settings"]);
-const HOT_CACHE_TTL_MS = 45_000;
+const HOT_CACHEABLE_KEYS = new Set<Collection>([
+  "models",
+  "settings",
+  "standards",
+  "repairs",
+  "customers",
+  "faults",
+  "orders",
+  "quotes",
+  "users",
+]);
+const HOT_CACHE_TTL_MS = 30_000;
+const WARMUP_COOLDOWN_MS = 25_000;
 
 const roots = globalThis as typeof globalThis & {
   cortezStore?: { queue: Promise<unknown>; initializations: Map<string, Promise<void>> };
   cortezHotReadCache?: Map<string, HotCacheEntry>;
+  cortezLastWarmupAt?: Map<string, number>;
 };
 const state = (roots.cortezStore ??= { queue: Promise.resolve(), initializations: new Map() });
 const hotReadCache = (roots.cortezHotReadCache ??= new Map());
+const lastWarmupByScope = (roots.cortezLastWarmupAt ??= new Map());
+
+function storageEnvScope(): string {
+  return `${process.env.CORTEZ_STORAGE_BACKEND ?? ""}|${process.env.CORTEZ_STORAGE_DIR ?? ""}|${process.env.MONGODB_DB ?? ""}|${process.env.VERCEL_BLOB_API_URL ?? ""}`;
+}
 
 function hotCacheScopeKey(key: Collection): string {
-  return `${process.env.CORTEZ_STORAGE_BACKEND ?? ""}|${process.env.CORTEZ_STORAGE_DIR ?? ""}|${process.env.MONGODB_DB ?? ""}|${process.env.VERCEL_BLOB_API_URL ?? ""}::${key}`;
+  return `${storageEnvScope()}::${key}`;
 }
 
 function cloneHotValue<K extends Collection>(val: Data<K>): Data<K> {
@@ -56,6 +74,51 @@ export function invalidateHotReadCache(key?: Collection) {
     return;
   }
   hotReadCache.delete(hotCacheScopeKey(key));
+}
+
+/**
+ * Synchronous O(1) peek into the server's write-through RAM cache (returns null if cold/expired).
+ * Only used for MongoDB read fast-paths outside active transactions.
+ */
+export function peekHotCollection<K extends Collection>(key: K): Data<K> | null {
+  if (!HOT_CACHEABLE_KEYS.has(key) || isInsideMongoTransaction() || inFileTx > 0 || usesBlobStorage()) {
+    return null;
+  }
+  if (!usesMongoStorage()) return null;
+  const hit = hotReadCache.get(hotCacheScopeKey(key));
+  if (!hit || hit.expiresAt <= Date.now()) return null;
+  return cloneHotValue(hit.value as Data<K>);
+}
+
+/**
+ * Non-blocking background pre-warmer: loads all primary CRM collections into RAM in parallel
+ * so subsequent module navigations render on the server in ~1ms with zero DB network trips.
+ */
+export function warmAllCollectionsInBackground(): void {
+  if (usesBlobStorage()) return;
+  const scope = storageEnvScope();
+  const now = Date.now();
+  const last = lastWarmupByScope.get(scope) ?? 0;
+  if (now - last < WARMUP_COOLDOWN_MS) return;
+  lastWarmupByScope.set(scope, now);
+
+  const keysToWarm: Collection[] = [
+    "models",
+    "settings",
+    "orders",
+    "standards",
+    "repairs",
+    "customers",
+    "faults",
+    "quotes",
+  ];
+  void Promise.all(
+    keysToWarm.map((key) => {
+      const hit = hotReadCache.get(hotCacheScopeKey(key));
+      if (hit && hit.expiresAt > now + 5_000) return Promise.resolve();
+      return readCollection(key).catch(() => undefined);
+    }),
+  );
 }
 
 export function storageRoot() {
@@ -71,6 +134,15 @@ export function storageRoot() {
 }
 
 const collectionPath = (key: Collection) => path.join(storageRoot(), "data", collections[key].file);
+
+async function readLocalFileSig(file: string): Promise<string | undefined> {
+  try {
+    const info = await stat(file);
+    return `${info.mtimeMs}:${info.size}`;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function atomicWrite(file: string, content: string | Uint8Array) {
   const temporary = file + "." + randomUUID() + ".tmp";
@@ -190,30 +262,45 @@ export function serialized<T>(
 }
 
 export async function readCollection<K extends Collection>(key: K): Promise<Data<K>> {
+  const isMongo = usesMongoStorage();
+  const isBlob = usesBlobStorage();
   const canUseHotCache =
     HOT_CACHEABLE_KEYS.has(key)
     && !isInsideMongoTransaction()
     && inFileTx === 0
-    && !usesBlobStorage();
+    && !isBlob;
+
+  const cacheKey = canUseHotCache ? hotCacheScopeKey(key) : "";
+  let localSig: string | undefined;
 
   if (canUseHotCache) {
-    const cacheKey = hotCacheScopeKey(key);
     const hit = hotReadCache.get(cacheKey);
     if (hit && hit.expiresAt > Date.now()) {
-      return cloneHotValue(hit.value as Data<K>);
+      if (isMongo) {
+        return cloneHotValue(hit.value as Data<K>);
+      }
+      await ensureStorage();
+      localSig = await readLocalFileSig(collectionPath(key));
+      if (localSig && hit.fileSig === localSig) {
+        return cloneHotValue(hit.value as Data<K>);
+      }
     }
   }
 
   let result: Data<K>;
-  if (usesMongoStorage()) {
+  if (isMongo) {
     result = await readMongoCollection(key);
-  } else if (usesBlobStorage()) {
+  } else if (isBlob) {
     result = await readBlobCollection(key);
   } else {
     await ensureStorage();
+    const file = collectionPath(key);
     try {
-      const value: unknown = JSON.parse(await readFile(collectionPath(key), "utf8"));
-      result = collections[key].schema.parse(value) as Data<K>;
+      const rawText = await readFile(file, "utf8");
+      result = collections[key].schema.parse(JSON.parse(rawText)) as Data<K>;
+      if (canUseHotCache && !localSig) {
+        localSig = await readLocalFileSig(file);
+      }
     } catch (error) {
       // Preserve the file for investigation. A read failure must never become an empty write.
       console.error(
@@ -226,9 +313,10 @@ export async function readCollection<K extends Collection>(key: K): Promise<Data
   }
 
   if (canUseHotCache) {
-    hotReadCache.set(hotCacheScopeKey(key), {
+    hotReadCache.set(cacheKey, {
       value: cloneHotValue(result),
       expiresAt: Date.now() + HOT_CACHE_TTL_MS,
+      fileSig: localSig,
     });
   }
   return result;
@@ -238,15 +326,28 @@ export async function readCollection<K extends Collection>(key: K): Promise<Data
 export async function writeCollection<K extends Collection>(key: K, value: Data<K>) {
   const validated = collections[key].schema.parse(value) as Data<K>;
   invalidateHotReadCache(key);
-  if (usesMongoStorage()) {
+  const isMongo = usesMongoStorage();
+  const isBlob = usesBlobStorage();
+
+  if (isMongo) {
     await writeMongoCollection(key, validated);
-  } else if (usesBlobStorage()) {
+  } else if (isBlob) {
     await writeBlobCollection(key, validated);
   } else {
     await ensureStorage();
-    await atomicWrite(collectionPath(key), JSON.stringify(validated, null, 2) + "\n");
+    const file = collectionPath(key);
+    await atomicWrite(file, JSON.stringify(validated, null, 2) + "\n");
+    if (HOT_CACHEABLE_KEYS.has(key)) {
+      const sig = await readLocalFileSig(file);
+      hotReadCache.set(hotCacheScopeKey(key), {
+        value: cloneHotValue(validated),
+        expiresAt: Date.now() + HOT_CACHE_TTL_MS,
+        fileSig: sig,
+      });
+    }
   }
-  if (HOT_CACHEABLE_KEYS.has(key) && !usesBlobStorage()) {
+
+  if (isMongo && HOT_CACHEABLE_KEYS.has(key)) {
     hotReadCache.set(hotCacheScopeKey(key), {
       value: cloneHotValue(validated),
       expiresAt: Date.now() + HOT_CACHE_TTL_MS,

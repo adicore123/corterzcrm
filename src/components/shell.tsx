@@ -14,6 +14,7 @@ import { requestJson } from "@/lib/client-api";
 import { Brand } from "./brand";
 import { PwaInstallPrompt } from "./pwa-install-prompt";
 import { Button } from "./ui/button";
+import { ToastProvider } from "./ui/toast";
 
 const navigation = [
   ["dashboard", LayoutDashboard], ["orders", PackagePlus], ["standards", ClipboardList], ["repairs", Wrench],
@@ -111,33 +112,37 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
     </>;
   }
 
-  return <div className={"app-shell" + (collapsed ? " is-collapsed" : "")}>
-    <aside className="sidebar">{sideContent(false)}</aside>
-    <Dialog.Root open={drawer} onOpenChange={setDrawer}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="sidebar sidebar-mobile" dir="rtl">
-          <Dialog.Title className="sr-only">תפריט ניווט</Dialog.Title>
-          <Dialog.Description className="sr-only">ניווט בין מסכי המערכת</Dialog.Description>
-          {sideContent(true)}
-        </Dialog.Content>
-      </Dialog.Portal>
-      <div className="workspace">
-        <header className="topbar">
-          <div className="flex items-center gap-3">
-            <Dialog.Trigger asChild><Button className="mobile-menu" size="icon" variant="ghost" aria-label="פתיחת תפריט"><Menu size={22} /></Button></Dialog.Trigger>
-            <Button className="collapse-menu" size="icon" variant="ghost" onClick={() => setCollapsed(!collapsed)}
-              aria-label={collapsed ? "הרחבת סרגל ניווט" : "כיווץ סרגל ניווט"} aria-expanded={!collapsed}>
-              {collapsed ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}
-            </Button>
-            <span>{labels[current]}</span>
-            {user.role === "agent" && <span className="status status-blue">ממשק סוכן · קטלוג והצעות מחיר</span>}
+  return (
+    <ToastProvider>
+      <div className={"app-shell" + (collapsed ? " is-collapsed" : "")}>
+        <aside className="sidebar">{sideContent(false)}</aside>
+        <Dialog.Root open={drawer} onOpenChange={setDrawer}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="dialog-overlay" />
+            <Dialog.Content className="sidebar sidebar-mobile" dir="rtl">
+              <Dialog.Title className="sr-only">תפריט ניווט</Dialog.Title>
+              <Dialog.Description className="sr-only">ניווט בין מסכי המערכת</Dialog.Description>
+              {sideContent(true)}
+            </Dialog.Content>
+          </Dialog.Portal>
+          <div className="workspace">
+            <header className="topbar">
+              <div className="flex items-center gap-3">
+                <Dialog.Trigger asChild><Button className="mobile-menu" size="icon" variant="ghost" aria-label="פתיחת תפריט"><Menu size={22} /></Button></Dialog.Trigger>
+                <Button className="collapse-menu" size="icon" variant="ghost" onClick={() => setCollapsed(!collapsed)}
+                  aria-label={collapsed ? "הרחבת סרגל ניווט" : "כיווץ סרגל ניווט"} aria-expanded={!collapsed}>
+                  {collapsed ? <PanelRightOpen size={19} /> : <PanelRightClose size={19} />}
+                </Button>
+                <span>{labels[current]}</span>
+                {user.role === "agent" && <span className="status status-blue">ממשק סוכן · קטלוג והצעות מחיר</span>}
+              </div>
+              <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>
+            </header>
+            <PwaInstallPrompt />
+            <main id="main" className="main-content">{children}</main>
           </div>
-          <span className="top-date"><CalendarDays size={16} aria-hidden />{today}</span>
-        </header>
-        <PwaInstallPrompt />
-        <main id="main" className="main-content">{children}</main>
+        </Dialog.Root>
       </div>
-    </Dialog.Root>
-  </div>;
+    </ToastProvider>
+  );
 }
