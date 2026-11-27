@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useMemo, useRef, useState, type FormEvent } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bike,
@@ -107,6 +107,7 @@ export function OrdersWorkspace({
   pickupAddress,
   initialOpenNew = false,
   initialPrefill,
+  customersPreloaded = true,
 }: {
   models: OrderCatalogModelOption[];
   initialCustomers: OrderCustomerOption[];
@@ -116,6 +117,7 @@ export function OrdersWorkspace({
   pickupAddress: string;
   initialOpenNew?: boolean;
   initialPrefill?: OrderQuotePrefill;
+  customersPreloaded?: boolean;
 }) {
   const router = useRouter();
   const isStaff = userRole === "admin" || userRole === "employee";
@@ -123,8 +125,28 @@ export function OrdersWorkspace({
 
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
 
-  // Customer directory state (synced with newly added inline customers)
+  // Customer directory state (synced with newly added inline customers & lazy background load)
   const [customers, setCustomers] = useState<OrderCustomerOption[]>(initialCustomers);
+  const customersLoadedRef = useRef(customersPreloaded);
+
+  useEffect(() => {
+    if (customersLoadedRef.current) return;
+    let cancelled = false;
+    fetch("/api/orders/customers")
+      .then((res) => (res.ok ? (res.json() as Promise<OrderCustomerOption[]>) : null))
+      .then((fetched) => {
+        if (!fetched || cancelled) return;
+        customersLoadedRef.current = true;
+        setCustomers((prev) => {
+          const existingIds = new Set(prev.map((c) => c.id));
+          return [...prev, ...fetched.filter((c) => !existingIds.has(c.id))];
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const customersById = useMemo(
     () => new Map(customers.map((c) => [c.id, c])),
     [customers],

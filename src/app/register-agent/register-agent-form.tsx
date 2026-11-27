@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,6 +19,7 @@ const schema = z.object({
 });
 
 export function RegisterAgentForm({ code }: { code: string }) {
+  const router = useRouter();
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState("");
   const [redirecting, setRedirecting] = useState(false);
@@ -27,13 +29,18 @@ export function RegisterAgentForm({ code }: { code: string }) {
   });
   const busy = isSubmitting || redirecting;
 
+  useEffect(() => {
+    router.prefetch("/dashboard");
+  }, [router]);
+
   return <form className="login-form" noValidate onSubmit={handleSubmit(async (values) => {
     if (busy) return;
     setError("");
     try {
       await requestJson("/api/auth/register-agent", "POST", { ...values, code });
       setRedirecting(true);
-      window.location.replace(new URL("/dashboard", window.location.href));
+      router.replace("/dashboard");
+      router.refresh();
     } catch (err) {
       setError((err as Error).message);
     }

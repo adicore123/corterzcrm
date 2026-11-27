@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   newRequestId,
@@ -701,6 +701,7 @@ export function useEditor(
       bypass.current = true;
       setLeaving(true);
       router.push("/" + module + "/" + saved.id + "?saved=1");
+      startTransition(() => router.refresh());
     } catch (error) {
       sending.current = false;
       setError((error as Error).message);

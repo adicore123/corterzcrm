@@ -890,3 +890,102 @@ export async function readMongoQuoteByTokenHash(
   if (!doc) return null;
   return collections.quotes.schema.parse([stripMongoId(doc)])[0] ?? null;
 }
+
+export async function hasMongoUsers(): Promise<boolean> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  return (await db.collection("crm_users").estimatedDocumentCount()) > 0;
+}
+
+export async function readMongoUserByUsername(
+  username: string,
+): Promise<Data<"users">[number] | null> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const doc = await db
+    .collection<Document & { _id: string }>("crm_users")
+    .findOne({ username });
+  if (!doc) return null;
+  return collections.users.schema.parse([stripMongoId(doc)])[0] ?? null;
+}
+
+export async function insertMongoSession(
+  session: Data<"sessions">[number],
+): Promise<void> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const col = db.collection<Document & { _id: string }>("crm_sessions");
+  await col.insertOne({ _id: session.hash, ...session });
+  // Non-blocking background purge of expired sessions
+  void col.deleteMany({ expires: { $lte: Date.now() } }).catch(() => undefined);
+}
+
+export async function readMongoRepairCountsByCustomer(): Promise<Map<string, number>> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const rows = await db
+    .collection("crm_repairs")
+    .aggregate<{ _id: string; count: number }>([
+      { $group: { _id: "$customerId", count: { $sum: 1 } } },
+    ])
+    .toArray();
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    if (typeof row._id === "string") out.set(row._id, row.count);
+  }
+  return out;
+}
+
+export async function readMongoRecordCountsByModel(includeStandards: boolean): Promise<{
+  repairCounts: Map<string, number>;
+  standardCounts: Map<string, number>;
+}> {
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+
+  const [repRows, stdRows] = await Promise.all([
+    db
+      .collection("crm_repairs")
+      .aggregate<{ _id: string; count: number }>([
+        { $group: { _id: "$model", count: { $sum: 1 } } },
+      ])
+      .toArray(),
+    includeStandards
+      ? db
+          .collection("crm_standards")
+          .aggregate<{ _id: string; count: number }>([
+            { $group: { _id: "$model", count: { $sum: 1 } } },
+          ])
+          .toArray()
+      : Promise.resolve([] as Array<{ _id: string; count: number }>),
+  ]);
+
+  const repairCounts = new Map<string, number>();
+  for (const row of repRows) {
+    if (typeof row._id === "string") {
+      const k = row._id.toLocaleLowerCase("he");
+      repairCounts.set(k, (repairCounts.get(k) ?? 0) + row.count);
+    }
+  }
+
+  const standardCounts = new Map<string, number>();
+  for (const row of stdRows) {
+    if (typeof row._id === "string") {
+      const k = row._id.toLocaleLowerCase("he");
+      standardCounts.set(k, (standardCounts.get(k) ?? 0) + row.count);
+    }
+  }
+
+  return { repairCounts, standardCounts };
+}
+
+export async function readMongoCustomersByIds(ids: string[]): Promise<Data<"customers">> {
+  if (!ids.length) return [];
+  const db = await mongoDatabase();
+  await ensureMongoCollectionsReady(db);
+  const docs = await db
+    .collection<Document & { _id: string }>("crm_customers")
+    .find({ _id: { $in: ids } })
+    .toArray();
+  return collections.customers.schema.parse(docs.map(stripMongoId));
+}

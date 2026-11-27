@@ -10,11 +10,18 @@ export async function mongoDatabase() {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI is required for MongoDB storage.");
   globalClient.cortezMongo ??= new MongoClient(uri, {
-    ignoreUndefined: true, maxPoolSize: 10, minPoolSize: 0, maxIdleTimeMS: 60_000, serverSelectionTimeoutMS: 10_000,
-  }).connect().catch((error) => {
-    globalClient.cortezMongo = undefined;
-    throw error;
-  });
+    ignoreUndefined: true,
+    maxPoolSize: 10,
+    minPoolSize: 1,
+    maxIdleTimeMS: 120_000,
+    serverSelectionTimeoutMS: 10_000,
+    compressors: ["zlib"],
+  })
+    .connect()
+    .catch((error) => {
+      globalClient.cortezMongo = undefined;
+      throw error;
+    });
   const client = await globalClient.cortezMongo;
   return client.db(process.env.MONGODB_DB || "cortezcrm");
 }

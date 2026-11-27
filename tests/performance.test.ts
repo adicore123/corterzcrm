@@ -9,6 +9,7 @@ import {
   changeOwnPassword,
   createUser,
   getUser,
+  hasAnyUsers,
   login,
   logout,
   resetUserPassword,
@@ -291,6 +292,56 @@ test("hot read cache for models/settings invalidates immediately on write, and c
       toCatalogThumbUrl("/coastal-showroom/exhibits/mia.png", 128),
       "/coastal-showroom/exhibits/mia.png",
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("hasAnyUsers fast-path and GET /api/orders/customers lazy endpoint work cleanly", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cortez-perf-boot-"));
+  process.env.CORTEZ_STORAGE_DIR = root;
+  delete process.env.CORTEZ_STORAGE_BACKEND;
+  try {
+    assert.equal(await hasAnyUsers(), false);
+    const admin = await createUser({
+      role: "admin",
+      username: "boot-admin",
+      name: "מנהל",
+      password: "12345",
+    });
+    assert.equal(await hasAnyUsers(), true);
+    assert.equal(await hasAnyUsers(), true);
+
+    const agent = await createUser(
+      { role: "agent", username: "boot-agent", name: "סוכן", password: "12345" },
+      admin,
+    );
+    await saveRecord(
+      "customers",
+      undefined,
+      { customerType: "store", name: "יוסי לוי", store: "אופני הצפון", phone: "052-3334455" },
+      [],
+      admin,
+    );
+
+    const { GET } = await import("../src/app/api/orders/customers/route");
+    const { NextRequest } = await import("next/server");
+
+    // Unauthenticated rejected with 401
+    const unauthRes = await GET(new NextRequest("http://localhost:3000/api/orders/customers"));
+    assert.equal(unauthRes.status, 401);
+
+    // Authenticated agent receives customer options
+    const agentSession = await login(agent.username, "12345");
+    const authReq = new NextRequest("http://localhost:3000/api/orders/customers", {
+      headers: { Cookie: `cortez_session=${agentSession.token}` },
+    });
+    const authRes = await GET(authReq);
+    assert.equal(authRes.status, 200);
+    const list = (await authRes.json()) as Array<{ name: string; store: string }>;
+    assert.equal(list.length, 1);
+    assert.equal(list[0].name, "יוסי לוי");
+    assert.equal(list[0].store, "אופני הצפון");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

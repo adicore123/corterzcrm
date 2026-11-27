@@ -3,7 +3,12 @@ import { promisify } from "node:util";
 import { z } from "zod";
 import { AppError } from "../errors";
 import { usesMongoStorage } from "../json-db/mongo-client";
-import { readMongoDocById } from "../json-db/mongo-store";
+import {
+  hasMongoUsers,
+  insertMongoSession,
+  readMongoDocById,
+  readMongoUserByUsername,
+} from "../json-db/mongo-store";
 import { audit, readCollection, serialized, writeCollection } from "../json-db/store";
 import {
   deletePasswordSchema,
@@ -243,35 +248,81 @@ async function recordFailedLogin(username: string, clientIp = "local") {
   ]);
 }
 
+export async function hasAnyUsers(): Promise<boolean> {
+  const scopeKey = storageScopeKey();
+  if (hasUsersScopes.has(scopeKey)) return true;
+  const exists = usesMongoStorage()
+    ? await hasMongoUsers()
+    : (await readCollection("users")).length > 0;
+  if (exists) hasUsersScopes.add(scopeKey);
+  return exists;
+}
+
 export async function login(username: string, password: string, clientIp = "local") {
   await checkLoginLimit(username, clientIp);
-  const user = (await readCollection("users")).find((item) => item.username === username);
+  const user = usesMongoStorage()
+    ? await readMongoUserByUsername(username)
+    : (await readCollection("users")).find((item) => item.username === username);
   const valid = await checkPassword(password, user?.passwordHash ?? dummyHash);
   if (!valid || !user || user.disabled) {
     await recordFailedLogin(username, clientIp);
     if (user && !valid) {
-      await serialized(() => audit(user.id, "login-failed", "users", user.id)).catch(
+      await serialized(() => audit(user.id, "login-failed", "users", user.id), "auth").catch(
         () => undefined,
       );
     }
     throw new AppError(401, "שם המשתמש או הסיסמה שגויים.");
   }
+
+  if (usesMongoStorage()) {
+    const token = randomBytes(32).toString("hex");
+    const hash = tokenHash(token);
+    const expires = Date.now() + ttl;
+    await insertMongoSession({ hash, userId: user.id, expires });
+    await Promise.all([
+      clearRateLimit(`login:account:${username}`),
+      audit(user.id, "login", "users", user.id),
+    ]);
+    const pub = publicUser(user);
+    const scopeKey = storageScopeKey();
+    hasUsersScopes.add(scopeKey);
+    sessionCache.set(hash, {
+      user: pub,
+      userId: pub.id,
+      sessionExpires: expires,
+      cachedUntil: Date.now() + SESSION_CACHE_TTL_MS,
+      storageKey: scopeKey,
+    });
+    return { token, expires };
+  }
+
   return serialized(async () => {
     const current = (await readCollection("users")).find((item) => item.id === user.id);
     if (!current || current.disabled || current.passwordHash !== user.passwordHash) {
       throw new AppError(401, "שם המשתמש או הסיסמה שגויים.");
     }
     const token = randomBytes(32).toString("hex");
+    const hash = tokenHash(token);
     const expires = Date.now() + ttl;
     const sessions = (await readCollection("sessions")).filter((item) => item.expires > Date.now());
     await writeCollection("sessions", [
       ...sessions,
-      { hash: tokenHash(token), userId: user.id, expires },
+      { hash, userId: user.id, expires },
     ]);
     await clearRateLimit(`login:account:${username}`);
     await audit(user.id, "login", "users", user.id);
+    const pub = publicUser(current);
+    const scopeKey = storageScopeKey();
+    hasUsersScopes.add(scopeKey);
+    sessionCache.set(hash, {
+      user: pub,
+      userId: pub.id,
+      sessionExpires: expires,
+      cachedUntil: Date.now() + SESSION_CACHE_TTL_MS,
+      storageKey: scopeKey,
+    });
     return { token, expires };
-  });
+  }, "auth");
 }
 
 const SESSION_CACHE_TTL_MS = 10_000;
@@ -287,8 +338,10 @@ type CachedSessionEntry = {
 
 const sessionCacheGlobal = globalThis as typeof globalThis & {
   cortezSessionCache?: Map<string, CachedSessionEntry>;
+  cortezHasUsersScopes?: Set<string>;
 };
 const sessionCache = (sessionCacheGlobal.cortezSessionCache ??= new Map());
+const hasUsersScopes = (sessionCacheGlobal.cortezHasUsersScopes ??= new Set());
 
 function storageScopeKey(): string {
   return `${process.env.CORTEZ_STORAGE_BACKEND ?? ""}|${process.env.CORTEZ_STORAGE_DIR ?? ""}|${process.env.MONGODB_DB ?? ""}|${process.env.VERCEL_BLOB_API_URL ?? ""}`;
@@ -425,9 +478,10 @@ export async function createUser(value: unknown, actor?: PublicUser) {
       updatedAt: now,
     };
     await writeCollection("users", [...users, user]);
+    hasUsersScopes.add(storageScopeKey());
     await audit(actor?.id ?? user.id, "create", "users", user.id);
     return publicUser(user);
-  });
+  }, "auth");
 }
 
 export async function setUserDisabled(id: string, disabled: boolean, actor: PublicUser) {

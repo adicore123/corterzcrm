@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Dialog } from "radix-ui";
@@ -26,8 +26,43 @@ export function Shell({ user, today, children }: { user: PublicUser; today: stri
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
   const pathname = usePathname();
+  const initialPathRef = useRef(pathname);
   const router = useRouter();
   const current = navigation.find(([key]) => pathname.startsWith("/" + key))?.[0] ?? "dashboard";
+
+  // Quietly pre-warm primary modules during browser idle time so sidebar clicks open in 0ms
+  useEffect(() => {
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (conn?.saveData) return;
+
+    const priorityRoutes =
+      user.role === "agent"
+        ? ["/orders", "/quotes", "/catalog", "/faults"]
+        : ["/dashboard", "/orders", "/repairs", "/standards", "/customers", "/faults"];
+
+    const timers: number[] = [];
+    const bootTimer = window.setTimeout(() => {
+      const schedule =
+        typeof window.requestIdleCallback === "function"
+          ? window.requestIdleCallback.bind(window)
+          : (cb: () => void) => window.setTimeout(cb, 1);
+
+      schedule(() => {
+        priorityRoutes.forEach((href, idx) => {
+          if (initialPathRef.current === href) return;
+          const t = window.setTimeout(() => {
+            router.prefetch(href);
+          }, idx * 90);
+          timers.push(t);
+        });
+      });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(bootTimer);
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [user.role, router]);
 
   async function signOut() {
     const event = new Event("cortez:leave", { cancelable: true });

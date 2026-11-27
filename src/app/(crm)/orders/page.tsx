@@ -28,10 +28,12 @@ export default async function OrdersPage({
   const openNew = query.new === "1";
   const quoteId = typeof query.quoteId === "string" ? query.quoteId : undefined;
 
+  const needCustomersSsr = Boolean(openNew || quoteId);
+
   const [models, orders, customers, settings, visibleQuotes] = await Promise.all([
     catalogModels(),
     listOrdersForUser(user),
-    listOrderCustomers(),
+    needCustomersSsr ? listOrderCustomers() : Promise.resolve([]),
     readCollection("settings"),
     quoteId ? listQuotesForUser(user) : Promise.resolve([]),
   ]);
@@ -104,6 +106,7 @@ export default async function OrdersPage({
       pickupAddress={settings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS}
       initialOpenNew={openNew || Boolean(prefill)}
       initialPrefill={prefill}
+      customersPreloaded={needCustomersSsr}
     />
   );
 }
