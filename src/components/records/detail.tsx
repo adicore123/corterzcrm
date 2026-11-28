@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowRight, Bike, CircleCheck, ClipboardList, Download, ExternalLink, Eye, FileText,
-  Images, Pencil, Plus, ShieldAlert, SlidersHorizontal, Sparkles, Unlock, Wrench,
+  Images, MessageCircle, PackagePlus, Pencil, Plus, ShieldAlert, SlidersHorizontal, Sparkles, TriangleAlert, Unlock, Wrench,
 } from "lucide-react";
 import { catalogModels } from "@/lib/json-db/queries";
 import { readCollection } from "@/lib/json-db/store";
@@ -136,10 +136,18 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
     </div>
     {saved && <p className="success-message no-print" role="status"><CircleCheck size={18} /> השינויים נשמרו בהצלחה.</p>}
     {"tasks" in record && <>
+      <QuickStatus key={record.updatedAt} module="standards" record={record} readOnly={!canEdit} />
+      {record.delay === "מתעכב" && record.delayReason && (
+        <div className="next-action-banner is-amber no-print">
+          <div className="next-action-copy">
+            <strong><TriangleAlert size={18} aria-hidden /> תיק תקינה זה מסומן בעיכוב</strong>
+            <p>{record.delayReason}</p>
+          </div>
+        </div>
+      )}
       <section className="card detail-card">
         <div className="section-heading">
           <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי תיק תקינה</h2>
-          {canEdit && <QuickStatus key={record.updatedAt} module="standards" record={record} />}
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -155,10 +163,23 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
         <PhotoGallery module="standards" id={record.id} photos={record.photos} /></section>
     </>}
     {"serial" in record && <>
+      <QuickStatus key={record.updatedAt} module="repairs" record={record} readOnly={!canEdit} />
+      {record.status === "הסתיים" && customer && readyMessage && (
+        <div className="next-action-banner is-green no-print">
+          <div className="next-action-copy">
+            <strong><CircleCheck size={18} aria-hidden /> הכלי מוכן לאיסוף — הצעד הבא: עדכון הלקוח</strong>
+            <p>שלחו בלחיצה הודעה מוכנה ל־{customer.name} ({customer.phone}) עם פרטי התיקון וכתובת האיסוף.</p>
+          </div>
+          <Button asChild className="detail-wa-btn">
+            <a href={whatsappHref(customer.phone, readyMessage)} target="_blank" rel="noopener noreferrer">
+              <MessageCircle size={17} /> שליחת הודעת איסוף ללקוח בוואטסאפ
+            </a>
+          </Button>
+        </div>
+      )}
       <section className="card detail-card">
         <div className="section-heading">
           <h2><span className="section-icon"><Wrench size={18} /></span>פרטי תיקון</h2>
-          {canEdit && <QuickStatus key={record.updatedAt} module="repairs" record={record} />}
         </div>
         {linkedModel && linkedModelThumb && <div className="catalog-image-banner">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -175,14 +196,52 @@ export async function RecordDetail({ module, record, admin, userRole, saved }: {
           ["סטטוס תיקון", <Status key="status" value={record.status} />], ...dates]} />
         <div className="detail-notes"><h3>מה התקלה?</h3><p>{record.fault}</p></div>
         <div className="detail-notes"><h3>מה תוקן?</h3><p>{record.work || "טרם תועד תיקון."}</p></div>
-        {record.status === "הסתיים" && customer && readyMessage && <div className="detail-notes no-print">
-          <Button asChild><a href={whatsappHref(customer.phone, readyMessage)} target="_blank" rel="noopener noreferrer">הכנת הודעה ללקוח בוואטסאפ</a></Button>
-        </div>}
       </section>
       <section className="card detail-card"><h2><span className="section-icon"><Images size={18} /></span>תמונות</h2>
         <PhotoGallery module="repairs" id={record.id} photos={record.photos} /></section>
     </>}
     {"phone" in record && <>
+      <section className="card customer-360-bar no-print" aria-label="פעולות מהירות וסיכום 360 ללקוח">
+        <div className="customer-360-stats">
+          <div className="customer-360-stat">
+            <strong>{history.length}</strong>
+            <span>תיקונים במעבדה</span>
+          </div>
+          {!isAgent && (
+            <div className="customer-360-stat">
+              <strong>{customerOrders.length}</strong>
+              <span>הזמנות</span>
+            </div>
+          )}
+          {!isAgent && (
+            <div className="customer-360-stat">
+              <strong>{customerQuotes.length}</strong>
+              <span>הצעות מחיר</span>
+            </div>
+          )}
+        </div>
+        <div className="customer-360-actions">
+          <Button asChild variant="soft" size="sm">
+            <Link href={"/orders?new=1&customer=" + record.id} prefetch={true}>
+              <PackagePlus size={16} /> הזמנה חדשה ללקוח
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href={"/quotes?customer=" + record.id} prefetch={true}>
+              <FileText size={16} /> הצעת מחיר ללקוח
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <a
+              href={whatsappHref(record.phone, `שלום ${record.name}, פונים אליך מקורטז.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <MessageCircle size={16} /> פתיחת שיחה בוואטסאפ
+            </a>
+          </Button>
+        </div>
+      </section>
       <section className="card detail-card">
         <h2><span className="section-icon"><ClipboardList size={18} /></span>פרטי לקוח</h2>
         <Details rows={[["שם לקוח", record.name], ["סוג לקוח", record.customerType === "private" ? "לקוח פרטי" : record.customerType === "store" ? "חנות" : "סוג לקוח לבירור"], ...(record.customerType === "store" ? [["שם החנות", record.store] as Value] : []), ["מספר טלפון", <PhoneLink key="phone" phone={record.phone} />], ...dates]} />

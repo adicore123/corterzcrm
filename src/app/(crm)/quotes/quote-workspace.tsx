@@ -3,7 +3,7 @@
 import { startTransition, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Copy, ExternalLink, MessageCircle, PackagePlus, Plus } from "lucide-react";
+import { Check, Copy, ExternalLink, MessageCircle, PackagePlus, Plus, Search, X } from "lucide-react";
 import type { PublicQuote } from "@/lib/quotes/schema";
 import { quoteTotal } from "@/lib/quotes/pricing";
 import {
@@ -12,6 +12,14 @@ import {
 } from "@/lib/quotes/whatsapp";
 
 type ModelOption = QuoteWhatsappModelInfo & { msrp: number | null };
+
+export type QuoteCustomerOption = {
+  id: string;
+  name: string;
+  store: string;
+  phone: string;
+  customerType: "private" | "store";
+};
 
 const shekels = (agorot: number) => {
   const isWhole = agorot % 100 === 0;
@@ -23,11 +31,26 @@ const shekels = (agorot: number) => {
   }).format(agorot / 100);
 };
 
-export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quotes: PublicQuote[] }) {
+export function QuoteWorkspace({
+  models,
+  customers = [],
+  initialCustomer,
+  quotes,
+}: {
+  models: ModelOption[];
+  customers?: QuoteCustomerOption[];
+  initialCustomer?: QuoteCustomerOption;
+  quotes: PublicQuote[];
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(initialCustomer));
   const [modelId, setModelId] = useState(models[0]?.id ?? "");
-  const [type, setType] = useState<"private" | "store">("private");
+  const [type, setType] = useState<"private" | "store">(initialCustomer?.customerType ?? "private");
+  const [customerName, setCustomerName] = useState(initialCustomer?.name ?? "");
+  const [storeName, setStoreName] = useState(initialCustomer?.store ?? "");
+  const [customerPhone, setCustomerPhone] = useState(initialCustomer?.phone ?? "");
+  const [custSearch, setCustSearch] = useState("");
+  const [modelSearch, setModelSearch] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [unitPrice, setUnitPrice] = useState(models[0]?.msrp ?? 0);
   const [priceMode, setPriceMode] = useState<"unit" | "total">("unit");
@@ -41,6 +64,8 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
   const [created, setCreated] = useState<PublicQuote | null>(null);
   const [addedQuotes, setAddedQuotes] = useState<PublicQuote[]>([]);
   const [cancelledIds, setCancelledIds] = useState<Set<string>>(() => new Set());
+  const [statusFilter, setStatusFilter] = useState<"all" | "sent" | "accepted" | "cancelled">("all");
+  const [listQuery, setListQuery] = useState("");
 
   const liveQuotes = useMemo(() => {
     const serverIds = new Set(quotes.map((q) => q.id));
@@ -50,7 +75,68 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
     );
   }, [quotes, addedQuotes, cancelledIds]);
 
+  const filteredQuotes = useMemo(() => {
+    const q = listQuery.trim().toLocaleLowerCase("he");
+    return liveQuotes.filter((item) => {
+      if (statusFilter !== "all" && item.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        item.customerName.toLocaleLowerCase("he").includes(q)
+        || (item.storeName ?? "").toLocaleLowerCase("he").includes(q)
+        || item.customerPhone.includes(q)
+        || item.modelName.toLocaleLowerCase("he").includes(q)
+      );
+    });
+  }, [liveQuotes, statusFilter, listQuery]);
+
+  const statusCounts = useMemo(
+    () => ({
+      all: liveQuotes.length,
+      sent: liveQuotes.filter((q) => q.status === "sent").length,
+      accepted: liveQuotes.filter((q) => q.status === "accepted").length,
+      cancelled: liveQuotes.filter((q) => q.status === "cancelled").length,
+    }),
+    [liveQuotes],
+  );
+
   const modelsById = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
+
+  const customerMatches = useMemo(() => {
+    const clean = custSearch.trim().toLocaleLowerCase("he");
+    if (!clean) return [];
+    const digits = clean.replace(/\D/g, "");
+    return customers
+      .filter((c) => {
+        if (
+          c.name.toLocaleLowerCase("he").includes(clean)
+          || c.store.toLocaleLowerCase("he").includes(clean)
+          || c.phone.includes(clean)
+        ) {
+          return true;
+        }
+        return digits.length >= 2 && c.phone.replace(/\D/g, "").includes(digits);
+      })
+      .slice(0, 6);
+  }, [customers, custSearch]);
+
+  const visualModels = useMemo(() => {
+    const clean = modelSearch.trim().toLocaleLowerCase("he");
+    if (!clean) return models.slice(0, 12);
+    return models
+      .filter(
+        (m) =>
+          m.name.toLocaleLowerCase("he").includes(clean)
+          || (m.device ?? "").toLocaleLowerCase("he").includes(clean),
+      )
+      .slice(0, 12);
+  }, [models, modelSearch]);
+
+  function pickModel(id: string) {
+    const price = models.find((m) => m.id === id)?.msrp ?? 0;
+    setModelId(id);
+    setUnitPrice(price);
+    setTotalPrice(Number((price * quantity).toFixed(2)));
+  }
 
   const total = (() => {
     try {
@@ -76,12 +162,11 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
     event.preventDefault();
     setBusy(true);
     setError("");
-    const form = new FormData(event.currentTarget);
     const body = {
-      customerName: String(form.get("customerName")),
-      customerPhone: String(form.get("customerPhone")),
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
       customerType: type,
-      storeName: type === "store" ? String(form.get("storeName")) : undefined,
+      storeName: type === "store" ? storeName.trim() : undefined,
       modelId,
       quantity,
       unitPriceAgorot:
@@ -128,9 +213,13 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
     try {
       const result = await shareQuoteImageAndTextOnWhatsapp(quote, model);
       if (result.mode === "web-share") {
-        setShareHint(`קובץ התמונה והמלל הועברו לוואטסאפ (מספר הלקוח ${result.phone} הועתק ללוח לחיפוש מהיר).`);
+        setShareHint(
+          `קובץ התמונה והמלל הועברו לוואטסאפ (מספר הלקוח ${result.phone} הועתק ללוח לחיפוש מהיר).`,
+        );
       } else if (result.mode === "clipboard-wa") {
-        setShareHint(`נפתח הצ׳אט עם ${result.phone} ותמונת המוצר הועתקה ללוח — לחצו Ctrl+V בצ׳אט כדי להדביק את התמונה.`);
+        setShareHint(
+          `נפתח הצ׳אט עם ${result.phone} ותמונת המוצר הועתקה ללוח — לחצו Ctrl+V בצ׳אט כדי להדביק את התמונה.`,
+        );
       }
     } catch {
       // User cancelled share sheet
@@ -153,10 +242,10 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
       <div className="page-title title-with-action">
         <div>
           <h1>הצעות מחיר</h1>
-          <p>הצעות אישיות עם שליחת תמונת המוצר ומלל ההצעה המלא בוואטסאפ (ללא קישור)</p>
+          <p>הצעות אישיות עם שליחת תמונת המוצר ומלל ההצעה המלא בוואטסאפ או קישור לאישור אונליין</p>
         </div>
         <button
-          className="button"
+          className="button button-primary"
           onClick={() => {
             setCreated(null);
             setOpen(true);
@@ -187,7 +276,7 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
           </a>
           <button
             type="button"
-            className="button"
+            className="button button-outline"
             onClick={() => navigator.clipboard.writeText(shareUrl(created))}
           >
             <Copy size={16} /> העתקת קישור
@@ -197,7 +286,98 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
 
       {open && (
         <section className="card quote-editor">
-          <h2>פרטי ההצעה</h2>
+          <div className="section-heading">
+            <h2>פרטי ההצעה</h2>
+            <button type="button" className="button button-ghost button-sm" onClick={() => setOpen(false)}>
+              <X size={16} /> סגירה
+            </button>
+          </div>
+
+          {customers.length > 0 && (
+            <div className="smart-customer-box mb-3">
+              <div className="search-field">
+                <Search size={16} aria-hidden />
+                <input
+                  type="search"
+                  value={custSearch}
+                  onChange={(e) => setCustSearch(e.target.value)}
+                  placeholder="מילוי מהיר מלקוח קיים (חפשו שם, חנות או טלפון)…"
+                  aria-label="חיפוש לקוח קיים להצעת מחיר"
+                />
+                {custSearch && (
+                  <button
+                    type="button"
+                    className="inline-clear-btn"
+                    onClick={() => setCustSearch("")}
+                    aria-label="ניקוי חיפוש לקוח"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              {customerMatches.length > 0 && (
+                <div className="smart-customer-pills">
+                  {customerMatches.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="smart-customer-pill"
+                      onClick={() => {
+                        setType(c.customerType);
+                        setCustomerName(c.name);
+                        setStoreName(c.store);
+                        setCustomerPhone(c.phone);
+                        setCustSearch("");
+                      }}
+                    >
+                      <Check size={14} aria-hidden />
+                      <strong>{c.name}</strong>
+                      {c.store && <span>· {c.store}</span>}
+                      <bdi dir="ltr" className="muted">
+                        {c.phone}
+                      </bdi>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="quote-visual-models">
+            <div className="quote-visual-head">
+              <span>בחירה מהירה של דגם מהקטלוג:</span>
+              <input
+                type="search"
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                placeholder="סינון דגם…"
+                aria-label="סינון דגמים בהצעת מחיר"
+                className="quote-model-filter"
+              />
+            </div>
+            <div className="quote-model-strip">
+              {visualModels.map((m) => {
+                const selected = m.id === modelId;
+                const thumb = m.imageUrl || m.exhibitUrl;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={"quote-model-card" + (selected ? " is-selected" : "")}
+                    onClick={() => pickModel(m.id)}
+                  >
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt="" aria-hidden loading="lazy" />
+                    ) : null}
+                    <strong>{m.name}</strong>
+                    <small>{m.msrp ? `₪${m.msrp.toLocaleString("he-IL")}` : m.device}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <form onSubmit={submit} className="quote-form">
             <label>
               סוג לקוח
@@ -211,30 +391,41 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
             </label>
             <label>
               שם איש קשר
-              <input name="customerName" required maxLength={120} />
+              <input
+                name="customerName"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                required
+                maxLength={120}
+              />
             </label>
             {type === "store" && (
               <label>
                 שם חנות
-                <input name="storeName" required maxLength={120} />
+                <input
+                  name="storeName"
+                  value={storeName}
+                  onChange={(e) => setStoreName(e.target.value)}
+                  required
+                  maxLength={120}
+                />
               </label>
             )}
             <label>
               טלפון
-              <input name="customerPhone" type="tel" required minLength={7} maxLength={32} />
+              <input
+                name="customerPhone"
+                type="tel"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                required
+                minLength={7}
+                maxLength={32}
+              />
             </label>
             <label>
               דגם
-              <select
-                value={modelId}
-                onChange={(event) => {
-                  const price =
-                    models.find((model) => model.id === event.target.value)?.msrp ?? 0;
-                  setModelId(event.target.value);
-                  setUnitPrice(price);
-                  setTotalPrice(Number((price * quantity).toFixed(2)));
-                }}
-              >
+              <select value={modelId} onChange={(event) => pickModel(event.target.value)}>
                 {models.map((model) => (
                   <option value={model.id} key={model.id}>
                     {model.name}
@@ -344,12 +535,12 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
             <div className="dialog-actions">
               <button
                 type="submit"
-                className="button"
+                className="button button-primary"
                 disabled={busy || !total || !modelId}
               >
                 {busy ? "יוצר…" : "יצירת הצעה וקישור"}
               </button>
-              <button type="button" className="button" onClick={() => setOpen(false)}>
+              <button type="button" className="button button-outline" onClick={() => setOpen(false)}>
                 ביטול
               </button>
             </div>
@@ -358,15 +549,53 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
       )}
 
       <section className="card detail-card">
-        <h2>הצעות שנוצרו</h2>
+        <div className="section-heading flex-wrap gap-3">
+          <h2>הצעות שנוצרו ({filteredQuotes.length})</h2>
+          <div className="status-pills-bar" role="group" aria-label="סינון סטטוס הצעות מחיר">
+            {(
+              [
+                ["all", "הכל", statusCounts.all, "neutral"],
+                ["sent", "נשלחו", statusCounts.sent, "blue"],
+                ["accepted", "אושרו", statusCounts.accepted, "green"],
+                ["cancelled", "בוטלו", statusCounts.cancelled, "neutral"],
+              ] as const
+            ).map(([key, label, count, tone]) => (
+              <button
+                key={key}
+                type="button"
+                className={
+                  `status-pill-tab tone-${tone}` + (statusFilter === key ? " is-active" : "")
+                }
+                onClick={() => setStatusFilter(key)}
+              >
+                <span>{label}</span>
+                <bdi>{count}</bdi>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {liveQuotes.length > 2 && (
+          <div className="search-field">
+            <Search size={16} aria-hidden />
+            <input
+              type="search"
+              value={listQuery}
+              onChange={(e) => setListQuery(e.target.value)}
+              placeholder="חיפוש הצעה לפי שם לקוח, חנות, טלפון או דגם…"
+              aria-label="חיפוש ברשימת הצעות המחיר"
+            />
+          </div>
+        )}
+
         {error && !open && (
           <p role="alert" className="error-message">
             {error}
           </p>
         )}
-        {liveQuotes.length ? (
+        {filteredQuotes.length ? (
           <div className="quote-list">
-            {liveQuotes.map((quote) => {
+            {filteredQuotes.map((quote) => {
               const model = modelsById.get(quote.modelId);
               const thumbUrl = model?.imageUrl || model?.exhibitUrl;
               return (
@@ -392,7 +621,16 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
                   </div>
                   <div>
                     <strong>{shekels(quoteTotal(quote).payableAgorot)}</strong>
-                    <span>
+                    <span
+                      className={
+                        "status "
+                        + (quote.status === "accepted"
+                          ? "status-green"
+                          : quote.status === "cancelled"
+                            ? "status-neutral"
+                            : "status-blue")
+                      }
+                    >
                       {quote.status === "accepted"
                         ? "אושרה"
                         : quote.status === "cancelled"
@@ -436,7 +674,9 @@ export function QuoteWorkspace({ models, quotes }: { models: ModelOption[]; quot
             })}
           </div>
         ) : (
-          <p className="muted">עדיין אין הצעות. התחילו בהצעה הראשונה.</p>
+          <p className="muted">
+            {liveQuotes.length ? "לא נמצאו הצעות התואמות לסינון." : "עדיין אין הצעות. התחילו בהצעה הראשונה."}
+          </p>
         )}
       </section>
     </div>

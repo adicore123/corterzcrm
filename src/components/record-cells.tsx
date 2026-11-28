@@ -137,8 +137,25 @@ export function repairRow(
     : <InlineRepairStatus key={"status-" + (recent ? "recent" : "list")} record={item} variant="table" customer={customerObj} pickupAddress={options?.pickupAddress} />;
   const catalogModel = modelsMap?.get(item.model.toLocaleLowerCase("he"));
   const modelCell = catalogModel ? <ModelBadge key="model" model={catalogModel} /> : item.model;
+  const ageDays = Math.max(0, Math.floor((Date.now() - Date.parse(item.createdAt)) / 86_400_000));
+  const slaPill =
+    item.status === "הסתיים" ? (
+      <span className="sla-badge is-ready">מוכן לאיסוף</span>
+    ) : ageDays >= 5 ? (
+      <span className="sla-badge is-urgent">ממתין {ageDays} ימים</span>
+    ) : ageDays === 0 ? (
+      <span className="sla-badge is-fresh">נפתח היום</span>
+    ) : (
+      <span className="sla-badge is-normal">{ageDays === 1 ? "יום במעבדה" : `${ageDays} ימים במעבדה`}</span>
+    );
+  const dateWithSla = (
+    <span key="date-sla" className="date-sla-stack">
+      <span>{formatDate(item.updatedAt)}</span>
+      {slaPill}
+    </span>
+  );
   const cells = recent ? [modelCell, customer, formatDate(item.createdAt), status]
-    : [modelCell, <bdi key="serial">{item.serial}</bdi>, customer, status, formatDate(item.updatedAt)];
+    : [modelCell, <bdi key="serial">{item.serial}</bdi>, customer, status, dateWithSla];
   const accent = item.status === "הסתיים" ? "green" : item.status === "בטיפול" ? "blue" : "red";
   const hasCustomerPhone = Boolean(customerObj?.phone);
   const whatsappMessage = hasCustomerPhone && customerObj

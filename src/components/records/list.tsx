@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { customerRow, faultGuideRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
 import { FaultsModuleHub } from "./faults-hub";
-import { RecordFiltersBar } from "./record-filters-bar";
+import { RecordFiltersBar, type QuickStatusPill } from "./record-filters-bar";
 import { usesMongoStorage } from "@/lib/json-db/mongo-client";
 import {
   readMongoCustomersByIds,
@@ -89,7 +89,7 @@ export async function RecordList({
   const hotStandards = isMongo ? peekHotCollection("standards") : null;
   const hotCustomers = isMongo ? peekHotCollection("customers") : null;
 
-  const [records, models, settings, mongoCustomerCounts, mongoModelCounts, fallbackRepairs, fallbackStandards] =
+  const [records, models, settings, mongoCustomerCounts, mongoModelCounts, fallbackRepairs, fallbackStandards, allCollectionForPills] =
     await Promise.all([
       searchRecords(module, filters),
       module === "standards" || module === "repairs" ? catalogModels() : Promise.resolve([]),
@@ -116,7 +116,84 @@ export async function RecordList({
             ? readCollection("standards")
             : Promise.resolve([] as Standard[])
         : Promise.resolve([] as Standard[]),
+      module === "standards" || module === "repairs"
+        ? readCollection(module)
+        : module === "models"
+          ? catalogModels()
+          : Promise.resolve([]),
     ]);
+
+  let statusPills: QuickStatusPill[] = [];
+  if (module === "repairs") {
+    const allRepairs = allCollectionForPills as Repair[];
+    statusPills = [
+      { id: "all", label: "כל התיקונים", count: allRepairs.length, tone: "neutral", status: "" },
+      {
+        id: "new",
+        label: "התקבל",
+        count: allRepairs.filter((r) => r.status === "התקבל").length,
+        tone: "red",
+        status: "התקבל",
+      },
+      {
+        id: "in-progress",
+        label: "בטיפול",
+        count: allRepairs.filter((r) => r.status === "בטיפול").length,
+        tone: "blue",
+        status: "בטיפול",
+      },
+      {
+        id: "done",
+        label: "מוכן לאיסוף",
+        count: allRepairs.filter((r) => r.status === "הסתיים").length,
+        tone: "green",
+        status: "הסתיים",
+      },
+    ];
+  } else if (module === "standards") {
+    const allStds = allCollectionForPills as Standard[];
+    statusPills = [
+      { id: "all", label: "כל התיקים", count: allStds.length, tone: "neutral", status: "", delay: "" },
+      {
+        id: "active",
+        label: "בטיפול / פעילים",
+        count: allStds.filter((s) => s.status !== "הסתיים").length,
+        tone: "blue",
+        status: "active",
+        delay: "",
+      },
+      {
+        id: "delayed",
+        label: "בעיכוב",
+        count: allStds.filter((s) => s.delay === "מתעכב").length,
+        tone: "amber",
+        status: "",
+        delay: "מתעכב",
+      },
+      {
+        id: "done",
+        label: "הסתיימו",
+        count: allStds.filter((s) => s.status === "הסתיים").length,
+        tone: "green",
+        status: "הסתיים",
+        delay: "",
+      },
+    ];
+  } else if (module === "models") {
+    const allModels = allCollectionForPills as Array<{ device: string }>;
+    const byDev = new Map<string, number>();
+    for (const m of allModels) byDev.set(m.device, (byDev.get(m.device) ?? 0) + 1);
+    statusPills = [
+      { id: "all", label: "כל הכלים", count: allModels.length, tone: "neutral", status: "" },
+      ...Array.from(byDev.entries()).map(([dev, count]) => ({
+        id: dev,
+        label: dev,
+        count,
+        tone: "blue" as const,
+        status: dev,
+      })),
+    ];
+  }
 
   let contacts: Customer[] = [];
   if (module === "repairs") {
@@ -201,7 +278,13 @@ export async function RecordList({
         </p>
       )}
       <section className="card list-card" aria-label={labels[module]}>
-        <RecordFiltersBar module={module} href={href} searchLabel={copy.search} filters={filters} />
+        <RecordFiltersBar
+          module={module}
+          href={href}
+          searchLabel={copy.search}
+          filters={filters}
+          statusPills={statusPills}
+        />
         <div className="list-toolbar">
           <span>{rows.length === 1 ? "רשומה אחת" : rows.length + " רשומות"}</span>
         </div>

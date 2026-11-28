@@ -393,3 +393,92 @@ test("write-through hot RAM cache across CRM modules stays 100% fresh and detect
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("GET /api/omni-search enforces strict RBAC between admin and agent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cortez-perf-omni-"));
+  process.env.CORTEZ_STORAGE_DIR = root;
+  delete process.env.CORTEZ_STORAGE_BACKEND;
+  try {
+    const admin = await createUser({
+      role: "admin",
+      username: "omni-admin",
+      name: "מנהל חיפוש",
+      password: "12345",
+    });
+    const agent = await createUser(
+      { role: "agent", username: "omni-agent", name: "סוכן חיפוש", password: "12345" },
+      admin,
+    );
+
+    const cust = (await saveRecord(
+      "customers",
+      undefined,
+      { customerType: "store", name: "לקוח סודי למעבדה", store: "חנות מעבדה", phone: "050-9991122" },
+      [],
+      admin,
+    )) as { id: string };
+
+    await saveRecord(
+      "repairs",
+      undefined,
+      {
+        device: "קורקינט חשמלי",
+        model: "CORTEZ 10X",
+        serial: "SN-OMNI-99",
+        customerId: cust.id,
+        fault: "בדיקת חיפוש",
+        work: "",
+        status: "התקבל",
+      },
+      [],
+      admin,
+    );
+
+    const { GET } = await import("../src/app/api/omni-search/route");
+    const { NextRequest } = await import("next/server");
+
+    // Unauthenticated rejected
+    assert.equal(
+      (await GET(new NextRequest("http://localhost:3000/api/omni-search"))).status,
+      401,
+    );
+
+    // Agent never sees internal repairs/customers/standards in omni-search
+    const agentSession = await login(agent.username, "12345");
+    const agentRes = await GET(
+      new NextRequest("http://localhost:3000/api/omni-search", {
+        headers: { Cookie: `cortez_session=${agentSession.token}` },
+      }),
+    );
+    assert.equal(agentRes.status, 200);
+    const agentData = (await agentRes.json()) as { items: Array<{ category: string }> };
+    assert.equal(
+      agentData.items.some((it) => it.category === "repairs" || it.category === "customers"),
+      false,
+    );
+
+    // Admin sees repairs and customers immediately
+    const adminSession = await login(admin.username, "12345");
+    const adminRes = await GET(
+      new NextRequest("http://localhost:3000/api/omni-search", {
+        headers: { Cookie: `cortez_session=${adminSession.token}` },
+      }),
+    );
+    assert.equal(adminRes.status, 200);
+    const adminData = (await adminRes.json()) as {
+      items: Array<{ category: string; keywords: string }>;
+    };
+    assert.equal(
+      adminData.items.some(
+        (it) => it.category === "repairs" && it.keywords.includes("sn-omni-99"),
+      ),
+      true,
+    );
+    assert.equal(
+      adminData.items.some((it) => it.category === "customers"),
+      true,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

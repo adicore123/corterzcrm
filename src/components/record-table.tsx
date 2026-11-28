@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Bike, ChevronLeft, ClipboardList, Pencil, Phone, ShieldAlert, UserRound, type LucideIcon } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { CardPhotoGallery, CardWhatsappButton, type CardPhoto } from "./card-actions";
+import { ClickableTableBody } from "./clickable-tbody";
 import { ProgressiveTableSlices } from "./progressive-load-more";
 
 const PAGE_SIZE = 50;
@@ -72,7 +73,7 @@ function CardThumbnail({ card }: { card: RecordCardMeta }) {
 
 function renderTableRow(row: TableRow, columns: string[], hasActions: boolean) {
   return (
-    <tr key={row.id}>
+    <tr key={row.id} data-row-href={row.href} className="clickable-row">
       {row.cells.map((cell, index) => (
         <td key={columns[index]}>
           {index === 0 ? (
@@ -338,7 +339,7 @@ export function RecordTable({
         <div className="table-scroll">
           <table className="data-table">
             {thead}
-            <tbody>{rows.map((row) => renderTableRow(row, columns, hasActions))}</tbody>
+            <ClickableTableBody>{rows.map((row) => renderTableRow(row, columns, hasActions))}</ClickableTableBody>
           </table>
         </div>
       )}

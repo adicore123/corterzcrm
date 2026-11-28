@@ -27,8 +27,10 @@ export default async function OrdersPage({
   const query = await searchParams;
   const openNew = query.new === "1";
   const quoteId = typeof query.quoteId === "string" ? query.quoteId : undefined;
+  const customerParam = typeof query.customer === "string" ? query.customer : undefined;
+  const searchParam = typeof query.q === "string" ? query.q : undefined;
 
-  const needCustomersSsr = Boolean(openNew || quoteId);
+  const needCustomersSsr = Boolean(openNew || quoteId || customerParam);
 
   const [models, orders, customers, settings, visibleQuotes] = await Promise.all([
     catalogModels(),
@@ -104,8 +106,10 @@ export default async function OrdersPage({
       userRole={user.role}
       moranPhone={settings.ordersWhatsappPhone ?? DEFAULT_MORAN_WHATSAPP_DISPLAY}
       pickupAddress={settings.pickupAddress ?? DEFAULT_PICKUP_ADDRESS}
-      initialOpenNew={openNew || Boolean(prefill)}
+      initialOpenNew={openNew || Boolean(prefill) || Boolean(customerParam)}
       initialPrefill={prefill}
+      initialCustomerId={customerOptions.find((c) => c.id === customerParam)?.id}
+      initialSearch={searchParam}
       customersPreloaded={needCustomersSsr}
     />
   );

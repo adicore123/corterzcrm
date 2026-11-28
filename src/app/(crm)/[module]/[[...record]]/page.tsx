@@ -55,10 +55,11 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
   if (kind === "customers") return <CustomerForm record={record && "phone" in record ? record : undefined} />;
   const cloud = usesBlobStorage();
   if (kind === "models") return <ModelForm record={record && !("phone" in record) && !("model" in record) ? record : undefined} cloud={cloud} />;
-  const [models, catalog, customers] = await Promise.all([
+  const [models, catalog, customers, pastRepairs] = await Promise.all([
     knownModels(),
     catalogModels(),
     kind === "repairs" ? readCollection("customers") : Promise.resolve([]),
+    kind === "repairs" ? readCollection("repairs") : Promise.resolve([]),
   ]);
   const initialModel = catalog.find((item) => item.id === value("model"));
   if (kind === "faults") {
@@ -68,6 +69,12 @@ export default async function ModulePage({ params, searchParams }: PageProps) {
     return <StandardsForm record={record && "tasks" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel} cloud={cloud} />;
   }
   customers.sort((a, b) => a.name.localeCompare(b.name, "he"));
+  const customerVehicles = pastRepairs.slice(0, 300).map((r) => ({
+    customerId: r.customerId,
+    device: r.device,
+    model: r.model,
+    serial: r.serial,
+  }));
   return <RepairForm record={record && "serial" in record ? record : undefined} models={models} catalog={catalog} initialModel={initialModel}
-    customers={customers} cloud={cloud} customerId={customers.find((customer) => customer.id === value("customer"))?.id} />;
+    customers={customers} customerVehicles={customerVehicles} cloud={cloud} customerId={customers.find((customer) => customer.id === value("customer"))?.id} />;
 }

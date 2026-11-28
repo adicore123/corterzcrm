@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
+import { ClickableTableBody } from "./clickable-tbody";
 import { Button } from "./ui/button";
 
 export function ProgressiveTableSlices({
@@ -30,10 +31,10 @@ export function ProgressiveTableSlices({
       <div className="table-scroll">
         <table className="data-table">
           {thead}
-          <tbody>
+          <ClickableTableBody>
             {initialTableRows}
             {extraTablePages.slice(0, shownPages)}
-          </tbody>
+          </ClickableTableBody>
         </table>
       </div>
       <ul className="mobile-records">

@@ -107,6 +107,8 @@ export function OrdersWorkspace({
   pickupAddress,
   initialOpenNew = false,
   initialPrefill,
+  initialCustomerId,
+  initialSearch,
   customersPreloaded = true,
 }: {
   models: OrderCatalogModelOption[];
@@ -117,6 +119,8 @@ export function OrdersWorkspace({
   pickupAddress: string;
   initialOpenNew?: boolean;
   initialPrefill?: OrderQuotePrefill;
+  initialCustomerId?: string;
+  initialSearch?: string;
   customersPreloaded?: boolean;
 }) {
   const router = useRouter();
@@ -152,12 +156,11 @@ export function OrdersWorkspace({
     [customers],
   );
 
+  const resolvedInitialCustId = initialPrefill?.customerId ?? initialCustomerId ?? "";
   const [openForm, setOpenForm] = useState(initialOpenNew);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(
-    initialPrefill?.customerId ?? "",
-  );
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(resolvedInitialCustId);
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerPickerOpen, setCustomerPickerOpen] = useState(!initialPrefill?.customerId);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(!resolvedInitialCustId);
 
   // Inline "+ לקוח חדש" modal state
   const [newCustOpen, setNewCustOpen] = useState(
@@ -193,7 +196,7 @@ export function OrdersWorkspace({
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<"all" | OrderStatus>("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch ?? "");
   const [busyOrderId, setBusyOrderId] = useState("");
   const [listError, setListError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Order | null>(null);

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ListFilter, Search } from "lucide-react";
+import { ListFilter, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { RecordFilters } from "@/lib/json-db/queries";
 import {
@@ -12,6 +12,15 @@ import {
   standardStatuses,
   type Module,
 } from "@/lib/validation/models";
+
+export type QuickStatusPill = {
+  id: string;
+  label: string;
+  count: number;
+  tone: "neutral" | "red" | "amber" | "green" | "blue";
+  status: string;
+  delay?: string;
+};
 
 function buildFilterHref(
   baseHref: string,
@@ -32,11 +41,13 @@ export function RecordFiltersBar({
   href,
   searchLabel,
   filters,
+  statusPills = [],
 }: {
   module: Module;
   href: string;
   searchLabel: string;
   filters: RecordFilters;
+  statusPills?: QuickStatusPill[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -94,136 +105,179 @@ export function RecordFiltersBar({
     commitNavigation({ q: "", status: "", delay: "", sort: "" });
   }
 
+  function selectQuickPill(pill: QuickStatusPill) {
+    const nextStatus = pill.status;
+    const nextDelay = pill.delay ?? "";
+    setStatus(nextStatus);
+    setDelay(nextDelay);
+    commitNavigation({ q, status: nextStatus, delay: nextDelay, sort });
+  }
+
   const filtered = Boolean(q.trim() || status || delay || sort);
 
   return (
-    <form
-      method="get"
-      action={href}
-      onSubmit={handleSubmit}
-      className={"filters" + (isPending ? " is-filtering" : "")}
-      aria-label="חיפוש וסינון"
-    >
-      <div className="search-field">
-        <Search size={18} aria-hidden />
-        <input
-          type="search"
-          name="q"
-          aria-label={searchLabel}
-          placeholder={searchLabel}
-          value={q}
-          onChange={(e) => handleQueryChange(e.target.value)}
-          maxLength={120}
-        />
-      </div>
-
-      {(module === "standards" || module === "repairs") && (
-        <select
-          name="status"
-          aria-label="סינון לפי סטטוס"
-          value={status}
-          onChange={(e) => {
-            const next = e.target.value;
-            setStatus(next);
-            commitNavigation({ q, status: next, delay, sort });
-          }}
-        >
-          <option value="">כל הסטטוסים</option>
-          <option value="active">כל הפעילים</option>
-          {(module === "standards" ? standardStatuses : repairStatuses).map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
+    <div className="filters-shell">
+      {statusPills.length > 0 && (
+        <div className="status-pills-bar" role="group" aria-label="סינון מהיר בלחיצה">
+          {statusPills.map((pill) => {
+            const isActive =
+              status === pill.status && (pill.delay !== undefined ? delay === pill.delay : delay === "");
+            return (
+              <button
+                key={pill.id}
+                type="button"
+                className={`status-pill-tab tone-${pill.tone}` + (isActive ? " is-active" : "")}
+                onClick={() => selectQuickPill(pill)}
+              >
+                <span>{pill.label}</span>
+                <bdi>{pill.count}</bdi>
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      {module === "models" && (
-        <select
-          name="status"
-          aria-label="סינון לפי סוג מכשיר"
-          value={status}
-          onChange={(e) => {
-            const next = e.target.value;
-            setStatus(next);
-            commitNavigation({ q, status: next, delay, sort });
-          }}
-        >
-          <option value="">כל סוגי הכלים</option>
-          {devices.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {module === "faults" && (
-        <select
-          name="status"
-          aria-label="סינון מדריכי תקלות"
-          value={status}
-          onChange={(e) => {
-            const next = e.target.value;
-            setStatus(next);
-            commitNavigation({ q, status: next, delay, sort });
-          }}
-        >
-          <option value="">הכל</option>
-          <option value="has-video">כולל סרטון פתיחת הגבלה</option>
-          <option value="has-files">כולל קבצים מצורפים</option>
-          {devices.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      )}
-
-      {module === "standards" && (
-        <select
-          name="delay"
-          aria-label="סינון עיכובים"
-          value={delay}
-          onChange={(e) => {
-            const next = e.target.value;
-            setDelay(next);
-            commitNavigation({ q, status, delay: next, sort });
-          }}
-        >
-          <option value="">כל מצבי העיכוב</option>
-          {delayStatuses.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      )}
-
-      <select
-        name="sort"
-        aria-label="מיון רשומות"
-        value={sort}
-        onChange={(e) => {
-          const next = e.target.value;
-          setSort(next);
-          commitNavigation({ q, status, delay, sort: next });
-        }}
+      <form
+        method="get"
+        action={href}
+        onSubmit={handleSubmit}
+        className={"filters" + (isPending ? " is-filtering" : "")}
+        aria-label="חיפוש וסינון"
       >
-        <option value="">{module === "models" ? "לפי שם דגם" : "עדכון אחרון"}</option>
-        <option value="created">נפתחו לאחרונה</option>
-        <option value="oldest">מהישן לחדש</option>
-      </select>
+        <div className="search-field">
+          <Search size={18} aria-hidden />
+          <input
+            type="search"
+            name="q"
+            aria-label={searchLabel}
+            placeholder={searchLabel}
+            value={q}
+            onChange={(e) => handleQueryChange(e.target.value)}
+            maxLength={120}
+          />
+          {q && (
+            <button
+              type="button"
+              className="inline-clear-btn"
+              aria-label="ניקוי טקסט חיפוש"
+              onClick={() => {
+                setQ("");
+                commitNavigation({ ...latestRef.current, q: "" });
+              }}
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
 
-      <Button type="submit" variant="outline">
-        <ListFilter size={17} /> חיפוש
-      </Button>
+        {(module === "standards" || module === "repairs") && (
+          <select
+            name="status"
+            aria-label="סינון לפי סטטוס"
+            value={status}
+            onChange={(e) => {
+              const next = e.target.value;
+              setStatus(next);
+              commitNavigation({ q, status: next, delay, sort });
+            }}
+          >
+            <option value="">כל הסטטוסים</option>
+            <option value="active">כל הפעילים</option>
+            {(module === "standards" ? standardStatuses : repairStatuses).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        )}
 
-      {filtered && (
-        <Button type="button" variant="ghost" onClick={handleClear}>
-          ניקוי
+        {module === "models" && (
+          <select
+            name="status"
+            aria-label="סינון לפי סוג מכשיר"
+            value={status}
+            onChange={(e) => {
+              const next = e.target.value;
+              setStatus(next);
+              commitNavigation({ q, status: next, delay, sort });
+            }}
+          >
+            <option value="">כל סוגי הכלים</option>
+            {devices.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {module === "faults" && (
+          <select
+            name="status"
+            aria-label="סינון מדריכי תקלות"
+            value={status}
+            onChange={(e) => {
+              const next = e.target.value;
+              setStatus(next);
+              commitNavigation({ q, status: next, delay, sort });
+            }}
+          >
+            <option value="">הכל</option>
+            <option value="has-video">כולל סרטון פתיחת הגבלה</option>
+            <option value="has-files">כולל קבצים מצורפים</option>
+            {devices.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {module === "standards" && (
+          <select
+            name="delay"
+            aria-label="סינון עיכובים"
+            value={delay}
+            onChange={(e) => {
+              const next = e.target.value;
+              setDelay(next);
+              commitNavigation({ q, status, delay: next, sort });
+            }}
+          >
+            <option value="">כל מצבי העיכוב</option>
+            {delayStatuses.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <select
+          name="sort"
+          aria-label="מיון רשומות"
+          value={sort}
+          onChange={(e) => {
+            const next = e.target.value;
+            setSort(next);
+            commitNavigation({ q, status, delay, sort: next });
+          }}
+        >
+          <option value="">{module === "models" ? "לפי שם דגם" : "עדכון אחרון"}</option>
+          <option value="created">נפתחו לאחרונה</option>
+          <option value="oldest">מהישן לחדש</option>
+        </select>
+
+        <Button type="submit" variant="outline">
+          <ListFilter size={17} /> חיפוש
         </Button>
-      )}
-    </form>
+
+        {filtered && (
+          <Button type="button" variant="ghost" onClick={handleClear}>
+            ניקוי
+          </Button>
+        )}
+      </form>
+    </div>
   );
 }
