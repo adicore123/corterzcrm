@@ -110,12 +110,13 @@ export function OmniSearchTrigger({ userRole }: { userRole: Role }) {
   const quickCreates = isAgent
     ? [
         { label: "הזמנה חדשה", href: "/orders?new=1", icon: PackagePlus },
-        { label: "הצעת מחיר חדשה", href: "/quotes", icon: FileText },
+        { label: "הצעת מחיר חדשה", href: "/quotes?new=1", icon: FileText },
         { label: "מדריך תקלות חדש", href: "/faults/new", icon: ShieldAlert },
       ]
     : [
         { label: "פתיחת תיקון חדש", href: "/repairs/new", icon: Wrench },
         { label: "הזמנה חדשה", href: "/orders?new=1", icon: PackagePlus },
+        { label: "הצעת מחיר חדשה", href: "/quotes?new=1", icon: FileText },
         { label: "לקוח חדש", href: "/customers/new", icon: UserRoundPlus },
         { label: "תיק מכון תקנים חדש", href: "/standards/new", icon: Plus },
       ];

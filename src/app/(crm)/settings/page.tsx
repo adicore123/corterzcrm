@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ShieldCheck } from "lucide-react";
+import { Settings as SettingsIcon, ShieldCheck } from "lucide-react";
 import { authorizedUser } from "@/lib/auth/page";
 import { ensureAgentInviteToken, publicUser } from "@/lib/auth/session";
 import { usesBlobStorage } from "@/lib/json-db/blob-store";
@@ -25,7 +25,17 @@ export default async function SettingsPage() {
   const recentActivity = [...activity].reverse().slice(0, 25);
 
   return <div className="page-stack">
-    <div className="page-title"><h1>הגדרות</h1><p>{user.role === "admin" ? "חשבונות משתמשים, גיבויים ויומן פעילות" : "פרטי החשבון והרשאות"}</p></div>
+    <section className="module-hero-header card">
+      <div className="module-hero-main">
+        <span className="module-hero-icon tone-neutral" aria-hidden>
+          <SettingsIcon size={24} />
+        </span>
+        <div className="page-title">
+          <h1>הגדרות</h1>
+          <p>{user.role === "admin" ? "חשבונות משתמשים, הגדרות עסק, גיבויים ויומן פעילות" : "פרטי החשבון והרשאות"}</p>
+        </div>
+      </div>
+    </section>
     <section className="card detail-card">
       <div className="section-heading">
         <h2><span className="section-icon"><ShieldCheck size={18} /></span>החשבון שלי</h2>

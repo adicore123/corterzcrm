@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bike, ClipboardList, Plus, ShieldAlert, Users, Wrench } from "lucide-react";
+import { Bike, ClipboardList, Plus, ShieldAlert, Store, UserRound, Users, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { customerRow, faultGuideRow, modelRow, repairRow, standardRow } from "@/components/record-cells";
 import { RecordTable } from "@/components/record-table";
@@ -48,6 +48,7 @@ export async function RecordList({
   const readOnly = !canEdit;
   const copy = moduleCopy[module];
   const href = "/" + module;
+  const HeaderIcon = icons[module];
 
   if (module === "faults") {
     const [records, models] = await Promise.all([
@@ -56,10 +57,15 @@ export async function RecordList({
     ]);
     return (
       <div className="page-stack">
-        <div className="page-title title-with-action">
-          <div>
-            <h1>{labels[module]}</h1>
-            <p>{copy.description}</p>
+        <section className="module-hero-header card">
+          <div className="module-hero-main">
+            <span className="module-hero-icon tone-amber" aria-hidden>
+              <HeaderIcon size={24} />
+            </span>
+            <div className="page-title">
+              <h1>{labels[module]}</h1>
+              <p>{copy.description}</p>
+            </div>
           </div>
           {canEdit && (
             <Button asChild>
@@ -68,7 +74,7 @@ export async function RecordList({
               </Link>
             </Button>
           )}
-        </div>
+        </section>
         {deleted && (
           <p className="success-message" role="status">
             הרשומה נמחקה.
@@ -259,10 +265,27 @@ export async function RecordList({
 
   return (
     <div className="page-stack">
-      <div className="page-title title-with-action">
-        <div>
-          <h1>{labels[module]}</h1>
-          <p>{copy.description}</p>
+      <section className="module-hero-header card">
+        <div className="module-hero-main">
+          <span
+            className={
+              "module-hero-icon "
+              + (module === "repairs"
+                ? "tone-red"
+                : module === "standards"
+                  ? "tone-amber"
+                  : module === "customers"
+                    ? "tone-blue"
+                    : "tone-green")
+            }
+            aria-hidden
+          >
+            <HeaderIcon size={24} />
+          </span>
+          <div className="page-title">
+            <h1>{labels[module]}</h1>
+            <p>{copy.description}</p>
+          </div>
         </div>
         {canEdit && (
           <Button asChild>
@@ -271,7 +294,43 @@ export async function RecordList({
             </Link>
           </Button>
         )}
-      </div>
+      </section>
+
+      {module === "customers" && (
+        <section className="kpi-summary-strip is-three" aria-label="סיכום לקוחות">
+          <div className="kpi-summary-card card">
+            <span className="kpi-summary-icon tone-blue" aria-hidden>
+              <Users size={19} />
+            </span>
+            <div>
+              <strong>{records.length}</strong>
+              <span>לקוחות מוצגים</span>
+            </div>
+          </div>
+          <div className="kpi-summary-card card">
+            <span className="kpi-summary-icon tone-red" aria-hidden>
+              <Store size={19} />
+            </span>
+            <div>
+              <strong>
+                {(records as Customer[]).filter((c) => c.customerType === "store").length}
+              </strong>
+              <span>חנויות ועסקים</span>
+            </div>
+          </div>
+          <div className="kpi-summary-card card">
+            <span className="kpi-summary-icon tone-green" aria-hidden>
+              <UserRound size={19} />
+            </span>
+            <div>
+              <strong>
+                {(records as Customer[]).filter((c) => c.customerType !== "store").length}
+              </strong>
+              <span>לקוחות פרטיים</span>
+            </div>
+          </div>
+        </section>
+      )}
       {deleted && (
         <p className="success-message" role="status">
           הרשומה נמחקה.

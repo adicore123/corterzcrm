@@ -22,6 +22,7 @@ export default async function QuotesPage({
     searchParams,
   ]);
   const customerIdParam = typeof query.customer === "string" ? query.customer : undefined;
+  const openNewParam = query.new === "1";
   const prefillCustomer = customerIdParam
     ? customers.find((c) => c.id === customerIdParam)
     : undefined;
@@ -56,6 +57,7 @@ export default async function QuotesPage({
             }
           : undefined
       }
+      initialOpenNew={openNewParam || Boolean(prefillCustomer)}
       quotes={quotes}
     />
   );

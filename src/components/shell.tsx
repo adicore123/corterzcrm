@@ -74,12 +74,13 @@ export type NavBadgeCounts = {
   orders: number;
   repairs: number;
   standards: number;
+  quotes?: number;
 };
 
 export function Shell({
   user,
   today,
-  badgeCounts = { orders: 0, repairs: 0, standards: 0 },
+  badgeCounts = { orders: 0, repairs: 0, standards: 0, quotes: 0 },
   children,
 }: {
   user: PublicUser;
@@ -167,6 +168,9 @@ export function Shell({
     }
     if (key === "standards" && badgeCounts.standards > 0) {
       return { count: badgeCounts.standards, tone: "amber" };
+    }
+    if (key === "quotes" && (badgeCounts.quotes ?? 0) > 0) {
+      return { count: badgeCounts.quotes ?? 0, tone: "blue" };
     }
     return null;
   }
@@ -305,7 +309,7 @@ export function Shell({
         {
           label: "הצעת מחיר ללקוח",
           desc: "הפקת הצעה ממותגת ושליחה בוואטסאפ",
-          href: "/quotes",
+          href: "/quotes?new=1",
           icon: FileText,
           tone: "blue",
         },
@@ -333,18 +337,25 @@ export function Shell({
           tone: "blue",
         },
         {
+          label: "הצעת מחיר ללקוח",
+          desc: "הפקת הצעת מחיר ממותגת ושליחה בוואטסאפ",
+          href: "/quotes?new=1",
+          icon: FileText,
+          tone: "green",
+        },
+        {
           label: "לקוח חדש",
           desc: "הוספת חנות או לקוח פרטי למאגר",
           href: "/customers/new",
           icon: UserRoundPlus,
-          tone: "green",
+          tone: "amber",
         },
         {
           label: "תיק מכון תקנים",
           desc: "פתיחת תיק תקינה חדש עם רשימת משימות",
           href: "/standards/new",
           icon: ClipboardList,
-          tone: "amber",
+          tone: "blue",
         },
       ];
 
@@ -435,7 +446,14 @@ export function Shell({
                   className={"mobile-tab-item" + (activeKey === "quotes" ? " is-active" : "")}
                   onClick={() => setNavTarget({ key: "quotes", fromPath: pathname })}
                 >
-                  <FileText size={20} aria-hidden />
+                  <span className="mobile-tab-icon-wrap">
+                    <FileText size={20} aria-hidden />
+                    {(badgeCounts.quotes ?? 0) > 0 && (
+                      <span className="mobile-tab-badge is-blue" aria-hidden="true">
+                        {badgeCounts.quotes}
+                      </span>
+                    )}
+                  </span>
                   <span>הצעות</span>
                 </Link>
                 <button
@@ -527,15 +545,23 @@ export function Shell({
                   </span>
                   <span>הזמנות</span>
                 </Link>
-                <button
-                  type="button"
-                  className="mobile-tab-item"
-                  aria-label="פתיחת תפריט מלא"
-                  onClick={() => setDrawer(true)}
+                <Link
+                  href="/quotes"
+                  prefetch={true}
+                  aria-label="ניווט תחתון: הצעות מחיר"
+                  className={"mobile-tab-item" + (activeKey === "quotes" ? " is-active" : "")}
+                  onClick={() => setNavTarget({ key: "quotes", fromPath: pathname })}
                 >
-                  <Menu size={20} aria-hidden />
-                  <span>תפריט</span>
-                </button>
+                  <span className="mobile-tab-icon-wrap">
+                    <FileText size={20} aria-hidden />
+                    {(badgeCounts.quotes ?? 0) > 0 && (
+                      <span className="mobile-tab-badge is-blue" aria-hidden="true">
+                        {badgeCounts.quotes}
+                      </span>
+                    )}
+                  </span>
+                  <span>הצעות</span>
+                </Link>
               </>
             )}
           </nav>

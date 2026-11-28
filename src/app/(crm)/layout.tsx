@@ -11,6 +11,7 @@ async function readShellBadgeCounts(userId: string, role: string): Promise<NavBa
       const hotOrders = peekHotCollection("orders");
       const hotRepairs = peekHotCollection("repairs");
       const hotStandards = peekHotCollection("standards");
+      const hotQuotes = peekHotCollection("quotes");
       return {
         orders: hotOrders
           ? role === "agent"
@@ -23,12 +24,18 @@ async function readShellBadgeCounts(userId: string, role: string): Promise<NavBa
         standards: hotStandards && role !== "agent"
           ? hotStandards.filter((s) => s.delay === "מתעכב").length
           : 0,
+        quotes: hotQuotes
+          ? role === "agent"
+            ? hotQuotes.filter((q) => q.createdBy === userId && q.status === "sent").length
+            : hotQuotes.filter((q) => q.status === "sent" || q.status === "accepted").length
+          : 0,
       };
     }
-    const [orders, repairs, standards] = await Promise.all([
+    const [orders, repairs, standards, quotes] = await Promise.all([
       readCollection("orders"),
       role === "agent" ? Promise.resolve([]) : readCollection("repairs"),
       role === "agent" ? Promise.resolve([]) : readCollection("standards"),
+      readCollection("quotes"),
     ]);
     return {
       orders:
@@ -37,9 +44,13 @@ async function readShellBadgeCounts(userId: string, role: string): Promise<NavBa
           : orders.filter((o) => o.status === "חדשה").length,
       repairs: repairs.filter((r) => r.status !== "הסתיים").length,
       standards: standards.filter((s) => s.delay === "מתעכב").length,
+      quotes:
+        role === "agent"
+          ? quotes.filter((q) => q.createdBy === userId && q.status === "sent").length
+          : quotes.filter((q) => q.status === "sent" || q.status === "accepted").length,
     };
   } catch {
-    return { orders: 0, repairs: 0, standards: 0 };
+    return { orders: 0, repairs: 0, standards: 0, quotes: 0 };
   }
 }
 

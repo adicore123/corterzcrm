@@ -195,12 +195,36 @@ export function repairRow(
 
 export function customerRow(item: Customer, count: number, readOnly = false): TableRow {
   const initial = Array.from(item.name.trim())[0]?.toLocaleUpperCase() || "ל";
+  const nameWithAvatar = (
+    <span key="cust-name" className="customer-table-name">
+      <span className="customer-table-avatar" aria-hidden="true">
+        {initial}
+      </span>
+      <span>{item.name}</span>
+    </span>
+  );
+  const storeCell =
+    item.customerType === "store" ? (
+      <span key="cust-store" className="customer-type-cell">
+        <span className="status status-blue">חנות</span>
+        <span>{item.store || "—"}</span>
+      </span>
+    ) : (
+      <span key="cust-private" className="status status-neutral">
+        לקוח פרטי
+      </span>
+    );
+  const countCell = (
+    <span key="cust-count" className={"status " + (count > 0 ? "status-blue" : "status-neutral")}>
+      {count === 0 ? "ללא תיקונים" : count === 1 ? "תיקון 1" : `${count} תיקונים`}
+    </span>
+  );
   return {
     id: item.id,
     label: item.name,
     href: "/customers/" + item.id,
     editHref: readOnly ? undefined : "/customers/" + item.id + "/edit",
-    cells: [item.name, item.customerType === "store" ? item.store || "—" : "—", <PhoneLink key="phone" phone={item.phone} />, count],
+    cells: [nameWithAvatar, storeCell, <PhoneLink key="phone" phone={item.phone} />, countCell],
     card: {
       title: item.name,
       subtitle: item.customerType === "store" ? item.store || "חנות" : "לקוח פרטי",

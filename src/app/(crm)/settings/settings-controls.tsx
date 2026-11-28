@@ -332,19 +332,69 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
           onFocus={(e) => e.currentTarget.select()}
         />
       </div>
-      <ul className="settings-list">{users.map((user) => <li key={user.id}>
-        <div><strong>{user.name}</strong><span><bdi>{user.username}</bdi> · {roleLabel[user.role]} · {user.disabled ? "מושבת" : "פעיל"}</span></div>
-        <div className="detail-actions">
-          <Button variant="outline" size="sm" disabled={Boolean(action)}
-            onClick={() => { passwordForm.reset(); setResetError(""); setResetTarget(user); }}>
-            <KeyRound size={15} /> איפוס סיסמה
-          </Button>
-          {user.id !== self && <Button variant="outline" size="sm" disabled={Boolean(action)}
-            onClick={() => run(user.id, "/api/settings/users", "PATCH", user.disabled ? "המשתמש הופעל." : "המשתמש הושבת.", { id: user.id, disabled: !user.disabled })}>
-            {action === user.id ? "מעדכן…" : user.disabled ? "הפעלה" : "השבתה"}
-          </Button>}
-        </div>
-      </li>)}</ul>
+      <div className="user-profile-cards">
+        {users.map((user) => {
+          const initial = Array.from(user.name.trim())[0]?.toLocaleUpperCase() || "מ";
+          const roleTone =
+            user.role === "admin" ? "red" : user.role === "agent" ? "blue" : "green";
+          return (
+            <div
+              key={user.id}
+              className={"user-profile-card" + (user.disabled ? " is-disabled" : "")}
+            >
+              <div className="user-profile-main">
+                <span className={`user-profile-avatar tone-${roleTone}`} aria-hidden="true">
+                  {initial}
+                </span>
+                <div className="user-profile-info">
+                  <div className="user-profile-topline">
+                    <strong>{user.name}</strong>
+                    <span className={`status status-${roleTone}`}>{roleLabel[user.role]}</span>
+                    <span className={"status " + (user.disabled ? "status-neutral" : "status-green")}>
+                      {user.disabled ? "מושבת" : "פעיל"}
+                    </span>
+                  </div>
+                  <small>
+                    שם משתמש: <bdi dir="ltr">{user.username}</bdi>
+                  </small>
+                </div>
+              </div>
+              <div className="detail-actions">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(action)}
+                  onClick={() => {
+                    passwordForm.reset();
+                    setResetError("");
+                    setResetTarget(user);
+                  }}
+                >
+                  <KeyRound size={15} /> איפוס סיסמה
+                </Button>
+                {user.id !== self && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={Boolean(action)}
+                    onClick={() =>
+                      run(
+                        user.id,
+                        "/api/settings/users",
+                        "PATCH",
+                        user.disabled ? "המשתמש הופעל." : "המשתמש הושבת.",
+                        { id: user.id, disabled: !user.disabled },
+                      )
+                    }
+                  >
+                    {action === user.id ? "מעדכן…" : user.disabled ? "הפעלה" : "השבתה"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
       <Modal open={Boolean(resetTarget)} onOpenChange={(next) => {
         if (!next) {
           if (passwordForm.formState.isSubmitting) return;
@@ -422,19 +472,38 @@ export function AdminSettings({ users, self, backups, activity = [], cloud, hasC
       <div className="section-heading">
         <h2><span className="section-icon"><ActivityIcon size={18} /></span>יומן פעילות אחרונה</h2>
       </div>
-      {activity.length > 0 ? <ul className="settings-list">{activity.map((entry) => {
-        const actorUser = users.find((u) => u.id === entry.actor);
-        const actorName = actorUser ? actorUser.name : "משתמש מערכת";
-        const actionText = actionLabels[entry.action] ?? entry.action;
-        const entityText = entityLabels[entry.entity] ?? entry.entity;
-        return <li key={entry.id}>
-          <div>
-            <strong>{actionText} · {entityText}</strong>
-            <span>בוצע ע״י {actorName}</span>
-          </div>
-          <span className="muted" style={{ fontSize: ".82rem", whiteSpace: "nowrap" }}>{formatDate(entry.at, true)}</span>
-        </li>;
-      })}</ul> : <p className="settings-empty muted">אין פעילות מתועדת.</p>}
+      {activity.length > 0 ? (
+        <ul className="activity-timeline">
+          {activity.map((entry) => {
+            const actorUser = users.find((u) => u.id === entry.actor);
+            const actorName = actorUser ? actorUser.name : "משתמש מערכת";
+            const actionText = actionLabels[entry.action] ?? entry.action;
+            const entityText = entityLabels[entry.entity] ?? entry.entity;
+            const dotTone =
+              entry.action === "delete" || entry.action === "cancel"
+                ? "red"
+                : entry.action === "create" || entry.action === "accept"
+                  ? "green"
+                  : entry.action === "backup"
+                    ? "amber"
+                    : "blue";
+            return (
+              <li key={entry.id} className="activity-timeline-item">
+                <span className={`activity-timeline-dot is-${dotTone}`} aria-hidden="true" />
+                <div className="activity-timeline-main">
+                  <strong>
+                    {actionText} · {entityText}
+                  </strong>
+                  <span>בוצע ע״י {actorName}</span>
+                </div>
+                <time className="activity-timeline-time">{formatDate(entry.at, true)}</time>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="settings-empty muted">אין פעילות מתועדת.</p>
+      )}
     </section>
     <UnsavedDialog open={unsaved.promptOpen} onConfirm={unsaved.confirmLeave} onCancel={unsaved.cancelLeave} description={unsaved.message} />
   </>;

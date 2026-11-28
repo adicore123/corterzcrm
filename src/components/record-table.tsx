@@ -4,6 +4,7 @@ import { Fragment, type ReactNode } from "react";
 import { CardPhotoGallery, CardWhatsappButton, type CardPhoto } from "./card-actions";
 import { ClickableTableBody } from "./clickable-tbody";
 import { ProgressiveTableSlices } from "./progressive-load-more";
+import { QuickPeekTrigger } from "./quick-peek-drawer";
 
 const PAGE_SIZE = 50;
 
@@ -87,6 +88,41 @@ function renderTableRow(row: TableRow, columns: string[], hasActions: boolean) {
       ))}
       <td className={hasActions ? "table-actions-cell" : "table-open"}>
         <div className="table-actions">
+          {row.card && (
+            <QuickPeekTrigger
+              label={row.label}
+              title={row.card.title}
+              number={row.card.number}
+              subtitle={row.card.subtitle}
+              accent={row.card.accent}
+              thumbNode={<CardThumbnail card={row.card} />}
+              badgesNode={
+                row.card.badges && row.card.badges.length > 0 ? (
+                  <div className="mobile-card-badges">{row.card.badges}</div>
+                ) : null
+              }
+              highlightNote={row.card.highlightNote}
+              metaNode={
+                row.card.meta.length > 0 ? (
+                  <dl className="quick-peek-meta-grid">
+                    {row.card.meta.map((item) => (
+                      <div key={item.label} className={item.wide ? "is-wide" : undefined}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null
+              }
+              photos={row.card.photos}
+              whatsappMessage={row.card.whatsappMessage}
+              whatsappPhone={row.card.whatsappPhone}
+              whatsappTargetLabel={row.card.whatsappTargetLabel}
+              phoneHref={row.card.phoneHref}
+              href={row.href}
+              editHref={row.editHref}
+            />
+          )}
           {row.card?.photos && row.card.photos.length > 0 && (
             <CardPhotoGallery
               photos={row.card.photos}

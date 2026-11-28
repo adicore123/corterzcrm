@@ -456,13 +456,18 @@ export function OrdersWorkspace({
 
   return (
     <div className="page-stack orders-workspace">
-      <div className="page-title title-with-action">
-        <div>
-          <h1>הזמנות</h1>
-          <p>
-            פתיחת הזמנה מהירה ע״י סוכן ושליחה מיידית בוואטסאפ למורן (
-            <bdi dir="ltr">{moranPhone}</bdi>)
-          </p>
+      <section className="module-hero-header card">
+        <div className="module-hero-main">
+          <span className="module-hero-icon tone-red" aria-hidden>
+            <PackagePlus size={24} />
+          </span>
+          <div className="page-title">
+            <h1>הזמנות</h1>
+            <p>
+              פתיחת הזמנה מהירה ע״י סוכן ושליחה מיידית בוואטסאפ למורן (
+              <bdi dir="ltr">{moranPhone}</bdi>)
+            </p>
+          </div>
         </div>
         <Button
           onClick={() => {
@@ -472,7 +477,48 @@ export function OrdersWorkspace({
         >
           <PackagePlus size={18} /> {openForm ? "סגירת טופס" : "הזמנה חדשה"}
         </Button>
-      </div>
+      </section>
+
+      <section className="kpi-summary-strip" aria-label="סיכום הזמנות">
+        <div className="kpi-summary-card card">
+          <span className="kpi-summary-icon tone-red" aria-hidden>
+            <PackagePlus size={19} />
+          </span>
+          <div>
+            <strong>{statusCounts.all ?? 0}</strong>
+            <span>סה״כ הזמנות</span>
+          </div>
+        </div>
+        <div className="kpi-summary-card card">
+          <span className="kpi-summary-icon tone-amber" aria-hidden>
+            <Zap size={19} />
+          </span>
+          <div>
+            <strong>{statusCounts["חדשה"] ?? 0}</strong>
+            <span>חדשות לטיפול</span>
+          </div>
+        </div>
+        <div className="kpi-summary-card card">
+          <span className="kpi-summary-icon tone-blue" aria-hidden>
+            <Truck size={19} />
+          </span>
+          <div>
+            <strong>
+              {(statusCounts["בטיפול"] ?? 0) + (statusCounts["מוכנה לאיסוף/משלוח"] ?? 0)}
+            </strong>
+            <span>בטיפול ומוכנות</span>
+          </div>
+        </div>
+        <div className="kpi-summary-card card">
+          <span className="kpi-summary-icon tone-green" aria-hidden>
+            <Check size={19} />
+          </span>
+          <div>
+            <strong>{statusCounts["סופקה"] ?? 0}</strong>
+            <span>הזמנות שסופקו</span>
+          </div>
+        </div>
+      </section>
 
       {createdOrder && (
         <section className="card order-created-banner" role="status">
